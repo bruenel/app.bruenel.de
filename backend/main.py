@@ -26,10 +26,16 @@ app = FastAPI(title="Brünel OS API", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # Should restrict in prod
+    allow_origins=[
+        "http://localhost:5173",
+        "https://app.bruenel.de",
+        "https://bruenel.de",
+        "*"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"]
 )
 
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
