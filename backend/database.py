@@ -19,18 +19,33 @@ except Exception as e:
     # Fallback if pydantic-settings fails or .env is malformed
     DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./bruenel_os.db")
 
-# Fix for Neon/PostgreSQL: SQLAlchemy requires 'postgresql+psycopg2://' for the sync driver
-if DATABASE_URL.startswith("postgresql://"):
-    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg2://", 1)
+# Database URL Sanitization for SQLAlchemy 2.0
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
-# SQLite needs check_same_thread=False; PostgreSQL ignores this
-connect_args = {"check_same_thread": False} if "sqlite" in DATABASE_URL.lower() else {}
+# Neon often requires SSL, but some parameters like 'channel_binding' can cause issues in serverless
+connect_args = {}
+if "sslmode" in DATABASE_URL:
+    connect_args["ssl_min_protocol_version"] = "TLSv1.2"
 
-engine = create_engine(DATABASE_URL, connect_args=connect_args)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+try:
+    engine = create_engine(
+        DATABASE_URL, 
+        connect_args=connect_args,
+        pool_pre_ping=True,
+        pool_recycle=3600
+    )
+    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+except Exception as e:
+    print(f"Engine creation failed: {e}")
+    # Fallback to a dummy object so the app doesn't crash on import
+    SessionLocal = None
+
 Base = declarative_base()
 
 def get_db():
+    if SessionLocal is None:
+        raise Exception("Database configuration is invalid or missing.")
     db = SessionLocal()
     try:
         yield db
