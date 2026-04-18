@@ -929,6 +929,7 @@ const UserSettings = ({ user }) => {
   const [mailPassword, setMailPassword] = useState('');
   const [mailLoading, setMailLoading] = useState(false);
   const [mailMessage, setMailMessage] = useState('');
+  const [isMailConnected, setIsMailConnected] = useState(!!user.imap_host);
 
   const handleChangePassword = async (e) => {
     e.preventDefault();
@@ -956,8 +957,25 @@ const UserSettings = ({ user }) => {
         method: 'PUT',
         body: JSON.stringify({ email_password: mailPassword })
       });
-      setMailMessage('IMAP/SMTP settings are connected successfully to Strato servers.');
+      setMailMessage('IMAP/SMTP connected securely to Strato enterprise servers.');
+      setIsMailConnected(true);
       setMailPassword('');
+    } catch (err) {
+      setMailMessage('Error: ' + err.message);
+    }
+    setMailLoading(false);
+  };
+
+  const handleDisconnectMail = async () => {
+    if (!window.confirm("Are you sure you want to disconnect your mail account?")) return;
+    setMailLoading(true);
+    setMailMessage('');
+    try {
+      await fetchWithToken('/api/mail/disconnect', { method: 'PUT' });
+      setMailMessage('Mail configuration disconnected.');
+      setIsMailConnected(false);
+      setMailPassword('');
+      user.imap_host = null; // update local user reference
     } catch (err) {
       setMailMessage('Error: ' + err.message);
     }
@@ -992,14 +1010,32 @@ const UserSettings = ({ user }) => {
         <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '16px' }}>
           Connect your IMAP/SMTP corporate mail account. Servers are pre-configured to Brünel's Strato enterprise cluster (imap.strato.de / smtp.strato.de with SSL).
         </p>
-        <form onSubmit={handleConfigureMail} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          <input type="email" value={user.email} disabled style={{ opacity: 0.7, cursor: 'not-allowed' }} />
-          <input type="password" placeholder="Mail Password" required value={mailPassword} onChange={e => setMailPassword(e.target.value)} />
-          <button type="submit" disabled={mailLoading} className="btn-primary" style={{ marginTop: '8px' }}>
-            {mailLoading ? 'Connecting...' : 'Connect Mail System'}
-          </button>
-          {mailMessage && <p style={{ fontSize: '0.85rem', color: mailMessage.startsWith('Error') ? 'var(--error)' : '#34d399', marginTop: '8px' }}>{mailMessage}</p>}
-        </form>
+        
+        {isMailConnected ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#34d399', fontSize: '0.9rem', fontWeight: 'bold' }}>
+              <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#34d399', display: 'inline-block' }}></span>
+              Connected to Mail Server
+            </div>
+            <input type="email" value={user.email} disabled style={{ opacity: 0.7, cursor: 'not-allowed' }} />
+            <input type="password" value="********" disabled style={{ opacity: 0.7, cursor: 'not-allowed' }} />
+            <div style={{ display: 'flex', gap: '12px', marginTop: '8px' }}>
+              <button onClick={handleDisconnectMail} disabled={mailLoading} className="btn-secondary" style={{ flex: 1, borderColor: '#f87171', color: '#f87171' }}>
+                {mailLoading ? 'Disconnecting...' : 'Disconnect'}
+              </button>
+            </div>
+            {mailMessage && <p style={{ fontSize: '0.85rem', color: mailMessage.startsWith('Error') ? 'var(--error)' : '#34d399', marginTop: '8px' }}>{mailMessage}</p>}
+          </div>
+        ) : (
+          <form onSubmit={handleConfigureMail} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <input type="email" value={user.email} disabled style={{ opacity: 0.7, cursor: 'not-allowed' }} />
+            <input type="password" placeholder="Mail Password" required value={mailPassword} onChange={e => setMailPassword(e.target.value)} />
+            <button type="submit" disabled={mailLoading} className="btn-primary" style={{ marginTop: '8px' }}>
+              {mailLoading ? 'Connecting...' : 'Connect Mail System'}
+            </button>
+            {mailMessage && <p style={{ fontSize: '0.85rem', color: mailMessage.startsWith('Error') ? 'var(--error)' : '#34d399', marginTop: '8px' }}>{mailMessage}</p>}
+          </form>
+        )}
       </div>
 
       <div className="glass-panel" style={{ maxWidth: '500px' }}>

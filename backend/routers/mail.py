@@ -119,6 +119,19 @@ def configure_mail(
     db.commit()
     return {"message": "IMAP/SMTP settings connected successfully to Strato servers."}
 
+@router.put("/disconnect")
+def disconnect_mail(
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    current_user.imap_host = None
+    current_user.imap_port = None
+    current_user.smtp_host = None
+    current_user.smtp_port = None
+    current_user.email_password = None
+    db.commit()
+    return {"message": "Mail configuration disconnected successfully."}
+
 @router.put("/signature")
 def update_signature(
     data: schemas.SignatureUpdate,
