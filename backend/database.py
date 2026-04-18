@@ -19,9 +19,11 @@ except Exception as e:
     # Fallback if pydantic-settings fails or .env is malformed
     DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./bruenel_os.db")
 
-# Database URL Sanitization for SQLAlchemy 2.0
+# Database URL Sanitization for SQLAlchemy 2.0 + pg8000
 if DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+pg8000://", 1)
+elif DATABASE_URL.startswith("postgresql://"):
+    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+pg8000://", 1)
 
 # Neon often requires SSL, but some parameters like 'channel_binding' can cause issues in serverless
 connect_args = {}
