@@ -322,6 +322,7 @@ const MailClient = ({ user }) => {
   const [selectedFolder, setSelectedFolder] = useState('INBOX');
   const [emails, setEmails] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [selected, setSelected] = useState(null);
   const [isComposing, setIsComposing] = useState(false);
   const [composeData, setComposeData] = useState({ to_email: '', subject: '', body: '' });
@@ -335,9 +336,10 @@ const MailClient = ({ user }) => {
 
   useEffect(() => {
     setLoading(true);
+    setError(null);
     fetchWithToken('/api/mail/folder/' + encodeURIComponent(selectedFolder))
       .then(data => { setEmails(data); if(data.length > 0) setSelected(data[0]); else setSelected(null); })
-      .catch(err => { console.error(err); setEmails([]); setSelected(null); })
+      .catch(err => { console.error(err); setError(err.message); setEmails([]); setSelected(null); })
       .finally(() => setLoading(false))
   }, [selectedFolder]);
 
@@ -424,7 +426,7 @@ const MailClient = ({ user }) => {
 
         {/* Emails List */}
         <div className="glass-panel" style={{ padding: '0', display: 'flex', flexDirection: 'column' }}>
-          {loading ? <p style={{ padding: '16px' }}>Syncing...</p> : emails.length === 0 ? <p style={{ padding: '16px', color: 'var(--text-muted)' }}>Folder empty.</p> : (
+          {loading ? <p style={{ padding: '16px' }}>Syncing...</p> : error ? <p style={{ padding: '16px', color: 'var(--error)' }}>{error}</p> : emails.length === 0 ? <p style={{ padding: '16px', color: 'var(--text-muted)' }}>Folder empty.</p> : (
             <div style={{ overflowY: 'auto', flex: 1 }}>
               {emails.map(email => (
               <div key={email.id} onClick={() => {setSelected(email); setIsComposing(false);}} 

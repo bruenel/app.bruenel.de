@@ -43,10 +43,12 @@ def get_folders(current_user: models.User = Depends(get_current_user)):
     if status == "OK":
         for folder in messages:
             try:
-                # Format is usually: b'(\\HasNoChildren) "/" "INBOX"'
-                parts = folder.decode().split(' "/" ')
-                if len(parts) == 2:
-                    name = parts[1].strip('"')
+                folder_str = folder.decode()
+                # Extract folder name, handling different IMAP server formats
+                # Example: '(\\HasNoChildren) "/" "INBOX"'
+                parts = folder_str.split(' ')
+                name = parts[-1].strip('"')
+                if name:
                     folders.append(name)
             except:
                 pass
@@ -57,51 +59,68 @@ def get_folders(current_user: models.User = Depends(get_current_user)):
 def get_folder_emails(folder_name: str, limit: int = 20, current_user: models.User = Depends(get_current_user)):
     mail = get_imap_connection(current_user)
     
-    # Select folder (default INBOX)
+    # Select folder safely
     try:
-        mail.select(f'"{folder_name}"', readonly=True)
-    except:
+        status, data = mail.select(f'"{folder_name}"', readonly=True)
+        if status != 'OK':
+            status, data = mail.select(folder_name, readonly=True)
+            if status != 'OK':
+                raise Exception(f"Select returned {status}")
+    except Exception as e:
         mail.logout()
-        raise HTTPException(status_code=404, detail="Folder not found")
+        raise HTTPException(status_code=404, detail=f"Folder access error: {str(e)}")
 
-    status, messages = mail.search(None, 'ALL')
-    if status != 'OK':
+    try:
+        status, messages = mail.search(None, 'ALL')
+        if status != 'OK' or not messages[0]:
+            mail.logout()
+            return []
+
+        email_ids = messages[0].split()
+        if not email_ids:
+            mail.logout()
+            return []
+            
+        email_ids = email_ids[-limit:] # Get last N emails
+        email_ids.reverse() # Newest first
+        
+        emails = []
+        for e_id in email_ids:
+            status, msg_data = mail.fetch(e_id, '(RFC822)')
+            if status == 'OK':
+                for response_part in msg_data:
+                    if isinstance(response_part, tuple):
+                        msg = email.message_from_bytes(response_part[1])
+                        subject = decode_mime_header(msg.get("Subject", "(No Subject)"))
+                        from_ = decode_mime_header(msg.get("From", "Unknown Sender"))
+                        date_ = msg.get("Date", "")
+                        
+                        body = ""
+                        if msg.is_multipart():
+                            for part in msg.walk():
+                                content_type = part.get_content_type()
+                                content_disposition = str(part.get("Content-Disposition", ""))
+                                if content_type == "text/plain" and "attachment" not in content_disposition:
+                                    payload = part.get_payload(decode=True)
+                                    if payload:
+                                        body = payload.decode(errors="replace")
+                                    break
+                        else:
+                            payload = msg.get_payload(decode=True)
+                            if payload:
+                                body = payload.decode(errors="replace")
+                        
+                        emails.append({
+                            "id": e_id.decode(),
+                            "subject": subject,
+                            "from": from_,
+                            "date": date_,
+                            "body": body
+                        })
+    except Exception as e:
         mail.logout()
-        return []
-
-    email_ids = messages[0].split()
-    email_ids = email_ids[-limit:] # Get last N emails
-    email_ids.reverse() # Newest first
-    
-    emails = []
-    for e_id in email_ids:
-        status, msg_data = mail.fetch(e_id, '(RFC822)')
-        if status == 'OK':
-            for response_part in msg_data:
-                if isinstance(response_part, tuple):
-                    msg = email.message_from_bytes(response_part[1])
-                    subject = decode_mime_header(msg.get("Subject"))
-                    from_ = decode_mime_header(msg.get("From"))
-                    date_ = msg.get("Date")
-                    
-                    body = ""
-                    if msg.is_multipart():
-                        for part in msg.walk():
-                            content_type = part.get_content_type()
-                            content_disposition = str(part.get("Content-Disposition"))
-                            if content_type == "text/plain" and "attachment" not in content_disposition:
-                                body = part.get_payload(decode=True).decode(errors="replace")
-                                break
-                    else:
-                        body = msg.get_payload(decode=True).decode(errors="replace")
-                    
-                    emails.append({
-                        "id": e_id.decode(),
-                        "subject": subject,
-                        "from": from_,
-                        "date": date_,
-                        "body": body
-                    })
+        raise HTTPException(status_code=500, detail=f"Mail parse error: {str(e)}")
+        
     mail.logout()
     return emails
 
