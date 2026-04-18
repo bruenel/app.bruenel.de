@@ -25,6 +25,14 @@ if DATABASE_URL.startswith("postgres://"):
 elif DATABASE_URL.startswith("postgresql://"):
     DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+pg8000://", 1)
 
+# pg8000 does not support 'sslmode' in the URL string; we must remove it if present
+if "?sslmode=" in DATABASE_URL:
+    DATABASE_URL = DATABASE_URL.split("?sslmode=")[0]
+elif "&sslmode=" in DATABASE_URL:
+    # Handle cases where it might be in the middle of other params
+    import re
+    DATABASE_URL = re.sub(r'([?&])sslmode=[^&]*(&|$)', r'\1', DATABASE_URL).rstrip('?&')
+
 # Neon works automatically with pg8000 via the URL parameters
 connect_args = {}
 
