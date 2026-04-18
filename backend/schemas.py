@@ -22,6 +22,13 @@ class Token(BaseModel):
     access_token: str
     token_type: str
 
+class PasswordChange(BaseModel):
+    old_password: str
+    new_password: str
+
+class AdminPasswordReset(BaseModel):
+    new_password: str
+
 class SupplierMatrixCreate(BaseModel):
     kst: int
     supplier_name: str

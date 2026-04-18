@@ -93,3 +93,60 @@ def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db:
 @router.get("/me", response_model=schemas.UserOut)
 def read_users_me(current_user: models.User = Depends(get_current_user)):
     return current_user
+
+@router.put("/me/password")
+def change_own_password(data: schemas.PasswordChange, db: Session = Depends(database.get_db), current_user: models.User = Depends(get_current_user)):
+    if not verify_password(data.old_password, current_user.hashed_password):
+        raise HTTPException(status_code=400, detail="Incorrect old password")
+    current_user.hashed_password = get_password_hash(data.new_password)
+    db.commit()
+    return {"status": "success", "message": "Password updated successfully"}
+
+@router.get("/users", response_model=List[schemas.UserOut])
+def list_users(db: Session = Depends(database.get_db), current_user: models.User = Depends(get_current_user)):
+    if current_user.role != models.RoleEnum.OWNER:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    return db.query(models.User).all()
+
+@router.post("/users", response_model=schemas.UserOut)
+def admin_create_user(user: schemas.UserCreate, db: Session = Depends(database.get_db), current_user: models.User = Depends(get_current_user)):
+    if current_user.role != models.RoleEnum.OWNER:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    db_user = db.query(models.User).filter(models.User.email == user.email).first()
+    if db_user:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    
+    new_user = models.User(
+        email=user.email,
+        hashed_password=get_password_hash(user.password),
+        role=user.role,
+        allowed_kst=user.allowed_kst
+    )
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+    return new_user
+
+@router.put("/users/{user_id}/password")
+def admin_reset_password(user_id: int, data: schemas.AdminPasswordReset, db: Session = Depends(database.get_db), current_user: models.User = Depends(get_current_user)):
+    if current_user.role != models.RoleEnum.OWNER:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    user.hashed_password = get_password_hash(data.new_password)
+    db.commit()
+    return {"status": "success", "message": "User password reset successfully"}
+
+@router.delete("/users/{user_id}")
+def admin_delete_user(user_id: int, db: Session = Depends(database.get_db), current_user: models.User = Depends(get_current_user)):
+    if current_user.role != models.RoleEnum.OWNER:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if user.id == current_user.id:
+        raise HTTPException(status_code=400, detail="Cannot delete yourself")
+    db.delete(user)
+    db.commit()
+    return {"status": "success", "message": "User deleted"}

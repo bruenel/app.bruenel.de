@@ -14,7 +14,8 @@ import {
   Settings, 
   LogOut,
   ChevronRight,
-  Plus
+  Plus,
+  Users
 } from 'lucide-react'
 
 let API_BASE = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
@@ -165,6 +166,18 @@ const Layout = ({ user, logout, children }) => {
             </Link>
           </>
         )}
+        
+        {user.role === 'Owner' && (
+          <Link to="/users" className="nav-item">
+            <Users size={20} />
+            User Management
+          </Link>
+        )}
+
+        <Link to="/settings" className="nav-item">
+          <Settings size={20} />
+          User Settings
+        </Link>
         
         <div style={{ marginTop: 'auto' }}>
           <button className="nav-item" onClick={logout} style={{ width: '100%', background: 'transparent', border: 'none', cursor: 'pointer', outline: 'none' }}>
@@ -678,6 +691,192 @@ const BIDashboard = () => {
   );
 };
 
+const UserSettings = ({ user }) => {
+  const [passwords, setPasswords] = useState({ old_password: '', new_password: '' });
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState('');
+
+  const handleChangePassword = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setMessage('');
+    try {
+      await fetchWithToken('/api/auth/me/password', {
+        method: 'PUT',
+        body: JSON.stringify(passwords)
+      });
+      setMessage('Password updated successfully.');
+      setPasswords({ old_password: '', new_password: '' });
+    } catch (err) {
+      setMessage('Error: ' + err.message);
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div>
+      <div className="flex-between" style={{ marginBottom: '24px' }}>
+        <div>
+          <h2>User Settings</h2>
+          <p style={{ fontSize: '0.85rem', marginTop: '4px' }}>Manage your account security.</p>
+        </div>
+      </div>
+      <div className="glass-panel" style={{ maxWidth: '500px' }}>
+        <h3 style={{ marginBottom: '16px' }}>Change Password</h3>
+        <form onSubmit={handleChangePassword} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <input type="password" placeholder="Current Password" required value={passwords.old_password} onChange={e => setPasswords({...passwords, old_password: e.target.value})} />
+          <input type="password" placeholder="New Password" required value={passwords.new_password} onChange={e => setPasswords({...passwords, new_password: e.target.value})} />
+          <button type="submit" disabled={loading} className="btn-primary" style={{ marginTop: '8px' }}>
+            {loading ? 'Updating...' : 'Update Password'}
+          </button>
+          {message && <p style={{ fontSize: '0.85rem', color: message.startsWith('Error') ? 'var(--error)' : 'var(--accent)', marginTop: '8px' }}>{message}</p>}
+        </form>
+      </div>
+    </div>
+  );
+};
+
+const UserManagement = () => {
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showAdd, setShowAdd] = useState(false);
+  const [newUser, setNewUser] = useState({ email: '', password: '', role: 'Mitarbeiter', allowed_kst: '' });
+  const [resetModal, setResetModal] = useState(null);
+  const [newPassword, setNewPassword] = useState('');
+
+  const loadUsers = () => {
+    setLoading(true);
+    fetchWithToken('/api/auth/users')
+      .then(setUsers)
+      .catch(err => alert("Error loading users: " + err.message))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => { loadUsers(); }, []);
+
+  const handleAddUser = async (e) => {
+    e.preventDefault();
+    try {
+      const allowed_kst = newUser.allowed_kst ? newUser.allowed_kst.split(',').map(n => parseInt(n.trim())) : null;
+      await fetchWithToken('/api/auth/users', {
+        method: 'POST',
+        body: JSON.stringify({ ...newUser, allowed_kst })
+      });
+      setShowAdd(false);
+      setNewUser({ email: '', password: '', role: 'Mitarbeiter', allowed_kst: '' });
+      loadUsers();
+    } catch (err) {
+      alert("Failed to add user: " + err.message);
+    }
+  };
+
+  const handleResetPassword = async (e) => {
+    e.preventDefault();
+    try {
+      await fetchWithToken(`/api/auth/users/${resetModal.id}/password`, {
+        method: 'PUT',
+        body: JSON.stringify({ new_password: newPassword })
+      });
+      setResetModal(null);
+      setNewPassword('');
+      alert("Password reset successfully.");
+    } catch (err) {
+      alert("Failed to reset password: " + err.message);
+    }
+  };
+
+  const handleDelete = async (id) => {
+    if (!window.confirm("Are you sure you want to delete this user?")) return;
+    try {
+      await fetchWithToken(`/api/auth/users/${id}`, { method: 'DELETE' });
+      loadUsers();
+    } catch (err) {
+      alert("Failed to delete user: " + err.message);
+    }
+  };
+
+  return (
+    <div>
+      <div className="flex-between" style={{ marginBottom: '24px' }}>
+        <div>
+          <h2>User Management</h2>
+          <p style={{ fontSize: '0.85rem', marginTop: '4px' }}>Admin access to manage system accounts.</p>
+        </div>
+        <button className="btn-primary" onClick={() => setShowAdd(true)}>
+          <Plus size={18} /> Add User
+        </button>
+      </div>
+
+      {showAdd && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}>
+          <div className="glass-panel" style={{ width: '400px' }}>
+            <h3 style={{ marginBottom: '16px' }}>New User</h3>
+            <form onSubmit={handleAddUser} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <input type="email" placeholder="Email" required value={newUser.email} onChange={e => setNewUser({...newUser, email: e.target.value})} />
+              <input type="password" placeholder="Password" required value={newUser.password} onChange={e => setNewUser({...newUser, password: e.target.value})} />
+              <select value={newUser.role} onChange={e => setNewUser({...newUser, role: e.target.value})}>
+                <option value="Owner">Owner</option>
+                <option value="Manager">Manager</option>
+                <option value="Mitarbeiter">Mitarbeiter</option>
+              </select>
+              <input type="text" placeholder="Allowed KST (comma separated, leave empty for all)" value={newUser.allowed_kst} onChange={e => setNewUser({...newUser, allowed_kst: e.target.value})} />
+              <div style={{ display: 'flex', gap: '12px', marginTop: '8px' }}>
+                <button type="button" className="btn-secondary" style={{flex: 1}} onClick={() => setShowAdd(false)}>Cancel</button>
+                <button type="submit" className="btn-primary" style={{flex: 1}}>Create User</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {resetModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}>
+          <div className="glass-panel" style={{ width: '400px' }}>
+            <h3 style={{ marginBottom: '16px' }}>Reset Password for {resetModal.email}</h3>
+            <form onSubmit={handleResetPassword} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <input type="password" placeholder="New Password" required value={newPassword} onChange={e => setNewPassword(e.target.value)} />
+              <div style={{ display: 'flex', gap: '12px', marginTop: '8px' }}>
+                <button type="button" className="btn-secondary" style={{flex: 1}} onClick={() => { setResetModal(null); setNewPassword(''); }}>Cancel</button>
+                <button type="submit" className="btn-primary" style={{flex: 1}}>Reset</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {loading ? <p>Loading Users...</p> : (
+        <div className="glass-panel">
+          <table style={{ width: '100%', textAlign: 'left', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                <th style={{ padding: '10px 8px', fontSize: '0.8rem', color: 'var(--text-muted)' }}>ID</th>
+                <th style={{ padding: '10px 8px', fontSize: '0.8rem', color: 'var(--text-muted)' }}>Email</th>
+                <th style={{ padding: '10px 8px', fontSize: '0.8rem', color: 'var(--text-muted)' }}>Role</th>
+                <th style={{ padding: '10px 8px', fontSize: '0.8rem', color: 'var(--text-muted)' }}>Allowed KST</th>
+                <th style={{ padding: '10px 8px', fontSize: '0.8rem', color: 'var(--text-muted)' }}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {users.map(u => (
+                <tr key={u.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                  <td style={{ padding: '10px 8px', fontSize: '0.85rem' }}>{u.id}</td>
+                  <td style={{ padding: '10px 8px', fontSize: '0.85rem' }}>{u.email}</td>
+                  <td style={{ padding: '10px 8px', fontSize: '0.85rem' }}><span className="badge">{u.role}</span></td>
+                  <td style={{ padding: '10px 8px', fontSize: '0.85rem' }}>{u.allowed_kst ? u.allowed_kst.join(', ') : 'All'}</td>
+                  <td style={{ padding: '10px 8px', fontSize: '0.85rem', display: 'flex', gap: '8px' }}>
+                    <button className="btn-secondary" style={{ padding: '4px 8px', fontSize: '0.75rem' }} onClick={() => setResetModal(u)}>Reset Pwd</button>
+                    <button className="btn-secondary" style={{ padding: '4px 8px', fontSize: '0.75rem', borderColor: 'var(--error)', color: 'var(--error)' }} onClick={() => handleDelete(u.id)}>Delete</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+};
+
 export default function App() {
   const { user, login, logout, loading } = useAuth()
 
@@ -695,6 +894,8 @@ export default function App() {
           <Route path="/mail" element={<MailClient />} />
           <Route path="/vault" element={<LegalVault />} />
           <Route path="/bi" element={<BIDashboard />} />
+          <Route path="/settings" element={<UserSettings user={user} />} />
+          <Route path="/users" element={user.role === 'Owner' ? <UserManagement /> : <div>Unauthorized</div>} />
         </Routes>
       </Layout>
     </Router>
