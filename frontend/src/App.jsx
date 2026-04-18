@@ -317,7 +317,9 @@ const SupplierMatrix = () => {
   )
 }
 
-const MailClient = () => {
+const MailClient = ({ user }) => {
+  const [folders, setFolders] = useState([]);
+  const [selectedFolder, setSelectedFolder] = useState('INBOX');
   const [emails, setEmails] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState(null);
@@ -326,11 +328,18 @@ const MailClient = () => {
   const [sending, setSending] = useState(false);
 
   useEffect(() => {
-    fetchWithToken('/api/mail/inbox')
-      .then(data => { setEmails(data); if(data.length > 0) setSelected(data[0]); })
-      .catch(err => console.error(err))
-      .finally(() => setLoading(false))
+    fetchWithToken('/api/mail/folders')
+      .then(setFolders)
+      .catch(console.error);
   }, []);
+
+  useEffect(() => {
+    setLoading(true);
+    fetchWithToken('/api/mail/folder/' + encodeURIComponent(selectedFolder))
+      .then(data => { setEmails(data); if(data.length > 0) setSelected(data[0]); else setSelected(null); })
+      .catch(err => { console.error(err); setEmails([]); setSelected(null); })
+      .finally(() => setLoading(false))
+  }, [selectedFolder]);
 
   const runAiExtract = async () => {
     try {
@@ -358,61 +367,125 @@ const MailClient = () => {
     setSending(false);
   };
 
+  const handleReply = () => {
+    setComposeData({
+      to_email: selected.from,
+      subject: selected.subject.startswith('Re:') ? selected.subject : `Re: ${selected.subject}`,
+      body: `\n\n\n--- Original Message ---\nFrom: ${selected.from}\nDate: ${selected.date}\n\n${selected.body}`
+    });
+    setIsComposing(true);
+  };
+
+  const handleForward = () => {
+    setComposeData({
+      to_email: '',
+      subject: selected.subject.startswith('Fwd:') ? selected.subject : `Fwd: ${selected.subject}`,
+      body: `\n\n\n--- Forwarded Message ---\nFrom: ${selected.from}\nDate: ${selected.date}\n\n${selected.body}`
+    });
+    setIsComposing(true);
+  };
+
+  if (!user.imap_host) {
+    return (
+      <div>
+        <h2>Internal Mail Client</h2>
+        <div className="glass-panel" style={{ marginTop: '24px', textAlign: 'center', padding: '48px' }}>
+          <h3>Mail Not Configured</h3>
+          <p style={{ marginTop: '8px' }}>Please visit User Settings to connect your Brünel IMAP/SMTP account securely.</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <h2>Internal Mail Client</h2>
-      <p style={{ marginBottom: '24px' }}>Connected to corporate IMAP services securely.</p>
+      <p style={{ marginBottom: '24px' }}>Connected securely to Brünel enterprise mail.</p>
       
-      {loading ? <p>Syncing Inbox...</p> : (
-        <div className="grid grid-cols-3" style={{ gridTemplateColumns: '300px 1fr' }}>
-          <div className="glass-panel" style={{ padding: '0', display: 'flex', flexDirection: 'column' }}>
-            <div style={{ padding: '16px', borderBottom: '1px solid var(--border)' }}>
-              <button className="btn-primary" style={{ width: '100%' }} onClick={() => {setIsComposing(true); setSelected(null);}}>Compose</button>
-            </div>
-            {emails.map(email => (
+      <div className="grid" style={{ gridTemplateColumns: '200px 300px 1fr', flex: 1, minHeight: '600px' }}>
+        {/* Folders List */}
+        <div className="glass-panel" style={{ padding: '16px 0', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ padding: '0 16px 16px 16px', borderBottom: '1px solid var(--border)' }}>
+            <button className="btn-primary" style={{ width: '100%' }} onClick={() => {setIsComposing(true); setSelected(null); setComposeData({to_email: '', subject: '', body: ''});}}>New Message</button>
+          </div>
+          <div style={{ overflowY: 'auto', flex: 1 }}>
+            {folders.map(folder => (
+              <div key={folder} onClick={() => {setSelectedFolder(folder); setIsComposing(false);}} 
+                   style={{ 
+                     padding: '12px 16px', cursor: 'pointer', fontSize: '0.9rem',
+                     background: selectedFolder === folder ? 'var(--surface-hover)' : 'transparent',
+                     borderLeft: selectedFolder === folder ? '3px solid var(--accent)' : '3px solid transparent'
+                   }}>
+                {folder}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Emails List */}
+        <div className="glass-panel" style={{ padding: '0', display: 'flex', flexDirection: 'column' }}>
+          {loading ? <p style={{ padding: '16px' }}>Syncing...</p> : emails.length === 0 ? <p style={{ padding: '16px', color: 'var(--text-muted)' }}>Folder empty.</p> : (
+            <div style={{ overflowY: 'auto', flex: 1 }}>
+              {emails.map(email => (
               <div key={email.id} onClick={() => {setSelected(email); setIsComposing(false);}} 
                    style={{ 
                      padding: '16px', borderBottom: '1px solid var(--border)', cursor: 'pointer',
                      background: selected?.id === email.id ? 'var(--surface-hover)' : 'transparent' 
                    }}>
-                <h4 style={{ fontSize: '0.9rem', marginBottom: '4px' }}>{email.subject}</h4>
-                <p style={{ fontSize: '0.8rem' }}>{email.from}</p>
+                <h4 style={{ fontSize: '0.9rem', marginBottom: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{email.subject || '(No Subject)'}</h4>
+                <p style={{ fontSize: '0.8rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{email.from}</p>
+                <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '4px' }}>{email.date}</p>
               </div>
             ))}
-          </div>
-          
-          {isComposing && (
-            <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column' }}>
-              <h3 style={{ marginBottom: '16px', borderBottom: '1px solid var(--border)', paddingBottom: '16px' }}>Compose New Message</h3>
-              <form onSubmit={handleSendEmail} style={{ display: 'flex', flexDirection: 'column', gap: '12px', flex: 1 }}>
-                <input type="email" placeholder="To" required value={composeData.to_email} onChange={e => setComposeData({...composeData, to_email: e.target.value})} />
-                <input type="text" placeholder="Subject" required value={composeData.subject} onChange={e => setComposeData({...composeData, subject: e.target.value})} />
-                <textarea placeholder="Message body..." required value={composeData.body} onChange={e => setComposeData({...composeData, body: e.target.value})} style={{ flex: 1, minHeight: '300px', padding: '12px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text-main)', resize: 'vertical' }} />
-                <button type="submit" disabled={sending} className="btn-primary" style={{ alignSelf: 'flex-start', padding: '10px 24px', marginTop: '8px' }}>
-                  {sending ? 'Sending...' : 'Send Email'}
-                </button>
-              </form>
-            </div>
-          )}
-          
-          {selected && !isComposing && (
-            <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column' }}>
-              <div className="flex-between" style={{ borderBottom: '1px solid var(--border)', paddingBottom: '16px', marginBottom: '16px' }}>
-                <div>
-                  <h3>{selected.subject}</h3>
-                  <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem' }}>From: {selected.from}</p>
-                </div>
-                <button className="btn-secondary" onClick={runAiExtract} style={{ padding: '8px 12px', fontSize: '0.85rem' }}>
-                  Extract to Kanban (AI)
-                </button>
-              </div>
-              <div style={{ flex: 1, whiteSpace: 'pre-wrap', lineHeight: 1.8 }}>
-                {selected.body || 'No message body.'}
-              </div>
             </div>
           )}
         </div>
-      )}
+        
+        {/* Email Viewer / Composer */}
+          {isComposing ? (
+            <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column' }}>
+              <h3 style={{ marginBottom: '16px', borderBottom: '1px solid var(--border)', paddingBottom: '16px' }}>Compose Message</h3>
+              <form onSubmit={handleSendEmail} style={{ display: 'flex', flexDirection: 'column', gap: '12px', flex: 1 }}>
+                <input type="email" placeholder="To" required value={composeData.to_email} onChange={e => setComposeData({...composeData, to_email: e.target.value})} />
+                <input type="text" placeholder="Subject" required value={composeData.subject} onChange={e => setComposeData({...composeData, subject: e.target.value})} />
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'var(--surface)', borderRadius: '6px', border: '1px solid var(--border)' }}>
+                  <textarea placeholder="Message body..." required value={composeData.body} onChange={e => setComposeData({...composeData, body: e.target.value})} style={{ flex: 1, minHeight: '200px', padding: '12px', border: 'none', background: 'transparent', color: 'var(--text-main)', resize: 'vertical', outline: 'none' }} />
+                  {user.signature_html && (
+                    <div style={{ padding: '16px', borderTop: '1px dashed var(--border)', background: '#FAFAFA', borderBottomLeftRadius: '6px', borderBottomRightRadius: '6px' }} dangerouslySetInnerHTML={{ __html: user.signature_html }} />
+                  )}
+                </div>
+                <div style={{ display: 'flex', gap: '12px', marginTop: '8px' }}>
+                  <button type="submit" disabled={sending} className="btn-primary" style={{ padding: '10px 24px' }}>
+                    {sending ? 'Sending...' : 'Send Message'}
+                  </button>
+                  <button type="button" className="btn-secondary" onClick={() => setIsComposing(false)}>Discard</button>
+                </div>
+              </form>
+            </div>
+          ) : selected ? (
+            <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column' }}>
+              <div className="flex-between" style={{ borderBottom: '1px solid var(--border)', paddingBottom: '16px', marginBottom: '16px' }}>
+                <div>
+                  <h3 style={{ fontSize: '1.2rem', marginBottom: '8px' }}>{selected.subject || '(No Subject)'}</h3>
+                  <p style={{ margin: 0, fontSize: '0.85rem' }}><strong>From:</strong> {selected.from}</p>
+                  <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: 'var(--text-muted)' }}><strong>Date:</strong> {selected.date}</p>
+                </div>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button className="btn-secondary" onClick={handleReply} style={{ padding: '6px 12px', fontSize: '0.85rem' }}>Reply</button>
+                  <button className="btn-secondary" onClick={handleForward} style={{ padding: '6px 12px', fontSize: '0.85rem' }}>Forward</button>
+                  <button className="btn-secondary" onClick={runAiExtract} style={{ padding: '6px 12px', fontSize: '0.85rem', color: 'var(--accent)', borderColor: 'var(--accent)' }}>Extract AI</button>
+                </div>
+              </div>
+              <div style={{ flex: 1, overflowY: 'auto', padding: '16px', background: 'var(--surface)', borderRadius: '8px', border: '1px solid var(--border)', whiteSpace: 'pre-wrap', lineHeight: 1.6, fontSize: '0.95rem' }}>
+                {selected.body || 'No text body available.'}
+              </div>
+            </div>
+          ) : (
+            <div className="glass-panel" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)' }}>
+              Select an email to read
+            </div>
+          )}
+        </div>
     </div>
   )
 }
@@ -1261,7 +1334,7 @@ export default function App() {
       <Layout user={user} logout={logout}>
         <Routes>
           <Route path="/" element={<SupplierMatrix />} />
-          <Route path="/mail" element={<MailClient />} />
+          <Route path="/mail" element={<MailClient user={user} />} />
           <Route path="/vault" element={<LegalVault />} />
           <Route path="/bi" element={<BIDashboard />} />
           <Route path="/settings" element={<UserSettings user={user} />} />
