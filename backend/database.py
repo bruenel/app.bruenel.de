@@ -25,10 +25,8 @@ if DATABASE_URL.startswith("postgres://"):
 elif DATABASE_URL.startswith("postgresql://"):
     DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+pg8000://", 1)
 
-# Neon often requires SSL, but some parameters like 'channel_binding' can cause issues in serverless
+# Neon works automatically with pg8000 via the URL parameters
 connect_args = {}
-if "sslmode" in DATABASE_URL:
-    connect_args["ssl_min_protocol_version"] = "TLSv1.2"
 
 try:
     engine = create_engine(

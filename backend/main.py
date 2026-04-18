@@ -2,6 +2,7 @@ from fastapi import FastAPI, Depends
 from sqlalchemy.orm import Session
 from fastapi.middleware.cors import CORSMiddleware
 import models
+import database
 from database import engine
 from routers import auth, supplier, bi, mail, vault
 from sqlalchemy import text, inspect
