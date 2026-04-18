@@ -130,6 +130,14 @@ def configure_mail(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(get_current_user)
 ):
+    # Verify the connection before saving
+    try:
+        mail = imaplib.IMAP4_SSL("imap.strato.de", 993)
+        mail.login(current_user.email, data.email_password)
+        mail.logout()
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=f"Authentication failed. Please check your password. ({str(e)})")
+
     current_user.imap_host = "imap.strato.de"
     current_user.imap_port = 993
     current_user.smtp_host = "smtp.strato.de"
