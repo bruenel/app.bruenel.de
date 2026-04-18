@@ -21,6 +21,9 @@ class UserOut(BaseModel):
     allowed_kst: Optional[List[int]] = None
     signature_html: Optional[str] = None
     imap_host: Optional[str] = None
+    imap_port: Optional[int] = None
+    smtp_host: Optional[str] = None
+    smtp_port: Optional[int] = None
     
     class Config:
         from_attributes = True

@@ -85,8 +85,12 @@ const useAuth = () => {
     localStorage.removeItem('token');
     setUser(null);
   }
+
+  const updateProfile = (newData) => {
+    setUser(prev => ({ ...prev, ...newData }));
+  }
   
-  return { user, login, logout, loading }
+  return { user, login, logout, updateProfile, loading }
 }
 
 const LoginScreen = ({ onLogin }) => {
@@ -929,7 +933,7 @@ const BIDashboard = () => {
   );
 };
 
-const UserSettings = ({ user }) => {
+const UserSettings = ({ user, onUpdate }) => {
   const [passwords, setPasswords] = useState({ old_password: '', new_password: '' });
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
@@ -971,7 +975,7 @@ const UserSettings = ({ user }) => {
       });
       setMailMessage('IMAP/SMTP connected securely to Strato enterprise servers.');
       setIsMailConnected(true);
-      user.imap_host = "imap.strato.de"; // Update global user state
+      if (onUpdate) onUpdate({ imap_host: 'imap.strato.de' });
       setMailPassword('');
     } catch (err) {
       setMailMessage('Error: ' + err.message);
@@ -988,7 +992,7 @@ const UserSettings = ({ user }) => {
       setMailMessage('Mail configuration disconnected.');
       setIsMailConnected(false);
       setMailPassword('');
-      user.imap_host = null; // update local user reference
+      if (onUpdate) onUpdate({ imap_host: null });
     } catch (err) {
       setMailMessage('Error: ' + err.message);
     }
@@ -1468,9 +1472,9 @@ export default function App() {
           <Route path="/mail" element={<MailClient user={user} />} />
           <Route path="/vault" element={<LegalVault />} />
           <Route path="/bi" element={<BIDashboard />} />
-          <Route path="/settings" element={<UserSettings user={user} />} />
+          <Route path="/settings" element={<UserSettings user={user} onUpdate={updateProfile} />} />
           <Route path="/signature" element={<SignatureSettings user={user} />} />
-          <Route path="/users" element={user.role === 'Owner' ? <UserManagement /> : <div>Unauthorized</div>} />
+          <Route path="/users" element={user && user.role === 'Owner' ? <UserManagement /> : <div>Unauthorized</div>} />
         </Routes>
       </Layout>
     </Router>

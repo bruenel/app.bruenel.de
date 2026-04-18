@@ -20,10 +20,9 @@ except Exception as e:
     DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./bruenel_os.db")
 
 # Database URL Sanitization for SQLAlchemy 2.0 + pg8000
-if DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+pg8000://", 1)
-elif DATABASE_URL.startswith("postgresql://"):
-    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+pg8000://", 1)
+import re
+if DATABASE_URL.startswith("postgres"):
+    DATABASE_URL = re.sub(r'^postgres(ql)?(\+[^:]+)?://', 'postgresql+pg8000://', DATABASE_URL)
 
 # pg8000 does not support 'sslmode' in the URL string; we must remove it if present
 if "?sslmode=" in DATABASE_URL:

@@ -158,7 +158,9 @@ def configure_mail(
     current_user.smtp_host = "smtp.strato.de"
     current_user.smtp_port = 465
     current_user.email_password = data.email_password  # Should be encrypted in production
+    db.add(current_user)
     db.commit()
+    db.refresh(current_user)
     return {"message": "IMAP/SMTP settings connected successfully to Strato servers."}
 
 @router.put("/disconnect")
