@@ -961,6 +961,7 @@ const UserSettings = ({ user }) => {
       });
       setMailMessage('IMAP/SMTP connected securely to Strato enterprise servers.');
       setIsMailConnected(true);
+      user.imap_host = "imap.strato.de"; // Update global user state
       setMailPassword('');
     } catch (err) {
       setMailMessage('Error: ' + err.message);
