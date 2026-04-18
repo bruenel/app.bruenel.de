@@ -14,6 +14,7 @@ class UserOut(BaseModel):
     email: EmailStr
     role: RoleEnum
     allowed_kst: Optional[List[int]] = None
+    signature_html: Optional[str] = None
     
     class Config:
         from_attributes = True
@@ -28,6 +29,17 @@ class PasswordChange(BaseModel):
 
 class AdminPasswordReset(BaseModel):
     new_password: str
+
+class MailConfigUpdate(BaseModel):
+    email_password: str
+
+class SignatureUpdate(BaseModel):
+    signature_html: str
+
+class MailSend(BaseModel):
+    to_email: str
+    subject: str
+    body: str
 
 class SupplierMatrixCreate(BaseModel):
     kst: int

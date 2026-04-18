@@ -24,6 +24,7 @@ class User(Base):
     smtp_host = Column(String, nullable=True)
     smtp_port = Column(Integer, nullable=True)
     email_password = Column(String, nullable=True) # Needs encryption in prod
+    signature_html = Column(Text, nullable=True)
 
 class SupplierMatrix(Base):
     __tablename__ = "supplier_matrix"

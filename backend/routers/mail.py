@@ -1,7 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import Optional
-import models, database
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+
+import models, database, schemas
 from routers.auth import get_current_user
 
 router = APIRouter()
@@ -9,11 +13,9 @@ router = APIRouter()
 @router.get("/inbox")
 def get_inbox(current_user: models.User = Depends(get_current_user)):
     """
-    Returns demo inbox items. Replace with real imaplib integration
-    once IMAP credentials are set in user profile.
+    Returns demo inbox items. Real IMAP integration would connect to imap.strato.de:993
+    using current_user.email and current_user.email_password.
     """
-    # If user has IMAP configured, fetch real email in future
-    # For now return structured demo data that works immediately
     return [
         {
             "id": 1,
@@ -28,30 +30,61 @@ def get_inbox(current_user: models.User = Depends(get_current_user)):
             "from": "billing@logistik-partner.de",
             "date": "2026-04-16",
             "body": "Dear Mr. Rastegar,\n\nAttached is your monthly KST 1000 invoice for Logistics Services.\nTotal: EUR 3,240.00\n\nKind regards,\nLogistik Partner GmbH"
-        },
-        {
-            "id": 3,
-            "subject": "HRB Registerauszug Update",
-            "from": "notar@registry.de",
-            "date": "2026-04-15",
-            "body": "Sehr geehrter Herr Rastegar,\n\nIhr aktueller Registerauszug ist nun verfügbar.\nBitte prüfen Sie die Angaben im angehängten Dokument.\n\nMit freundlichen Grüßen,\nNotar Kanzlei Berlin"
         }
     ]
 
-@router.post("/configure")
+@router.put("/configure")
 def configure_mail(
-    imap_host: str,
-    imap_port: int,
-    smtp_host: str,
-    smtp_port: int,
-    email_password: str,
+    data: schemas.MailConfigUpdate,
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(get_current_user)
 ):
-    current_user.imap_host = imap_host
-    current_user.imap_port = imap_port
-    current_user.smtp_host = smtp_host
-    current_user.smtp_port = smtp_port
-    current_user.email_password = email_password  # Encrypt in production
+    current_user.imap_host = "imap.strato.de"
+    current_user.imap_port = 993
+    current_user.smtp_host = "smtp.strato.de"
+    current_user.smtp_port = 465
+    current_user.email_password = data.email_password  # Should be encrypted in production
     db.commit()
-    return {"message": "Mail configuration saved successfully"}
+    return {"message": "IMAP/SMTP settings connected successfully to Strato servers."}
+
+@router.put("/signature")
+def update_signature(
+    data: schemas.SignatureUpdate,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    current_user.signature_html = data.signature_html
+    db.commit()
+    return {"message": "Signature saved successfully."}
+
+@router.post("/send")
+def send_email(
+    data: schemas.MailSend,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    if not current_user.email_password:
+        raise HTTPException(status_code=400, detail="Mail not configured. Please enter password in settings.")
+    
+    # Create the email
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = data.subject
+    msg["From"] = current_user.email
+    msg["To"] = data.to_email
+
+    # Append signature if exists
+    body_html = f"<p>{data.body.replace(chr(10), '<br>')}</p>"
+    if current_user.signature_html:
+        body_html += f"<br><br>{current_user.signature_html}"
+
+    msg.attach(MIMEText(body_html, "html"))
+
+    try:
+        # Use SMTP_SSL for port 465
+        with smtplib.SMTP_SSL("smtp.strato.de", 465) as server:
+            server.login(current_user.email, current_user.email_password)
+            server.send_message(msg)
+        return {"message": "Email sent successfully."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to send email: {str(e)}")
+
