@@ -5,8 +5,16 @@ import models, database
 from routers.auth import get_current_user
 
 router = APIRouter()
-UPLOAD_DIR = "./secure_vault"
-os.makedirs(UPLOAD_DIR, exist_ok=True)
+# Use /tmp for uploads on Vercel because the regular file system is Read-Only
+if os.environ.get("VERCEL"):
+    UPLOAD_DIR = "/tmp/secure_vault"
+else:
+    UPLOAD_DIR = "./secure_vault"
+
+try:
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
+except Exception as e:
+    print(f"Warning: Could not create upload directory: {e}")
 
 @router.post("/upload")
 def upload_secure_document(
