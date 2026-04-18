@@ -138,6 +138,25 @@ def admin_reset_password(user_id: int, data: schemas.AdminPasswordReset, db: Ses
     db.commit()
     return {"status": "success", "message": "User password reset successfully"}
 
+@router.put("/users/{user_id}", response_model=schemas.UserOut)
+def admin_update_user(user_id: int, user_update: schemas.UserUpdate, db: Session = Depends(database.get_db), current_user: models.User = Depends(get_current_user)):
+    if current_user.role != models.RoleEnum.OWNER:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    if user_update.email:
+        user.email = user_update.email
+    if user_update.role:
+        user.role = user_update.role
+    if user_update.allowed_kst is not None:
+        user.allowed_kst = user_update.allowed_kst
+        
+    db.commit()
+    db.refresh(user)
+    return user
+
 @router.delete("/users/{user_id}")
 def admin_delete_user(user_id: int, db: Session = Depends(database.get_db), current_user: models.User = Depends(get_current_user)):
     if current_user.role != models.RoleEnum.OWNER:

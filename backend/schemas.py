@@ -9,6 +9,11 @@ class UserCreate(BaseModel):
     role: RoleEnum
     allowed_kst: Optional[List[int]] = None
 
+class UserUpdate(BaseModel):
+    email: Optional[EmailStr] = None
+    role: Optional[RoleEnum] = None
+    allowed_kst: Optional[List[int]] = None
+
 class UserOut(BaseModel):
     id: int
     email: EmailStr

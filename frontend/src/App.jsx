@@ -1068,6 +1068,7 @@ const UserManagement = () => {
   const [showAdd, setShowAdd] = useState(false);
   const [newUser, setNewUser] = useState({ email: '', password: '', role: 'Mitarbeiter', allowed_kst: [] });
   const [resetModal, setResetModal] = useState(null);
+  const [editUser, setEditUser] = useState(null);
   const [newPassword, setNewPassword] = useState('');
 
   const loadUsers = () => {
@@ -1093,6 +1094,21 @@ const UserManagement = () => {
       loadUsers();
     } catch (err) {
       alert("Failed to add user: " + err.message);
+    }
+  };
+
+  const handleEditUser = async (e) => {
+    e.preventDefault();
+    try {
+      const allowed_kst = editUser.allowed_kst.length > 0 ? editUser.allowed_kst : null;
+      await fetchWithToken(`/api/auth/users/${editUser.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ email: editUser.email, role: editUser.role, allowed_kst })
+      });
+      setEditUser(null);
+      loadUsers();
+    } catch (err) {
+      alert("Failed to update user: " + err.message);
     }
   };
 
@@ -1142,7 +1158,7 @@ const UserManagement = () => {
               <input type="password" placeholder="Password" required value={newUser.password} onChange={e => setNewUser({...newUser, password: e.target.value})} />
               <select value={newUser.role} onChange={e => setNewUser({...newUser, role: e.target.value})}>
                 <option value="Owner">Owner</option>
-                <option value="Manager">Manager</option>
+                <option value="Partner">Partner</option>
                 <option value="Mitarbeiter">Mitarbeiter</option>
               </select>
               
@@ -1171,6 +1187,53 @@ const UserManagement = () => {
               <div style={{ display: 'flex', gap: '12px', marginTop: '8px' }}>
                 <button type="button" className="btn-secondary" style={{flex: 1}} onClick={() => setShowAdd(false)}>Cancel</button>
                 <button type="submit" className="btn-primary" style={{flex: 1}}>Create User</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {editUser && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}>
+          <div className="glass-panel" style={{ width: '400px' }}>
+            <h3 style={{ marginBottom: '16px' }}>Edit User: {editUser.email}</h3>
+            <form onSubmit={handleEditUser} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Email Address</label>
+              <input type="email" placeholder="Email" required value={editUser.email} onChange={e => setEditUser({...editUser, email: e.target.value})} />
+              
+              <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Role / Permissions</label>
+              <select value={editUser.role} onChange={e => setEditUser({...editUser, role: e.target.value})}>
+                <option value="Owner">Owner</option>
+                <option value="Partner">Partner</option>
+                <option value="Mitarbeiter">Mitarbeiter</option>
+              </select>
+              
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '8px 0' }}>
+                <label style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Allowed KST (Leave all unchecked for full access)</label>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px' }}>
+                  {[1000, 2000, 3000, 4000].map(kst => (
+                    <label key={kst} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', cursor: 'pointer', color: 'var(--text-main)' }}>
+                      <input 
+                        type="checkbox" 
+                        checked={editUser.allowed_kst?.includes(kst)}
+                        onChange={(e) => {
+                          const current = editUser.allowed_kst || [];
+                          if (e.target.checked) {
+                            setEditUser({...editUser, allowed_kst: [...current, kst]});
+                          } else {
+                            setEditUser({...editUser, allowed_kst: current.filter(k => k !== kst)});
+                          }
+                        }}
+                      />
+                      KST {kst}
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '12px', marginTop: '8px' }}>
+                <button type="button" className="btn-secondary" style={{flex: 1}} onClick={() => setEditUser(null)}>Cancel</button>
+                <button type="submit" className="btn-primary" style={{flex: 1}}>Save Changes</button>
               </div>
             </form>
           </div>
@@ -1212,6 +1275,7 @@ const UserManagement = () => {
                   <td style={{ padding: '10px 8px', fontSize: '0.85rem' }}><span className="badge">{u.role}</span></td>
                   <td style={{ padding: '10px 8px', fontSize: '0.85rem' }}>{u.allowed_kst ? u.allowed_kst.join(', ') : 'All'}</td>
                   <td style={{ padding: '10px 8px', fontSize: '0.85rem', display: 'flex', gap: '8px' }}>
+                    <button className="btn-secondary" style={{ padding: '4px 8px', fontSize: '0.75rem' }} onClick={() => setEditUser(u)}>Edit</button>
                     <button className="btn-secondary" style={{ padding: '4px 8px', fontSize: '0.75rem' }} onClick={() => setResetModal(u)}>Reset Pwd</button>
                     <button className="btn-secondary" style={{ padding: '4px 8px', fontSize: '0.75rem', borderColor: 'var(--error)', color: 'var(--error)' }} onClick={() => handleDelete(u.id)}>Delete</button>
                   </td>
