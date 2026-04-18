@@ -1,4 +1,5 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
+from sqlalchemy.orm import Session
 from fastapi.middleware.cors import CORSMiddleware
 import models
 from database import engine
@@ -50,5 +51,10 @@ app.include_router(mail.router, prefix="/api/mail", tags=["mail"])
 app.include_router(vault.router, prefix="/api/vault", tags=["vault"])
 
 @app.get("/api/health")
-def health_check():
-    return {"status": "ok"}
+def health_check(db: Session = Depends(database.get_db)):
+    try:
+        # Test DB connection
+        db.execute(text("SELECT 1"))
+        return {"status": "ok", "database": "connected"}
+    except Exception as e:
+        return {"status": "error", "database": str(e)}
