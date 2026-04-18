@@ -17,7 +17,13 @@ import {
   Plus
 } from 'lucide-react'
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
+let API_BASE = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
+
+// Production URL Sanitization
+if (API_BASE && !API_BASE.startsWith('http')) {
+  API_BASE = `https://${API_BASE}`;
+}
+API_BASE = API_BASE.replace(/\/$/, ""); // Remove trailing slash
 
 // Auth Logic
 const useAuth = () => {
@@ -67,7 +73,7 @@ const useAuth = () => {
       const userData = await profRes.json();
       setUser(userData);
     } catch (err) {
-      alert("Verification failed: " + err.message);
+      alert(`Verification failed: ${err.message} (Target: ${API_BASE})`);
     }
   }
   
