@@ -169,6 +169,7 @@ def get_bi_dashboard_data(
     referral_counts: dict[str, int] = {}
     daily_counts: dict[str, int] = {}
     country_counts: dict[str, int] = {}
+    city_counts: dict[str, int] = {}
     page_counts: dict[str, int] = {}
     event_counts: dict[str, int] = {}
     unique_ips: set[str] = set()
@@ -193,6 +194,9 @@ def get_bi_dashboard_data(
 
         c = r.country or "Unknown"
         country_counts[c] = country_counts.get(c, 0) + 1
+
+        cit = r.city or "Unknown"
+        city_counts[cit] = city_counts.get(cit, 0) + 1
 
         page = r.page_url or "/"
         page_counts[page] = page_counts.get(page, 0) + 1
@@ -222,6 +226,7 @@ def get_bi_dashboard_data(
         "referral_breakdown": [{"referral": k, "count": v} for k, v in sorted(referral_counts.items(), key=lambda x: -x[1])[:8]],
         "daily_trend": [{"date": k, "count": v} for k, v in sorted(daily_counts.items())[-14:]],
         "country_breakdown": [{"country": k, "count": v} for k, v in sorted(country_counts.items(), key=lambda x: -x[1])[:10]],
+        "city_breakdown": [{"city": k, "count": v} for k, v in sorted(city_counts.items(), key=lambda x: -x[1])[:10]],
         "page_breakdown": [{"page": k, "count": v} for k, v in sorted(page_counts.items(), key=lambda x: -x[1])[:10]],
         "event_breakdown": [{"event": k, "count": v} for k, v in sorted(event_counts.items(), key=lambda x: -x[1])],
         "page_avg_durations": sorted(avg_durations, key=lambda x: -x["avg_seconds"]),

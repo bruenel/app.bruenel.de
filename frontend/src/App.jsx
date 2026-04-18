@@ -584,7 +584,6 @@ const StatCard = ({ label, value, sub }) => (
 const BIDashboard = () => {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [seeding, setSeeding] = useState(false);
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [kstFilter, setKstFilter] = useState('');
@@ -615,18 +614,6 @@ const BIDashboard = () => {
     setStartDate(start.toISOString().split('T')[0]);
   };
 
-  const handleSeedDemo = async () => {
-    setSeeding(true);
-    try {
-      await fetchWithToken('/api/bi/seed_demo', { method: 'POST' });
-      loadData();
-    } catch (err) {
-      alert('Seed failed: ' + err.message);
-    } finally {
-      setSeeding(false);
-    }
-  };
-
   const topReferral = data?.referral_breakdown?.[0]?.referral || '—';
   const topDevice = data?.device_breakdown?.[0]?.device || '—';
   const topKst = data?.kst_breakdown?.sort((a,b) => b.count - a.count)?.[0];
@@ -646,11 +633,6 @@ const BIDashboard = () => {
         <div>
           <h2>BI Telemetry Dashboard</h2>
           <p style={{ fontSize: '0.85rem', marginTop: '4px' }}>Live pipeline mapping website visitor behaviour to KST cost centres.</p>
-        </div>
-        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-          <button className="btn-primary" onClick={handleSeedDemo} disabled={seeding} style={{ padding: '8px 16px' }}>
-            {seeding ? 'Seeding...' : '⚡ Seed Demo'}
-          </button>
         </div>
       </div>
 
@@ -727,6 +709,18 @@ const BIDashboard = () => {
               />
             </div>
             <div className="glass-panel">
+              <h3 style={{ marginBottom: '16px', fontSize: '1rem' }}>Daily Trend (Last 14 Days)</h3>
+              <BarChart
+                data={data.daily_trend}
+                labelKey="date"
+                valueKey="count"
+                color="#fb923c"
+              />
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px' }}>
+            <div className="glass-panel">
               <h3 style={{ marginBottom: '16px', fontSize: '1rem' }}>🌍 Top Countries</h3>
               <BarChart
                 data={data.country_breakdown}
@@ -735,14 +729,23 @@ const BIDashboard = () => {
                 color="#34d399"
               />
             </div>
+            <div className="glass-panel">
+              <h3 style={{ marginBottom: '16px', fontSize: '1rem' }}>🏙 Top Cities</h3>
+              <BarChart
+                data={data.city_breakdown}
+                labelKey="city"
+                valueKey="count"
+                color="#06b6d4"
+              />
+            </div>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px' }}>
             <div className="glass-panel">
-              <h3 style={{ marginBottom: '16px', fontSize: '1rem' }}>Daily Trend (Last 14 Days)</h3>
+              <h3 style={{ marginBottom: '16px', fontSize: '1rem' }}>Most Viewed Contents</h3>
               <BarChart
-                data={data.daily_trend}
-                labelKey="date"
+                data={data.page_breakdown}
+                labelKey="page"
                 valueKey="count"
                 color="#fb923c"
               />
