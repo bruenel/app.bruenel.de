@@ -16,7 +16,9 @@ import {
   ChevronRight,
   Plus,
   Users,
-  PenTool
+  PenTool,
+  Sun,
+  Moon
 } from 'lucide-react'
 
 let API_BASE = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
@@ -138,6 +140,17 @@ const fetchWithToken = async (url, options = {}) => {
 }
 
 const Layout = ({ user, logout, children }) => {
+  const [theme, setTheme] = useState(localStorage.getItem('theme') || 'dark');
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('theme', theme);
+  }, [theme]);
+
+  const toggleTheme = () => {
+    setTheme(t => t === 'dark' ? 'light' : 'dark');
+  };
+
   return (
     <div className="app-container">
       <nav className="sidebar">
@@ -184,7 +197,11 @@ const Layout = ({ user, logout, children }) => {
           Mail Signature
         </Link>
         
-        <div style={{ marginTop: 'auto' }}>
+        <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <button className="nav-item" onClick={toggleTheme} style={{ width: '100%', background: 'transparent', border: 'none', cursor: 'pointer', outline: 'none' }}>
+            {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
+            {theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
+          </button>
           <button className="nav-item" onClick={logout} style={{ width: '100%', background: 'transparent', border: 'none', cursor: 'pointer', outline: 'none' }}>
             <LogOut size={20} />
             Secure Logout
@@ -1191,11 +1208,26 @@ const SignatureSettings = ({ user }) => {
         <div className="glass-panel">
           <h3 style={{ marginBottom: '16px' }}>Personal Information</h3>
           <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <input type="text" placeholder="Full Name" required value={data.name} onChange={e => setData({...data, name: e.target.value})} />
-            <input type="text" placeholder="Job Title" required value={data.title} onChange={e => setData({...data, title: e.target.value})} />
-            <input type="text" placeholder="Phone Number (e.g. +49 157 ...)" required value={data.phone} onChange={e => setData({...data, phone: e.target.value})} />
-            <input type="url" placeholder="LinkedIn URL" required value={data.linkedin_url} onChange={e => setData({...data, linkedin_url: e.target.value})} />
-            <input type="url" placeholder="Photo URL (e.g. LinkedIn Profile Image)" required value={data.photo_url} onChange={e => setData({...data, photo_url: e.target.value})} />
+            <div>
+              <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '4px', display: 'block' }}>Full Name</label>
+              <input type="text" placeholder="e.g. Sam Rastegar" required value={data.name} onChange={e => setData({...data, name: e.target.value})} />
+            </div>
+            <div>
+              <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '4px', display: 'block' }}>Job Title</label>
+              <input type="text" placeholder="e.g. CEO / Geschäftsführer" required value={data.title} onChange={e => setData({...data, title: e.target.value})} />
+            </div>
+            <div>
+              <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '4px', display: 'block' }}>Phone Number</label>
+              <input type="text" placeholder="e.g. +49 157 37 57 84 30" required value={data.phone} onChange={e => setData({...data, phone: e.target.value})} />
+            </div>
+            <div>
+              <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '4px', display: 'block' }}>LinkedIn Profile URL</label>
+              <input type="url" placeholder="https://linkedin.com/in/..." required value={data.linkedin_url} onChange={e => setData({...data, linkedin_url: e.target.value})} />
+            </div>
+            <div>
+              <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '4px', display: 'block' }}>Profile Photo URL</label>
+              <input type="url" placeholder="https://..." required value={data.photo_url} onChange={e => setData({...data, photo_url: e.target.value})} />
+            </div>
             <button type="submit" disabled={loading} className="btn-primary" style={{ marginTop: '8px' }}>
               {loading ? 'Saving...' : 'Save Signature'}
             </button>
