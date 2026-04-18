@@ -52,8 +52,23 @@ def get_folders(current_user: models.User = Depends(get_current_user)):
                     folders.append(name)
             except:
                 pass
+    if not folders:
+        folders = ["INBOX", "Sent", "Drafts", "Trash"]
+    else:
+        # Priority sorting
+        priority = ["INBOX", "Sent Items", "Sent", "Drafts", "Trash"]
+        sorted_folders = []
+        for p in priority:
+            for f in folders:
+                if f.upper() == p.upper() and f not in sorted_folders:
+                    sorted_folders.append(f)
+        for f in folders:
+            if f not in sorted_folders:
+                sorted_folders.append(f)
+        folders = sorted_folders
+
     mail.logout()
-    return folders if folders else ["INBOX", "Sent", "Drafts", "Trash"]
+    return folders
 
 @router.get("/folder/{folder_name}")
 def get_folder_emails(folder_name: str, limit: int = 20, current_user: models.User = Depends(get_current_user)):

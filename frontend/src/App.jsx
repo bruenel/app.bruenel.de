@@ -400,13 +400,20 @@ const MailClient = ({ user }) => {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <h2>Internal Mail Client</h2>
-      <p style={{ marginBottom: '24px' }}>Connected securely to Brünel enterprise mail.</p>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+      <div className="flex-between" style={{ marginBottom: '24px' }}>
+        <div>
+          <h2>Internal Mail Client</h2>
+          <p style={{ marginTop: '4px' }}>Connected securely to Brünel enterprise mail.</p>
+        </div>
+        <button className="btn-primary" onClick={runAiExtract} style={{ padding: '8px 16px', background: 'var(--accent)', color: '#fff', border: 'none' }}>
+          ✨ Extract Inbox (AI)
+        </button>
+      </div>
       
-      <div className="grid" style={{ gridTemplateColumns: '200px 300px 1fr', flex: 1, minHeight: '600px' }}>
+      <div className="grid" style={{ gridTemplateColumns: '200px 300px 1fr', flex: 1, minHeight: '0', height: 'calc(100vh - 180px)', gap: '16px' }}>
         {/* Folders List */}
-        <div className="glass-panel" style={{ padding: '16px 0', display: 'flex', flexDirection: 'column' }}>
+        <div className="glass-panel" style={{ padding: '16px 0', display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
           <div style={{ padding: '0 16px 16px 16px', borderBottom: '1px solid var(--border)' }}>
             <button className="btn-primary" style={{ width: '100%' }} onClick={() => {setIsComposing(true); setSelected(null); setComposeData({to_email: '', subject: '', body: ''});}}>New Message</button>
           </div>
@@ -425,7 +432,7 @@ const MailClient = ({ user }) => {
         </div>
 
         {/* Emails List */}
-        <div className="glass-panel" style={{ padding: '0', display: 'flex', flexDirection: 'column' }}>
+        <div className="glass-panel" style={{ padding: '0', display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
           {loading ? <p style={{ padding: '16px' }}>Syncing...</p> : error ? <p style={{ padding: '16px', color: 'var(--error)' }}>{error}</p> : emails.length === 0 ? <p style={{ padding: '16px', color: 'var(--text-muted)' }}>Folder empty.</p> : (
             <div style={{ overflowY: 'auto', flex: 1 }}>
               {emails.map(email => (
@@ -445,9 +452,9 @@ const MailClient = ({ user }) => {
         
         {/* Email Viewer / Composer */}
           {isComposing ? (
-            <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column' }}>
+            <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
               <h3 style={{ marginBottom: '16px', borderBottom: '1px solid var(--border)', paddingBottom: '16px' }}>Compose Message</h3>
-              <form onSubmit={handleSendEmail} style={{ display: 'flex', flexDirection: 'column', gap: '12px', flex: 1 }}>
+              <form onSubmit={handleSendEmail} style={{ display: 'flex', flexDirection: 'column', gap: '12px', flex: 1, overflowY: 'auto', paddingRight: '4px' }}>
                 <input type="email" placeholder="To" required value={composeData.to_email} onChange={e => setComposeData({...composeData, to_email: e.target.value})} />
                 <input type="text" placeholder="Subject" required value={composeData.subject} onChange={e => setComposeData({...composeData, subject: e.target.value})} />
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'var(--surface)', borderRadius: '6px', border: '1px solid var(--border)' }}>
@@ -465,17 +472,16 @@ const MailClient = ({ user }) => {
               </form>
             </div>
           ) : selected ? (
-            <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column' }}>
+            <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
               <div className="flex-between" style={{ borderBottom: '1px solid var(--border)', paddingBottom: '16px', marginBottom: '16px' }}>
-                <div>
-                  <h3 style={{ fontSize: '1.2rem', marginBottom: '8px' }}>{selected.subject || '(No Subject)'}</h3>
-                  <p style={{ margin: 0, fontSize: '0.85rem' }}><strong>From:</strong> {selected.from}</p>
+                <div style={{ flex: 1, minWidth: 0, paddingRight: '16px' }}>
+                  <h3 style={{ fontSize: '1.2rem', marginBottom: '8px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selected.subject || '(No Subject)'}</h3>
+                  <p style={{ margin: 0, fontSize: '0.85rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}><strong>From:</strong> {selected.from}</p>
                   <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: 'var(--text-muted)' }}><strong>Date:</strong> {selected.date}</p>
                 </div>
-                <div style={{ display: 'flex', gap: '8px' }}>
+                <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
                   <button className="btn-secondary" onClick={handleReply} style={{ padding: '6px 12px', fontSize: '0.85rem' }}>Reply</button>
                   <button className="btn-secondary" onClick={handleForward} style={{ padding: '6px 12px', fontSize: '0.85rem' }}>Forward</button>
-                  <button className="btn-secondary" onClick={runAiExtract} style={{ padding: '6px 12px', fontSize: '0.85rem', color: 'var(--accent)', borderColor: 'var(--accent)' }}>Extract AI</button>
                 </div>
               </div>
               <div style={{ flex: 1, overflowY: 'auto', padding: '16px', background: 'var(--surface)', borderRadius: '8px', border: '1px solid var(--border)', whiteSpace: 'pre-wrap', lineHeight: 1.6, fontSize: '0.95rem' }}>
@@ -483,7 +489,7 @@ const MailClient = ({ user }) => {
               </div>
             </div>
           ) : (
-            <div className="glass-panel" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)' }}>
+            <div className="glass-panel" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', height: '100%' }}>
               Select an email to read
             </div>
           )}

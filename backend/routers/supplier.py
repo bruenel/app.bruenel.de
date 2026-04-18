@@ -80,6 +80,65 @@ def get_suppliers(
         for s in results
     ]
 
+import re
+from routers.mail import get_folder_emails
+
 @router.post("/sync_ai")
-def trigger_ai_sync(current_user: models.User = Depends(get_current_user)):
-    return {"message": "AI Background Worker triggered successfully"}
+def trigger_ai_sync(
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    try:
+        inbox_emails = get_folder_emails("INBOX", limit=10, current_user=current_user)
+    except:
+        inbox_emails = []
+        
+    try:
+        sent_emails = get_folder_emails("Sent", limit=10, current_user=current_user)
+    except:
+        sent_emails = []
+
+    all_emails = inbox_emails + sent_emails
+    extracted_suppliers = {}
+    
+    for email in all_emails:
+        from_str = email.get("from", "")
+        match = re.search(r'([^<]+)<([^>]+)>', from_str)
+        if match:
+            name = match.group(1).strip().replace('"', '')
+            address = match.group(2).strip()
+            domain = address.split('@')[-1] if '@' in address else ""
+            
+            company = domain.split('.')[0].capitalize() if domain else "Unknown Company"
+            if company.lower() in ['gmail', 'yahoo', 'hotmail', 'strato']:
+                company = name
+                
+            if address not in extracted_suppliers and current_user.email not in address:
+                extracted_suppliers[address] = {
+                    "supplier_name": company,
+                    "contact_person": name,
+                    "status": "In Communication (AI)",
+                    "notes": f"AI Extracted Communication Step:\nSubject: {email.get('subject')}\nDate: {email.get('date')}\n"
+                }
+
+    added_count = 0
+    updated_count = 0
+    for address, data in extracted_suppliers.items():
+        existing = db.query(models.SupplierMatrix).filter(models.SupplierMatrix.supplier_name.ilike(f"%{data['supplier_name']}%")).first()
+        if existing:
+            existing.status = data["status"]
+            if data["notes"] not in (existing.notes or ""):
+                existing.notes = (existing.notes or "") + "\n\n" + data["notes"]
+            updated_count += 1
+        else:
+            new_sup = models.SupplierMatrix(
+                kst=1000,
+                supplier_name=data["supplier_name"],
+                status=data["status"],
+                notes=f"Contact: {data['contact_person']} ({address})\n\n" + data["notes"]
+            )
+            db.add(new_sup)
+            added_count += 1
+            
+    db.commit()
+    return {"message": f"AI Extractor finished. Found {added_count} new suppliers, updated {updated_count} existing."}
