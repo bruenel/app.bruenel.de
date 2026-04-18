@@ -1,20 +1,22 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Header, status
 from sqlalchemy.orm import Session
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from typing import List
+from typing import List, Optional
 from datetime import timedelta, datetime
 from jose import jwt, JWTError
 from passlib.context import CryptContext
 
+import os
 import models, schemas, database
 
 router = APIRouter()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
-SECRET_KEY = "super_secret_bruenel_os_key_change_me"
+SECRET_KEY = os.environ.get("JWT_SECRET_KEY", "super_secret_bruenel_os_key_change_me")
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 # 1 day
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 1 day
+ADMIN_REGISTRATION_TOKEN = os.environ.get("ADMIN_REGISTRATION_TOKEN", "")
 
 def get_password_hash(password):
     return pwd_context.hash(password)
@@ -48,8 +50,18 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     return user
 
 @router.post("/register", response_model=schemas.UserOut)
-def register_user(user: schemas.UserCreate, db: Session = Depends(database.get_db)):
-    # In prod, restrict who can hit test or require Owner token
+def register_user(
+    user: schemas.UserCreate,
+    db: Session = Depends(database.get_db),
+    x_admin_token: Optional[str] = Header(default=None),
+):
+    # Require a server-side ADMIN_REGISTRATION_TOKEN to prevent public self-registration.
+    # Set ADMIN_REGISTRATION_TOKEN in Vercel environment variables.
+    if ADMIN_REGISTRATION_TOKEN and x_admin_token != ADMIN_REGISTRATION_TOKEN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin registration token required.",
+        )
     db_user = db.query(models.User).filter(models.User.email == user.email).first()
     if db_user:
         raise HTTPException(status_code=400, detail="Email already registered")
