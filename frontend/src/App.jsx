@@ -487,10 +487,18 @@ const BIDashboard = () => {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [seeding, setSeeding] = useState(false);
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
 
   const loadData = () => {
     setLoading(true);
-    fetchWithToken('/api/bi/dashboard')
+    let url = '/api/bi/dashboard';
+    const params = new URLSearchParams();
+    if (startDate) params.append('start_date', startDate);
+    if (endDate) params.append('end_date', endDate);
+    if (params.toString()) url += `?${params.toString()}`;
+
+    fetchWithToken(url)
       .then(setData)
       .catch(err => console.error('BI load error:', err))
       .finally(() => setLoading(false));
@@ -521,10 +529,13 @@ const BIDashboard = () => {
           <h2>BI Telemetry Dashboard</h2>
           <p style={{ fontSize: '0.85rem', marginTop: '4px' }}>Live pipeline mapping website visitor behaviour to KST cost centres.</p>
         </div>
-        <div style={{ display: 'flex', gap: '12px' }}>
-          <button className="btn-secondary" onClick={loadData} style={{ padding: '8px 16px' }}>↻ Refresh</button>
+        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+          <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} style={{ padding: '6px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text-main)' }} />
+          <span>to</span>
+          <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} style={{ padding: '6px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text-main)' }} />
+          <button className="btn-secondary" onClick={loadData} style={{ padding: '8px 16px' }}>↻ Apply / Refresh</button>
           <button className="btn-primary" onClick={handleSeedDemo} disabled={seeding} style={{ padding: '8px 16px' }}>
-            {seeding ? 'Seeding...' : '⚡ Seed Demo Data'}
+            {seeding ? 'Seeding...' : '⚡ Seed Demo'}
           </button>
         </div>
       </div>
@@ -586,14 +597,25 @@ const BIDashboard = () => {
             </div>
           </div>
 
-          <div className="glass-panel" style={{ marginBottom: '24px' }}>
-            <h3 style={{ marginBottom: '16px', fontSize: '1rem' }}>Daily Trend (Last 14 Days)</h3>
-            <BarChart
-              data={data.daily_trend}
-              labelKey="date"
-              valueKey="count"
-              color="#fb923c"
-            />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px' }}>
+            <div className="glass-panel">
+              <h3 style={{ marginBottom: '16px', fontSize: '1rem' }}>Daily Trend (Last 14 Days)</h3>
+              <BarChart
+                data={data.daily_trend}
+                labelKey="date"
+                valueKey="count"
+                color="#fb923c"
+              />
+            </div>
+            <div className="glass-panel">
+              <h3 style={{ marginBottom: '16px', fontSize: '1rem' }}>⏱ Average Time Spent (Sec)</h3>
+              <BarChart
+                data={data.page_avg_durations}
+                labelKey="page"
+                valueKey="avg_seconds"
+                color="#f43f5e"
+              />
+            </div>
           </div>
 
           {/* Raw Data Table */}
@@ -612,7 +634,9 @@ const BIDashboard = () => {
                     <th style={{ padding: '10px 8px', fontSize: '0.8rem', color: 'var(--text-muted)' }}>Referral</th>
                     <th style={{ padding: '10px 8px', fontSize: '0.8rem', color: 'var(--text-muted)' }}>Country</th>
                     <th style={{ padding: '10px 8px', fontSize: '0.8rem', color: 'var(--text-muted)' }}>City</th>
-                    <th style={{ padding: '10px 8px', fontSize: '0.8rem', color: 'var(--text-muted)' }}>KST Interest</th>
+                    <th style={{ padding: '10px 8px', fontSize: '0.8rem', color: 'var(--text-muted)' }}>Page / Action</th>
+                    <th style={{ padding: '10px 8px', fontSize: '0.8rem', color: 'var(--text-muted)' }}>Consent</th>
+                    <th style={{ padding: '10px 8px', fontSize: '0.8rem', color: 'var(--text-muted)' }}>Duration</th>
                     <th style={{ padding: '10px 8px', fontSize: '0.8rem', color: 'var(--text-muted)' }}>Timestamp</th>
                   </tr>
                 </thead>
@@ -628,6 +652,16 @@ const BIDashboard = () => {
                       <td style={{ padding: '10px 8px', fontSize: '0.85rem' }}>{r.city || '—'}</td>
                       <td style={{ padding: '10px 8px' }}>
                         <span className="badge">KST {r.mapped_kst_interest || '?'}</span>
+                      </td>
+                      <td style={{ padding: '10px 8px', fontSize: '0.85rem' }}>
+                        <div style={{fontWeight: 600}}>{r.page_url}</div>
+                        <div style={{fontSize: '0.75rem', color: 'var(--text-muted)'}}>{r.event_type}</div>
+                      </td>
+                      <td style={{ padding: '10px 8px', fontSize: '0.85rem' }}>
+                        {r.consent_given ? <span style={{color: '#34d399'}}>Yes</span> : <span style={{color: '#f87171'}}>No</span>}
+                      </td>
+                      <td style={{ padding: '10px 8px', fontSize: '0.85rem' }}>
+                        {r.duration_seconds ? `${r.duration_seconds}s` : '—'}
                       </td>
                       <td style={{ padding: '10px 8px', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
                         {r.created_at ? new Date(r.created_at).toLocaleString('de-DE') : '—'}

@@ -59,7 +59,9 @@ class BITracking(Base):
     page_url = Column(String, nullable=True)
     user_agent = Column(String, nullable=True)
     session_id = Column(String, nullable=True, index=True)
-    event_type = Column(String, default="pageview")  # pageview, click, scroll
+    event_type = Column(String, default="pageview")  # pageview, click, scroll, time_spent
+    consent_given = Column(Integer, default=0) # 0 for false, 1 for true (or Boolean)
+    duration_seconds = Column(Integer, nullable=True) # for time_spent events
     created_at = Column(DateTime, default=datetime.utcnow)
 
 

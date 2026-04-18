@@ -55,6 +55,8 @@ def track_visitor(tracking_data: schemas.BITrackCreate, request: Request, db: Se
         user_agent=user_agent,
         session_id=tracking_data.session_id,
         event_type=tracking_data.event_type or "pageview",
+        consent_given=tracking_data.consent_given or 0,
+        duration_seconds=tracking_data.duration_seconds,
     )
     db.add(new_track)
     db.commit()
@@ -133,6 +135,8 @@ def seed_demo_data(db: Session = Depends(database.get_db), current_user: models.
 @router.get("/dashboard")
 def get_bi_dashboard_data(
     kst: int = None,
+    start_date: str = None,
+    end_date: str = None,
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(get_current_user)
 ):
@@ -142,6 +146,20 @@ def get_bi_dashboard_data(
     query = db.query(models.BITracking)
     if kst:
         query = query.filter(models.BITracking.mapped_kst_interest == kst)
+    
+    if start_date:
+        try:
+            sd = datetime.strptime(start_date, "%Y-%m-%d")
+            query = query.filter(models.BITracking.created_at >= sd)
+        except ValueError:
+            pass
+            
+    if end_date:
+        try:
+            ed = datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)
+            query = query.filter(models.BITracking.created_at < ed)
+        except ValueError:
+            pass
 
     results = query.order_by(models.BITracking.created_at.desc()).all()
 
@@ -155,6 +173,9 @@ def get_bi_dashboard_data(
     event_counts: dict[str, int] = {}
     unique_ips: set[str] = set()
     unique_sessions: set[str] = set()
+
+    page_duration_sums: dict[str, int] = {}
+    page_duration_counts: dict[str, int] = {}
 
     for r in results:
         k = r.mapped_kst_interest or 0
@@ -178,10 +199,19 @@ def get_bi_dashboard_data(
 
         evt = r.event_type or "pageview"
         event_counts[evt] = event_counts.get(evt, 0) + 1
+        
+        if r.duration_seconds is not None and r.duration_seconds > 0:
+            page_duration_sums[page] = page_duration_sums.get(page, 0) + r.duration_seconds
+            page_duration_counts[page] = page_duration_counts.get(page, 0) + 1
 
         unique_ips.add(r.ip_hash)
         if r.session_id:
             unique_sessions.add(r.session_id)
+            
+    avg_durations = []
+    for page, s in page_duration_sums.items():
+        count = page_duration_counts.get(page, 1)
+        avg_durations.append({"page": page, "avg_seconds": round(s / count)})
 
     return {
         "total_hits": len(results),
@@ -194,6 +224,7 @@ def get_bi_dashboard_data(
         "country_breakdown": [{"country": k, "count": v} for k, v in sorted(country_counts.items(), key=lambda x: -x[1])[:10]],
         "page_breakdown": [{"page": k, "count": v} for k, v in sorted(page_counts.items(), key=lambda x: -x[1])[:10]],
         "event_breakdown": [{"event": k, "count": v} for k, v in sorted(event_counts.items(), key=lambda x: -x[1])],
+        "page_avg_durations": sorted(avg_durations, key=lambda x: -x["avg_seconds"]),
         "raw_data": [
             {
                 "id": r.id,
@@ -205,6 +236,8 @@ def get_bi_dashboard_data(
                 "city": r.city or "—",
                 "page_url": r.page_url or "/",
                 "event_type": r.event_type or "pageview",
+                "consent_given": bool(r.consent_given),
+                "duration_seconds": r.duration_seconds,
                 "user_agent": r.user_agent or "—",
                 "session_id": r.session_id or "—",
                 "created_at": r.created_at.isoformat() if r.created_at else None,

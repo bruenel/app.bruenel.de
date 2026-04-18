@@ -46,3 +46,5 @@ class BITrackCreate(BaseModel):
     user_agent: Optional[str] = None
     session_id: Optional[str] = None
     event_type: Optional[str] = "pageview"
+    consent_given: Optional[int] = 0
+    duration_seconds: Optional[int] = None
