@@ -20,6 +20,7 @@ class UserOut(BaseModel):
     role: RoleEnum
     allowed_kst: Optional[List[int]] = None
     signature_html: Optional[str] = None
+    imap_host: Optional[str] = None
     
     class Config:
         from_attributes = True

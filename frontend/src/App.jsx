@@ -939,6 +939,10 @@ const UserSettings = ({ user }) => {
   const [mailMessage, setMailMessage] = useState('');
   const [isMailConnected, setIsMailConnected] = useState(!!user.imap_host);
 
+  useEffect(() => {
+    setIsMailConnected(!!user.imap_host);
+  }, [user.imap_host]);
+
   const handleChangePassword = async (e) => {
     e.preventDefault();
     setLoading(true);
