@@ -661,9 +661,10 @@ const BIDashboard = () => {
   const [endDate, setEndDate] = useState('');
   const [kstFilter, setKstFilter] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
+  const [autoRefresh, setAutoRefresh] = useState(false);
 
-  const loadData = () => {
-    setLoading(true);
+  const loadData = (silent = false) => {
+    if (!silent) setLoading(true);
     let url = '/api/bi/dashboard';
     const params = new URLSearchParams();
     if (startDate) params.append('start_date', startDate);
@@ -674,10 +675,18 @@ const BIDashboard = () => {
     fetchWithToken(url)
       .then(setData)
       .catch(err => console.error('BI load error:', err))
-      .finally(() => setLoading(false));
+      .finally(() => { if (!silent) setLoading(false); });
   };
 
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => { loadData(); }, [startDate, endDate, kstFilter]);
+
+  useEffect(() => {
+    let interval;
+    if (autoRefresh) {
+      interval = setInterval(() => loadData(true), 1000);
+    }
+    return () => clearInterval(interval);
+  }, [autoRefresh, startDate, endDate, kstFilter]);
 
   const setPreset = (days) => {
     const end = new Date();
@@ -707,6 +716,17 @@ const BIDashboard = () => {
           <h2>BI Telemetry Dashboard</h2>
           <p style={{ fontSize: '0.85rem', marginTop: '4px' }}>Live pipeline mapping website visitor behaviour to KST cost centres.</p>
         </div>
+        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+          <button 
+            className={autoRefresh ? "btn-primary" : "btn-secondary"} 
+            onClick={() => setAutoRefresh(!autoRefresh)} 
+            style={{ padding: '6px 16px', fontSize: '0.85rem' }}>
+            {autoRefresh ? 'Live Auto-Refresh: ON (1s)' : 'Live Auto-Refresh: OFF'}
+          </button>
+          <button className="btn-secondary" onClick={() => loadData(false)} style={{ padding: '6px 16px', fontSize: '0.85rem' }}>
+            Manual Refresh
+          </button>
+        </div>
       </div>
 
       {/* Interactive Filters Bar */}
@@ -730,9 +750,6 @@ const BIDashboard = () => {
           <option value="3000">KST 3000 (Clothing)</option>
           <option value="4000">KST 4000 (Services)</option>
         </select>
-        <button className="btn-primary" onClick={loadData} style={{ padding: '6px 16px', marginLeft: 'auto' }}>
-          Apply Filters
-        </button>
       </div>
 
       {loading ? (
@@ -742,8 +759,9 @@ const BIDashboard = () => {
       ) : (
         <>
           {/* KPI Cards */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '24px' }}>
-            <StatCard label="Total Visitors" value={data.total_hits} sub="All time" />
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '16px', marginBottom: '24px' }}>
+            <StatCard label="Total Unique Visitors" value={data.unique_visitors} sub="Unique IP addresses" />
+            <StatCard label="All Page Visits" value={data.total_hits} sub="Total interactions tracked" />
             <StatCard label="Top Source" value={topReferral} sub="Referral channel" />
             <StatCard label="Top Device" value={topDevice} sub="Platform share" />
             <StatCard label="Top KST Interest" value={topKst ? `KST ${topKst.kst}` : '—'} sub={topKst ? `${topKst.count} hits` : 'No data'} />
