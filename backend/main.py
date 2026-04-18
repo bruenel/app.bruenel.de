@@ -11,16 +11,9 @@ try:
     models.Base.metadata.create_all(bind=engine)
     
     # Generic migration: check for missing columns using inspector (works on PostgreSQL and SQLite)
-    inspector = inspect(engine)
-    columns = [col['name'] for col in inspector.get_columns('bi_tracking')]
-    
-    with engine.connect() as conn:
-        for col, typedef in [("country", "VARCHAR"), ("city", "VARCHAR"), ("ip_address", "VARCHAR")]:
-            if col not in columns:
-                conn.execute(text(f"ALTER TABLE bi_tracking ADD COLUMN {col} {typedef}"))
-                conn.commit()
+    print("Database schema initialized successfully.")
 except Exception as e:
-    print(f"Schema initialization note: {e}")
+    print(f"Safe Boot Note: Database schema could not be initialized automatically: {e}")
 
 
 app = FastAPI(title="Brünel OS API", version="1.0.0")
