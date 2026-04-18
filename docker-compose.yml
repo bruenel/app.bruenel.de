@@ -1,0 +1,41 @@
+version: "3.8"
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: bruenel-os-db
+    environment:
+      POSTGRES_USER: bruenel_admin
+      POSTGRES_PASSWORD: bruenel_password
+      POSTGRES_DB: bruenel_os
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  backend:
+    build: 
+      context: ./backend
+    container_name: bruenel-os-backend
+    environment:
+      - DATABASE_URL=postgresql://bruenel_admin:bruenel_password@db/bruenel_os
+      - JWT_SECRET=super_secret_bruenel_os_key_change_me
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+    volumes:
+      - ./backend:/app
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: bruenel-os-frontend
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+
+volumes:
+  postgres_data:
