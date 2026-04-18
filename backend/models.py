@@ -56,6 +56,10 @@ class BITracking(Base):
     mapped_kst_interest = Column(Integer, nullable=True)
     country = Column(String, nullable=True)
     city = Column(String, nullable=True)
+    page_url = Column(String, nullable=True)
+    user_agent = Column(String, nullable=True)
+    session_id = Column(String, nullable=True, index=True)
+    event_type = Column(String, default="pageview")  # pageview, click, scroll
     created_at = Column(DateTime, default=datetime.utcnow)
 
 

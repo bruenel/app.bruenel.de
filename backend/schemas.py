@@ -42,3 +42,7 @@ class BITrackCreate(BaseModel):
     referral: Optional[str] = None
     device_type: Optional[str] = None
     mapped_kst_interest: Optional[int] = None
+    page_url: Optional[str] = None
+    user_agent: Optional[str] = None
+    session_id: Optional[str] = None
+    event_type: Optional[str] = "pageview"
