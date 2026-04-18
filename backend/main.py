@@ -10,8 +10,20 @@ from sqlalchemy import text, inspect
 # Create models & run lightweight migrations for new columns
 try:
     models.Base.metadata.create_all(bind=engine)
-    
-    # Generic migration: check for missing columns using inspector (works on PostgreSQL and SQLite)
+
+    # Auto-migration: detect missing columns and ADD them via ALTER TABLE.
+    # This handles the case where a table already exists but new model columns were added.
+    insp = inspect(engine)
+    for table_name, table_obj in models.Base.metadata.tables.items():
+        if insp.has_table(table_name):
+            existing_cols = {c["name"] for c in insp.get_columns(table_name)}
+            for col in table_obj.columns:
+                if col.name not in existing_cols:
+                    col_type = col.type.compile(engine.dialect)
+                    with engine.begin() as conn:
+                        conn.execute(text(f'ALTER TABLE "{table_name}" ADD COLUMN "{col.name}" {col_type}'))
+                    print(f"Migration: added column {col.name} to {table_name}")
+
     print("Database schema initialized successfully.")
 except Exception as e:
     print(f"Safe Boot Note: Database schema could not be initialized automatically: {e}")
