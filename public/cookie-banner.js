@@ -4,9 +4,75 @@
 (function() {
     const API_ENDPOINT = "https://app.bruenel.de/api/bi/track";
     
-    // Check if consent is already given
-    if (localStorage.getItem("bruenel_consent") === "given") {
-        trackVisit();
+    // Generate or retrieve a temporary session ID using sessionStorage (cleared when browser closes)
+    function getSessionId() {
+        let sid = sessionStorage.getItem("bruenel_sid");
+        if (!sid) {
+            sid = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+            sessionStorage.setItem("bruenel_sid", sid);
+        }
+        return sid;
+    }
+
+    function hasConsent() {
+        return localStorage.getItem("bruenel_consent") === "given" ? 1 : 0;
+    }
+    
+    function mapPathToKST(path) {
+        if (path.includes("hardware")) return 3000;
+        if (path.includes("iran-store") || path.includes("home")) return 2000;
+        return 0; // default general
+    }
+
+    // Function to track an event
+    function trackEvent(eventType = "pageview", additionalData = {}) {
+        const payload = {
+            referral: document.referrer || "direct",
+            device_type: navigator.userAgent.includes("Mobi") ? "Mobile" : "Desktop",
+            mapped_kst_interest: mapPathToKST(window.location.pathname),
+            page_url: window.location.pathname + window.location.search,
+            session_id: getSessionId(),
+            event_type: eventType,
+            consent_given: hasConsent(),
+            ...additionalData
+        };
+        
+        fetch(API_ENDPOINT, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify(payload)
+            // Use keepalive for click/unload events to ensure delivery
+        }).catch(err => console.error("Telemetry error", err));
+    }
+
+    // 1. Track initial pageview immediately (before consent)
+    trackEvent("pageview");
+
+    // 2. Track all clicks on the website
+    document.addEventListener("click", function(e) {
+        // Find if they clicked an actionable element
+        let target = e.target;
+        let isActionable = false;
+        
+        while (target && target !== document.body) {
+            if (target.tagName === 'A' || target.tagName === 'BUTTON' || target.closest('a, button')) {
+                isActionable = true;
+                break;
+            }
+            target = target.parentElement;
+        }
+
+        if (isActionable && target) {
+            trackEvent("click", {
+                // We can pass extra data if the backend accepts it, otherwise just event_type="click"
+            });
+        }
+    });
+
+    // If consent is already given or denied, we don't show the banner
+    if (localStorage.getItem("bruenel_consent")) {
         return;
     }
   
@@ -68,33 +134,11 @@
     acceptBtn.addEventListener("click", () => {
         localStorage.setItem("bruenel_consent", "given");
         banner.remove();
-        trackVisit();
+        trackEvent("consent_given"); // Track the moment they consent
     });
     
     denyBtn.addEventListener("click", () => {
         localStorage.setItem("bruenel_consent", "denied");
         banner.remove();
     });
-    
-    function trackVisit() {
-        const payload = {
-            referral: document.referrer || "direct",
-            device_type: navigator.userAgent.includes("Mobi") ? "Mobile" : "Desktop",
-            mapped_kst_interest: mapPathToKST(window.location.pathname)
-        };
-        
-        fetch(API_ENDPOINT, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify(payload)
-        }).catch(err => console.error("Telemetry suppressed", err));
-    }
-  
-    function mapPathToKST(path) {
-        if (path.includes("hardware")) return 3000;
-        if (path.includes("iran-store") || path.includes("home")) return 2000;
-        return 0; // default general
-    }
-  })();
+})();
