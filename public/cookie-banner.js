@@ -2,7 +2,7 @@
 // Injectable snippet for www.bruenel.de to track BI telemetry for Brünel OS
 
 (function() {
-    const API_ENDPOINT = "https://app.bruenel.de/api/bi/track";
+    const API_ENDPOINT = "https://app-bruenel-de-backend.vercel.app/api/bi/track";
     
     // Generate or retrieve a temporary session ID using sessionStorage (cleared when browser closes)
     function getSessionId() {
