@@ -34,20 +34,30 @@ def geolocate_ip(ip: str) -> dict:
 @router.post("/track")
 def track_visitor(tracking_data: schemas.BITrackCreate, request: Request, db: Session = Depends(database.get_db)):
     """Public endpoint — called by the bruenel.de website on every page view and interaction."""
-    # Extract real client IP (Vercel forwards via x-forwarded-for)
-    forwarded = request.headers.get("x-forwarded-for")
-    client_ip = forwarded.split(",")[0].strip() if forwarded else (request.client.host if request.client else "unknown")
-    ip_hash = hashlib.sha256(client_ip.encode("utf-8")).hexdigest()
-    geo = geolocate_ip(client_ip)
-
-    # Fall back to request headers for user_agent if not sent in body
-    user_agent = tracking_data.user_agent or request.headers.get("user-agent", "Unknown")
+    
+    if tracking_data.consent_given == 1:
+        # Extract real client IP (Vercel forwards via x-forwarded-for)
+        forwarded = request.headers.get("x-forwarded-for")
+        client_ip = forwarded.split(",")[0].strip() if forwarded else (request.client.host if request.client else "unknown")
+        ip_hash = hashlib.sha256(client_ip.encode("utf-8")).hexdigest()
+        geo = geolocate_ip(client_ip)
+        user_agent = tracking_data.user_agent or request.headers.get("user-agent", "Unknown")
+        device_type = tracking_data.device_type
+    else:
+        # Minimal tracking (Anonymous)
+        client_ip = None
+        # Use session_id as the unique identifier for the visit without PII
+        sess = tracking_data.session_id or "anonymous"
+        ip_hash = hashlib.sha256(sess.encode("utf-8")).hexdigest()
+        geo = {"country": "Unknown", "city": "Unknown"}
+        user_agent = "Unknown"
+        device_type = "Unknown"
 
     new_track = models.BITracking(
         ip_hash=ip_hash,
         ip_address=client_ip,
         referral=tracking_data.referral,
-        device_type=tracking_data.device_type,
+        device_type=device_type,
         mapped_kst_interest=tracking_data.mapped_kst_interest,
         country=geo["country"],
         city=geo["city"],
