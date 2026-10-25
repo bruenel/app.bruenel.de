@@ -30,8 +30,10 @@ export const TIER_LABELS = {
   5: 'Tier 5 — Field Employee (Technician/Worker)',
 };
 
+export const getToken = () => localStorage.getItem('token') || sessionStorage.getItem('token');
+
 export const fetchWithToken = async (url, options = {}) => {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   const headers = {
     'Authorization': `Bearer ${token}`,
     ...options.headers,
@@ -117,12 +119,13 @@ export const useAuth = () => {
   };
 
   useEffect(() => {
-    const token = localStorage.getItem('token');
+    const token = getToken();
     if (token) {
       loadMe(token)
         .then(setUser)
         .catch(() => {
           localStorage.removeItem('token');
+          sessionStorage.removeItem('token');
           setUser(null);
         })
         .finally(() => setLoading(false));
@@ -131,7 +134,7 @@ export const useAuth = () => {
     }
   }, []);
 
-  const login = async (email, password) => {
+  const login = async (email, password, rememberMe = true) => {
     const formData = new FormData();
     formData.append('username', email);
     formData.append('password', password);
@@ -147,7 +150,13 @@ export const useAuth = () => {
     }
 
     const data = await response.json();
-    localStorage.setItem('token', data.access_token);
+    if (rememberMe) {
+      localStorage.setItem('token', data.access_token);
+      sessionStorage.removeItem('token');
+    } else {
+      sessionStorage.setItem('token', data.access_token);
+      localStorage.removeItem('token');
+    }
     const userData = await loadMe(data.access_token);
     setUser(userData);
     return userData;
@@ -155,6 +164,7 @@ export const useAuth = () => {
 
   const logout = () => {
     localStorage.removeItem('token');
+    sessionStorage.removeItem('token');
     setUser(null);
   };
 
@@ -163,7 +173,7 @@ export const useAuth = () => {
   };
 
   const refreshProfile = async () => {
-    const token = localStorage.getItem('token');
+    const token = getToken();
     if (token) {
       const u = await loadMe(token);
       setUser(u);

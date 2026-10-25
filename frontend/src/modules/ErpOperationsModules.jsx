@@ -3,7 +3,7 @@ import {
   Package, Truck, Wrench, Calendar as CalendarIcon, Receipt, ShoppingBag,
   Plus, ArrowRightLeft, AlertTriangle, Download, Check, X, FileText, Video, MessageSquare, Upload
 } from 'lucide-react';
-import { fetchWithToken, uploadMediaFile, resolveMediaUrl, API_URL } from '../core/api';
+import { fetchWithToken, uploadMediaFile, resolveMediaUrl, API_URL, getToken } from '../core/api';
 import { TASK_STATUS_CONFIG } from '../core/i18n';
 import { useParams, useNavigate } from 'react-router-dom';
 import { PageHead, SubTabs, useQuickAction, Empty } from '../components/ui';
@@ -921,7 +921,7 @@ export const AccountingModule = () => {
   };
 
   const downloadDatevCsv = async () => {
-    const token = localStorage.getItem('token');
+    const token = getToken();
     const res = await fetch(`${API_URL}/api/v1/accounting/export-datev`, {
       headers: { 'Authorization': `Bearer ${token}` },
     });

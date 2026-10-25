@@ -141,8 +141,9 @@ const QUICK_ACTIONS = [
 ];
 
 const LoginScreen = ({ onLogin, isPortalDomain }) => {
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(() => localStorage.getItem('bruenel_remembered_email') || '');
   const [password, setPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(() => localStorage.getItem('bruenel_remember_me') !== 'false');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -150,17 +151,19 @@ const LoginScreen = ({ onLogin, isPortalDomain }) => {
     e.preventDefault();
     setLoading(true);
     setError('');
-    try { await onLogin(email, password); } catch (err) { setError(err.message); }
+    try {
+      localStorage.setItem('bruenel_remember_me', rememberMe ? 'true' : 'false');
+      if (rememberMe) {
+        localStorage.setItem('bruenel_remembered_email', email);
+      } else {
+        localStorage.removeItem('bruenel_remembered_email');
+      }
+      await onLogin(email, password, rememberMe);
+    } catch (err) {
+      setError(err.message);
+    }
     setLoading(false);
   };
-
-  const demo = [
-    ['Owner · Tier 1', 'sam.rastegar@bruenel.de'],
-    ['Project Mgr · Tier 2', 'markus.weber@bruenel.de'],
-    ['HR & Finance · Tier 3', 'sabine.keller@bruenel.de'],
-    ['Team Lead · Tier 4', 'lukas.schmidt@bruenel.de'],
-    ['Field Tech · Tier 5', 'ali.yilmaz@bruenel.de'],
-  ];
 
   return (
     <div className={isPortalDomain ? 'neo' : 'login-wrap'} style={isPortalDomain ? { display: 'grid', placeItems: 'center' } : undefined}>
@@ -172,22 +175,50 @@ const LoginScreen = ({ onLogin, isPortalDomain }) => {
           </div>
         </div>
         <h2 style={{ marginBottom: 4 }}>Welcome back</h2>
-        <p style={{ marginBottom: 24 }}>
+        <p style={{ marginBottom: 24, fontSize: 14, color: 'var(--text-muted)' }}>
           {isPortalDomain ? 'Tasks, working hours, holidays and payslips in one place.' : 'Sign in to the management & project operations console.'}
         </p>
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <input type="email" placeholder="Corporate email" required value={email} onChange={(e) => setEmail(e.target.value)} />
-          <input type="password" placeholder="Password" required value={password} onChange={(e) => setPassword(e.target.value)} />
-          {error && <div style={{ color: 'var(--error)', fontSize: 13 }}>{error}</div>}
-          <button type="submit" disabled={loading} className="btn-primary">{loading ? 'Authenticating…' : 'Sign in'}</button>
-        </form>
-        <div style={{ marginTop: 16, paddingTop: 14, borderTop: '1px solid var(--border)' }}>
-          <label>Local demo accounts (click to fill)</label>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
-            {demo.map(([t, e]) => (
-              <button key={e} type="button" className="btn-secondary btn-sm" onClick={() => { setEmail(e); setPassword(e.startsWith('sam') ? 'Lattel-Macchiato!986' : 'Bruenel2026!'); }}>{t}</button>
-            ))}
+          <input
+            type="email"
+            placeholder="Corporate email"
+            required
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+          <input
+            type="password"
+            placeholder="Password"
+            required
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 13 }}>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, cursor: 'pointer', userSelect: 'none', color: 'var(--text-muted)' }}>
+              <input
+                type="checkbox"
+                checked={rememberMe}
+                onChange={(e) => setRememberMe(e.target.checked)}
+                style={{ width: 16, height: 16, cursor: 'pointer' }}
+              />
+              <span>Keep me logged in / Angemeldet bleiben</span>
+            </label>
           </div>
+
+          {error && <div style={{ color: 'var(--error, #e53e3e)', fontSize: 13 }}>{error}</div>}
+          <button type="submit" disabled={loading} className="btn-primary" style={{ marginTop: 4 }}>
+            {loading ? 'Authenticating…' : 'Sign in'}
+          </button>
+        </form>
+
+        <div style={{ marginTop: 24, paddingTop: 16, borderTop: '1px solid var(--border)', textAlign: 'center' }}>
+          <p style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.5, margin: 0 }}>
+            Passwort vergessen? Bitte wenden Sie sich an Ihren zuständigen <strong>Vorgesetzten</strong> oder <strong>Projektleiter</strong>.
+          </p>
+          <p style={{ fontSize: 11, color: 'var(--text-muted)', opacity: 0.8, marginTop: 4, margin: '4px 0 0 0' }}>
+            Forgot password? Please contact your direct manager / supervisor to reset your account.
+          </p>
         </div>
       </div>
     </div>
