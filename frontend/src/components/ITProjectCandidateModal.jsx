@@ -55,6 +55,7 @@ export function ITProjectCandidateModal({ onClose, onRegistered }) {
     availability_date: 'Ab sofort',
     tagessatz: '680',
     stundensatz: '85',
+    gehaltsvorstellung: '5500',
     dsgvo_accepted: false,
     datenschutz_accepted: false,
     talent_pool_accepted: false,
@@ -175,8 +176,10 @@ export function ITProjectCandidateModal({ onClose, onRegistered }) {
     try {
       const payload = {
         ...form,
-        tagessatz: Number(form.tagessatz || 0),
-        stundensatz: Number(form.stundensatz || 0),
+        tagessatz: form.preferred_contract_model === 'Full-time' ? 0 : Number(form.tagessatz || 0),
+        stundensatz: form.preferred_contract_model === 'Full-time' ? 0 : Number(form.stundensatz || 0),
+        gehaltsvorstellung: form.preferred_contract_model === 'Full-time' ? Number(form.gehaltsvorstellung || 0) : 0,
+        salary_expectation: form.preferred_contract_model === 'Full-time' ? Number(form.gehaltsvorstellung || 0) : 0,
       };
       const res = await fetch(`${API_URL}/api/v1/hr/candidates/register`, {
         method: 'POST',
@@ -666,7 +669,7 @@ export function ITProjectCandidateModal({ onClose, onRegistered }) {
               )}
 
               {page === 3 && subStep === 2 && (
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: form.preferred_contract_model === 'Full-time' ? '1fr 1fr' : '1fr 1fr 1fr', gap: 14 }}>
                   <div>
                     <label>Preferred Contract Model</label>
                     <select
@@ -679,24 +682,38 @@ export function ITProjectCandidateModal({ onClose, onRegistered }) {
                       <option value="Part-time">Teilzeit / Projektbasis</option>
                     </select>
                   </div>
-                  <div>
-                    <label>Expected Tagessatz (€ / Tag)</label>
-                    <input
-                      type="number"
-                      placeholder="e.g. 680"
-                      value={form.tagessatz}
-                      onChange={(e) => setForm({ ...form, tagessatz: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <label>Expected Stundensatz (€ / Std.)</label>
-                    <input
-                      type="number"
-                      placeholder="e.g. 85"
-                      value={form.stundensatz}
-                      onChange={(e) => setForm({ ...form, stundensatz: e.target.value })}
-                    />
-                  </div>
+                  {form.preferred_contract_model === 'Full-time' ? (
+                    <div>
+                      <label>Gehaltsvorstellung (€ / Monat Brutto)</label>
+                      <input
+                        type="number"
+                        placeholder="e.g. 5500"
+                        value={form.gehaltsvorstellung}
+                        onChange={(e) => setForm({ ...form, gehaltsvorstellung: e.target.value })}
+                      />
+                    </div>
+                  ) : (
+                    <>
+                      <div>
+                        <label>Expected Tagessatz (€ / Tag)</label>
+                        <input
+                          type="number"
+                          placeholder="e.g. 680"
+                          value={form.tagessatz}
+                          onChange={(e) => setForm({ ...form, tagessatz: e.target.value })}
+                        />
+                      </div>
+                      <div>
+                        <label>Expected Stundensatz (€ / Std.)</label>
+                        <input
+                          type="number"
+                          placeholder="e.g. 85"
+                          value={form.stundensatz}
+                          onChange={(e) => setForm({ ...form, stundensatz: e.target.value })}
+                        />
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
 

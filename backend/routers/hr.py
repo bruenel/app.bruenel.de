@@ -362,8 +362,10 @@ def register_it_project_candidate_public(
         emp_num = f"BRN-CAND-{int(datetime.utcnow().timestamp()) % 1000}"
 
     emp_id = str(uuid.uuid4())
-    tagessatz = float(payload.get("expected_daily_rate") or payload.get("tagessatz") or 0.0)
-    stundensatz = float(payload.get("expected_hourly_rate") or payload.get("stundensatz") or (round(tagessatz / 8.0, 2) if tagessatz > 0 else 0.0))
+    preferred_model = payload.get("preferred_contract_model") or "Freelancer"
+    gehaltsvorstellung = float(payload.get("gehaltsvorstellung") or payload.get("salary_expectation") or 0.0)
+    tagessatz = float(payload.get("expected_daily_rate") or payload.get("tagessatz") or 0.0) if preferred_model != "Full-time" else 0.0
+    stundensatz = float(payload.get("expected_hourly_rate") or payload.get("stundensatz") or (round(tagessatz / 8.0, 2) if tagessatz > 0 else 0.0)) if preferred_model != "Full-time" else 0.0
     role_title = payload.get("current_position") or payload.get("role") or "IT & Fiber Project Specialist"
 
     attrs = {
@@ -381,11 +383,12 @@ def register_it_project_candidate_public(
         "skills": payload.get("skills") or "",
         "linkedin_or_portfolio": payload.get("linkedin_or_portfolio") or payload.get("linkedin_url") or "",
         "interested_projects": payload.get("interested_projects") or [],
-        "preferred_contract_model": payload.get("preferred_contract_model") or "Freelancer",
+        "preferred_contract_model": preferred_model,
         "willing_to_travel": payload.get("willing_to_travel") or payload.get("remote_preference") or "Hybrid (Vor Ort & Remote)",
         "availability_date": payload.get("availability_date") or "",
         "tagessatz": tagessatz,
         "stundensatz": stundensatz,
+        "gehaltsvorstellung": gehaltsvorstellung,
         "dsgvo_accepted": bool(payload.get("dsgvo_accepted")),
         "datenschutz_accepted": bool(payload.get("datenschutz_accepted")),
         "talent_pool_consent": bool(payload.get("talent_pool_consent", payload.get("talent_pool_accepted", True))),
@@ -406,7 +409,7 @@ def register_it_project_candidate_public(
         employment_type="Candidate",
         role=role_title,
         role_tier=5,
-        base_salary=0.0,
+        base_salary=gehaltsvorstellung if preferred_model == "Full-time" else 0.0,
         hourly_rate=stundensatz,
         annual_leave_days=0,
         is_active=True,
