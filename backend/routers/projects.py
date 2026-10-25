@@ -18,6 +18,24 @@ from core.audit import log_audit
 router = APIRouter()
 
 
+def clean_fk(val: Optional[str]) -> Optional[str]:
+    if not val:
+        return None
+    s = str(val).strip()
+    return s if s else None
+
+
+def valid_fk_or_none(db: Session, model_cls, val: Optional[str]) -> Optional[str]:
+    fk = clean_fk(val)
+    if not fk:
+        return None
+    try:
+        exists = db.query(model_cls.id).filter(model_cls.id == fk).first()
+        return fk if exists else None
+    except Exception:
+        return None
+
+
 # ==============================================================================
 # REGIONS (PLZ)
 # ==============================================================================
@@ -126,15 +144,21 @@ def create_project(
     if get_effective_tier(current_user) > 2:
         raise HTTPException(status_code=403, detail="Only Super Admin or Project Manager can create projects.")
 
+    mgr_id = valid_fk_or_none(db, models.Employee, payload.manager_id)
+    if not mgr_id and current_user.employee_id:
+        mgr_id = valid_fk_or_none(db, models.Employee, current_user.employee_id)
+
+    reg_id = valid_fk_or_none(db, models.Region, payload.region_id)
+
     proj = models.Project(
         id=str(uuid.uuid4()),
-        name=payload.name,
+        name=payload.name.strip(),
         code=payload.code or f"PRJ-{db.query(models.Project).count() + 101}",
         client_name=payload.client_name,
-        kst=payload.kst,
-        status=payload.status,
-        manager_id=payload.manager_id or current_user.employee_id,
-        region_id=payload.region_id,
+        kst=payload.kst or 1000,
+        status=payload.status or "Active",
+        manager_id=mgr_id,
+        region_id=reg_id,
         start_date=payload.start_date,
         end_date=payload.end_date,
         budget=payload.budget or 0.0,
@@ -160,9 +184,13 @@ def update_project(
     if not proj:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    for k in ["name", "code", "client_name", "kst", "status", "manager_id", "region_id", "budget", "attributes"]:
+    for k in ["name", "code", "client_name", "kst", "status", "budget", "attributes", "start_date", "end_date"]:
         if k in payload:
             setattr(proj, k, payload[k])
+    if "manager_id" in payload:
+        proj.manager_id = valid_fk_or_none(db, models.Employee, payload["manager_id"])
+    if "region_id" in payload:
+        proj.region_id = valid_fk_or_none(db, models.Region, payload["region_id"])
     db.commit()
     return {"id": proj.id, "status": proj.status}
 
@@ -276,10 +304,16 @@ def create_building_object(
     if get_effective_tier(current_user) > 4:
         raise HTTPException(status_code=403, detail="Unauthorized to create building objects")
 
+    proj_id = valid_fk_or_none(db, models.Project, payload.project_id)
+    if not proj_id:
+        raise HTTPException(status_code=400, detail="A valid project must be selected for the building object.")
+
+    reg_id = valid_fk_or_none(db, models.Region, payload.region_id)
+
     obj = models.BuildingObject(
         id=str(uuid.uuid4()),
-        project_id=payload.project_id,
-        region_id=payload.region_id,
+        project_id=proj_id,
+        region_id=reg_id,
         address=payload.address,
         units_count=payload.units_count,
         cabling_type=payload.cabling_type,
@@ -614,15 +648,21 @@ def create_assignment(
 
     primary_emp = payload.employee_id or (assigned_ids[0] if assigned_ids else current_user.employee_id)
 
+    proj_id = valid_fk_or_none(db, models.Project, payload.project_id)
+    reg_id = valid_fk_or_none(db, models.Region, payload.region_id)
+    obj_id = valid_fk_or_none(db, models.BuildingObject, payload.object_id)
+    tm_id = valid_fk_or_none(db, models.Team, payload.team_id)
+    emp_id = valid_fk_or_none(db, models.Employee, primary_emp)
+
     # Multiple tasks per employee/team per day are explicitly allowed!
     item = models.Assignment(
         id=str(uuid.uuid4()),
-        employee_id=primary_emp,
-        team_id=payload.team_id,
+        employee_id=emp_id,
+        team_id=tm_id,
         assigned_employee_ids=assigned_ids,
-        project_id=payload.project_id,
-        region_id=payload.region_id,
-        object_id=payload.object_id,
+        project_id=proj_id,
+        region_id=reg_id,
+        object_id=obj_id,
         date=payload.date,
         title=payload.title,
         instructions=payload.instructions,

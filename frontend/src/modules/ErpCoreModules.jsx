@@ -2939,6 +2939,8 @@ export const ProjectsObjectsModule = () => {
   const [showAddObj, setShowAddObj] = useState(false);
   const [showAddTask, setShowAddTask] = useState(false);
   const [showAddProj, setShowAddProj] = useState(false);
+  const [showQuickAddRegion, setShowQuickAddRegion] = useState(false);
+  const [newRegion, setNewRegion] = useState({ postal_code: '', name: '', city: '' });
   const [showAddDelegation, setShowAddDelegation] = useState(false);
   const [selectedObjectMedia, setSelectedObjectMedia] = useState(null);
   const [selectedTaskDoc, setSelectedTaskDoc] = useState(null);
@@ -2966,7 +2968,18 @@ export const ProjectsObjectsModule = () => {
     priority: 'High',
     task_status: 'Planned',
   });
-  const [newProj, setNewProj] = useState({ name: '', code: '', client_name: '', kst: 1000, budget: 50000, region_id: '', manager_id: '' });
+  const [newProj, setNewProj] = useState({
+    name: '',
+    code: '',
+    client_name: '',
+    kst: 1000,
+    budget: 50000,
+    status: 'Active',
+    region_id: '',
+    manager_id: '',
+    start_date: '',
+    end_date: '',
+  });
   const [newDel, setNewDel] = useState({ delegator_id: '', delegatee_id: '', start_date: new Date().toISOString().split('T')[0], end_date: new Date().toISOString().split('T')[0], scope_note: '' });
   const [teamForm, setTeamForm] = useState({ id: '', name: '', leader_id: '', member_ids: [], notes: '' });
 
@@ -3146,10 +3159,34 @@ export const ProjectsObjectsModule = () => {
     }
   };
 
+  const handleCreateRegion = async (e) => {
+    e.preventDefault();
+    try {
+      const created = await fetchWithToken('/api/v1/regions', {
+        method: 'POST',
+        body: JSON.stringify(newRegion),
+      });
+      setRegions(prev => [...prev, created]);
+      setNewProj(prev => ({ ...prev, region_id: created.id }));
+      setNewObj(prev => ({ ...prev, region_id: created.id }));
+      setShowQuickAddRegion(false);
+      setNewRegion({ postal_code: '', name: '', city: '' });
+      loadData();
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
   const handleCreateObject = async (e) => {
     e.preventDefault();
     try {
-      await fetchWithToken('/api/v1/objects', { method: 'POST', body: JSON.stringify(newObj) });
+      const payload = {
+        ...newObj,
+        project_id: newObj.project_id || null,
+        region_id: newObj.region_id?.trim() || null,
+        units_count: Number(newObj.units_count) || 1,
+      };
+      await fetchWithToken('/api/v1/objects', { method: 'POST', body: JSON.stringify(payload) });
       setShowAddObj(false);
       loadData();
     } catch (err) {
@@ -3164,8 +3201,11 @@ export const ProjectsObjectsModule = () => {
         method: 'POST',
         body: JSON.stringify({
           ...newTask,
-          team_id: newTask.team_id || null,
-          employee_id: newTask.employee_id || null,
+          team_id: newTask.team_id?.trim() || null,
+          employee_id: newTask.employee_id?.trim() || null,
+          project_id: newTask.project_id?.trim() || null,
+          region_id: newTask.region_id?.trim() || null,
+          object_id: newTask.object_id?.trim() || null,
           checklist: [{ label: 'Verify site safety & HÜP access', done: false }, { label: 'Upload completion photo/video', done: false }],
         }),
       });
@@ -3179,8 +3219,32 @@ export const ProjectsObjectsModule = () => {
   const handleCreateProject = async (e) => {
     e.preventDefault();
     try {
-      await fetchWithToken('/api/v1/projects', { method: 'POST', body: JSON.stringify(newProj) });
+      const payload = {
+        name: newProj.name.trim(),
+        code: newProj.code?.trim() || undefined,
+        client_name: newProj.client_name?.trim() || undefined,
+        kst: Number(newProj.kst) || 1000,
+        budget: Number(newProj.budget) || 0,
+        status: newProj.status || 'Active',
+        manager_id: newProj.manager_id?.trim() || null,
+        region_id: newProj.region_id?.trim() || null,
+        start_date: newProj.start_date?.trim() || null,
+        end_date: newProj.end_date?.trim() || null,
+      };
+      await fetchWithToken('/api/v1/projects', { method: 'POST', body: JSON.stringify(payload) });
       setShowAddProj(false);
+      setNewProj({
+        name: '',
+        code: '',
+        client_name: '',
+        kst: 1000,
+        budget: 50000,
+        status: 'Active',
+        region_id: '',
+        manager_id: '',
+        start_date: '',
+        end_date: '',
+      });
       loadData();
     } catch (err) {
       alert(err.message);
@@ -3241,24 +3305,62 @@ export const ProjectsObjectsModule = () => {
       {/* Modals */}
       {showAddObj && (
         <div className="modal-overlay">
-          <div className="glass-panel" style={{ width: '460px' }}>
-            <h3 style={{ marginBottom: '14px' }}>New Building Object (Gebäude)</h3>
-            <form onSubmit={handleCreateObject} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <select value={newObj.project_id} onChange={e => setNewObj({...newObj, project_id: e.target.value})} required>
-                <option value="">Select Project...</option>
-                {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-              <select value={newObj.region_id} onChange={e => setNewObj({...newObj, region_id: e.target.value})} required>
-                <option value="">Select Region (PLZ)...</option>
-                {regions.map(r => <option key={r.id} value={r.id}>{r.postal_code} — {r.name}</option>)}
-              </select>
-              <input placeholder="Street & House Number" required value={newObj.address} onChange={e => setNewObj({...newObj, address: e.target.value})} />
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                <input type="number" placeholder="Units (WE)" value={newObj.units_count} onChange={e => setNewObj({...newObj, units_count: parseInt(e.target.value)})} />
-                <input placeholder="Cabling Type" value={newObj.cabling_type} onChange={e => setNewObj({...newObj, cabling_type: e.target.value})} />
+          <div className="glass-panel" style={{ width: '480px', maxHeight: '90vh', overflowY: 'auto' }}>
+            <div className="flex-between" style={{ marginBottom: '14px' }}>
+              <div>
+                <h3 style={{ margin: 0 }}>New Building Object (Gebäude)</h3>
+                <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: '2px 0 0' }}>Register a building object / house address for FTTH survey or connection.</p>
               </div>
-              <textarea placeholder="Technical site survey notes..." value={newObj.notes} onChange={e => setNewObj({...newObj, notes: e.target.value})} />
-              <div style={{ display: 'flex', gap: '10px' }}>
+              <button type="button" className="btn-secondary btn-sm" onClick={() => setShowAddObj(false)}><X size={14} /></button>
+            </div>
+            <form onSubmit={handleCreateObject} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div>
+                <label style={{ fontSize: '0.78rem', fontWeight: 600, display: 'block', marginBottom: '4px' }}>
+                  Project <span style={{ color: 'var(--accent)' }}>*</span>
+                </label>
+                <select value={newObj.project_id} onChange={e => setNewObj({...newObj, project_id: e.target.value})} required>
+                  <option value="">Select Project...</option>
+                  {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+              </div>
+
+              <div>
+                <div className="flex-between" style={{ marginBottom: '4px' }}>
+                  <label style={{ fontSize: '0.78rem', fontWeight: 600 }}>Region (PLZ & City)</label>
+                  <button type="button" onClick={() => setShowQuickAddRegion(true)} style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: '0.72rem', cursor: 'pointer', padding: 0 }}>
+                    + New Region
+                  </button>
+                </div>
+                <select value={newObj.region_id} onChange={e => setNewObj({...newObj, region_id: e.target.value})}>
+                  <option value="">— Select Region (Optional) —</option>
+                  {regions.map(r => <option key={r.id} value={r.id}>{r.postal_code} — {r.name} {r.city ? `(${r.city})` : ''}</option>)}
+                </select>
+              </div>
+
+              <div>
+                <label style={{ fontSize: '0.78rem', fontWeight: 600, display: 'block', marginBottom: '4px' }}>
+                  Street & House Number <span style={{ color: 'var(--accent)' }}>*</span>
+                </label>
+                <input placeholder="e.g. Rheinstraße 42" required value={newObj.address} onChange={e => setNewObj({...newObj, address: e.target.value})} />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                <div>
+                  <label style={{ fontSize: '0.78rem', fontWeight: 600, display: 'block', marginBottom: '4px' }}>Units (WE - Wohneinheiten)</label>
+                  <input type="number" placeholder="12" value={newObj.units_count} onChange={e => setNewObj({...newObj, units_count: parseInt(e.target.value) || 1})} />
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.78rem', fontWeight: 600, display: 'block', marginBottom: '4px' }}>Cabling Type</label>
+                  <input placeholder="e.g. FTTH Singlemode" value={newObj.cabling_type} onChange={e => setNewObj({...newObj, cabling_type: e.target.value})} />
+                </div>
+              </div>
+
+              <div>
+                <label style={{ fontSize: '0.78rem', fontWeight: 600, display: 'block', marginBottom: '4px' }}>Technical Site Survey Notes</label>
+                <textarea placeholder="Technical site survey notes, HÜP location, cellar access..." value={newObj.notes} onChange={e => setNewObj({...newObj, notes: e.target.value})} />
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}>
                 <button type="button" className="btn-secondary" style={{flex: 1}} onClick={() => setShowAddObj(false)}>Cancel</button>
                 <button type="submit" className="btn-primary" style={{flex: 1}}>Save Object</button>
               </div>
@@ -3454,22 +3556,146 @@ export const ProjectsObjectsModule = () => {
         </div>
       )}
 
+      {/* Quick Add Region Modal */}
+      {showQuickAddRegion && (
+        <div className="modal-overlay" style={{ zIndex: 1200 }}>
+          <div className="glass-panel" style={{ width: '420px' }}>
+            <div className="flex-between" style={{ marginBottom: '14px' }}>
+              <h3 style={{ fontSize: '1.05rem', margin: 0 }}>Add New Region (PLZ & City)</h3>
+              <button type="button" className="btn-secondary btn-sm" onClick={() => setShowQuickAddRegion(false)}><X size={14} /></button>
+            </div>
+            <form onSubmit={handleCreateRegion} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div>
+                <label style={{ fontSize: '0.78rem', fontWeight: 600, display: 'block', marginBottom: '4px' }}>
+                  Postal Code (PLZ) <span style={{ color: 'var(--accent)' }}>*</span>
+                </label>
+                <input required placeholder="e.g. 65391" value={newRegion.postal_code} onChange={e => setNewRegion({ ...newRegion, postal_code: e.target.value })} />
+              </div>
+              <div>
+                <label style={{ fontSize: '0.78rem', fontWeight: 600, display: 'block', marginBottom: '4px' }}>
+                  Region / Rollout Area Name <span style={{ color: 'var(--accent)' }}>*</span>
+                </label>
+                <input required placeholder="e.g. Lorch / Rheingau" value={newRegion.name} onChange={e => setNewRegion({ ...newRegion, name: e.target.value })} />
+              </div>
+              <div>
+                <label style={{ fontSize: '0.78rem', fontWeight: 600, display: 'block', marginBottom: '4px' }}>
+                  City / Municipality (Gemeinde / Stadt)
+                </label>
+                <input placeholder="e.g. Lorch am Rhein" value={newRegion.city} onChange={e => setNewRegion({ ...newRegion, city: e.target.value })} />
+              </div>
+              <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}>
+                <button type="button" className="btn-secondary" style={{ flex: 1 }} onClick={() => setShowQuickAddRegion(false)}>Cancel</button>
+                <button type="submit" className="btn-primary" style={{ flex: 1 }}>Save Region</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {showAddProj && (
         <div className="modal-overlay">
-          <div className="glass-panel" style={{ width: '440px' }}>
-            <h3 style={{ marginBottom: '14px' }}>Create New Project</h3>
-            <form onSubmit={handleCreateProject} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <input placeholder="Project Name" required value={newProj.name} onChange={e => setNewProj({...newProj, name: e.target.value})} />
-              <input placeholder="Client Name" value={newProj.client_name} onChange={e => setNewProj({...newProj, client_name: e.target.value})} />
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                <input type="number" placeholder="KST (e.g. 1000)" value={newProj.kst} onChange={e => setNewProj({...newProj, kst: parseInt(e.target.value)})} />
-                <input type="number" placeholder="Budget (€)" value={newProj.budget} onChange={e => setNewProj({...newProj, budget: parseFloat(e.target.value)})} />
+          <div className="glass-panel" style={{ width: '560px', maxHeight: '90vh', overflowY: 'auto' }}>
+            <div className="flex-between" style={{ marginBottom: '16px' }}>
+              <div>
+                <h3 style={{ margin: 0 }}>Create New Project</h3>
+                <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: '2px 0 0' }}>Configure project attributes, budget, cost center, and regional assignment.</p>
               </div>
-              <select value={newProj.manager_id} onChange={e => setNewProj({...newProj, manager_id: e.target.value})}>
-                <option value="">Assign Project Manager...</option>
-                {employees.map(emp => <option key={emp.id} value={emp.id}>{emp.full_name}</option>)}
-              </select>
-              <div style={{ display: 'flex', gap: '10px' }}>
+              <button type="button" className="btn-secondary btn-sm" onClick={() => setShowAddProj(false)}><X size={14} /></button>
+            </div>
+            <form onSubmit={handleCreateProject} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div>
+                <label style={{ fontSize: '0.78rem', fontWeight: 600, display: 'block', marginBottom: '4px' }}>
+                  Project Name <span style={{ color: 'var(--accent)' }}>*</span>
+                </label>
+                <input required placeholder="e.g. NE4 - Lorch FTTH Rollout" value={newProj.name} onChange={e => setNewProj({...newProj, name: e.target.value})} />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div>
+                  <label style={{ fontSize: '0.78rem', fontWeight: 600, display: 'block', marginBottom: '4px' }}>
+                    Project Code (Optional)
+                  </label>
+                  <input placeholder="e.g. PRJ-101 (Auto-generated if empty)" value={newProj.code} onChange={e => setNewProj({...newProj, code: e.target.value})} />
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.78rem', fontWeight: 600, display: 'block', marginBottom: '4px' }}>
+                    Client / Auftraggeber
+                  </label>
+                  <input placeholder="e.g. UGG, Deutsche Telekom, Vodafone" value={newProj.client_name} onChange={e => setNewProj({...newProj, client_name: e.target.value})} />
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div>
+                  <div className="flex-between" style={{ marginBottom: '4px' }}>
+                    <label style={{ fontSize: '0.78rem', fontWeight: 600 }}>
+                      Region (PLZ & City)
+                    </label>
+                    <button type="button" onClick={() => setShowQuickAddRegion(true)} style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: '0.72rem', cursor: 'pointer', padding: 0 }}>
+                      + New Region
+                    </button>
+                  </div>
+                  <select value={newProj.region_id} onChange={e => setNewProj({...newProj, region_id: e.target.value})}>
+                    <option value="">— Select Region (Optional / All Regions) —</option>
+                    {regions.map(r => (
+                      <option key={r.id} value={r.id}>{r.postal_code} — {r.name} {r.city ? `(${r.city})` : ''}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.78rem', fontWeight: 600, display: 'block', marginBottom: '4px' }}>
+                    Project Manager (Projektleiter)
+                  </label>
+                  <select value={newProj.manager_id} onChange={e => setNewProj({...newProj, manager_id: e.target.value})}>
+                    <option value="">— Assign Project Manager (Optional) —</option>
+                    {employees.map(emp => (
+                      <option key={emp.id} value={emp.id}>{emp.full_name} ({emp.role})</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
+                <div>
+                  <label style={{ fontSize: '0.78rem', fontWeight: 600, display: 'block', marginBottom: '4px' }}>
+                    Cost Center (KST)
+                  </label>
+                  <input type="number" placeholder="1000" value={newProj.kst} onChange={e => setNewProj({...newProj, kst: parseInt(e.target.value) || 1000})} />
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.78rem', fontWeight: 600, display: 'block', marginBottom: '4px' }}>
+                    Budget (€)
+                  </label>
+                  <input type="number" step="100" placeholder="50000" value={newProj.budget} onChange={e => setNewProj({...newProj, budget: parseFloat(e.target.value) || 0})} />
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.78rem', fontWeight: 600, display: 'block', marginBottom: '4px' }}>
+                    Status
+                  </label>
+                  <select value={newProj.status} onChange={e => setNewProj({...newProj, status: e.target.value})}>
+                    <option value="Active">Active</option>
+                    <option value="Paused">Paused</option>
+                    <option value="Completed">Completed</option>
+                  </select>
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div>
+                  <label style={{ fontSize: '0.78rem', fontWeight: 600, display: 'block', marginBottom: '4px' }}>
+                    Start Date (Projektbeginn)
+                  </label>
+                  <input type="date" value={newProj.start_date} onChange={e => setNewProj({...newProj, start_date: e.target.value})} />
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.78rem', fontWeight: 600, display: 'block', marginBottom: '4px' }}>
+                    End Date (Projektende)
+                  </label>
+                  <input type="date" value={newProj.end_date} onChange={e => setNewProj({...newProj, end_date: e.target.value})} />
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}>
                 <button type="button" className="btn-secondary" style={{flex: 1}} onClick={() => setShowAddProj(false)}>Cancel</button>
                 <button type="submit" className="btn-primary" style={{flex: 1}}>Create Project</button>
               </div>
@@ -3850,23 +4076,45 @@ export const ProjectsObjectsModule = () => {
       )}
 
       {tab === 'projects' && (
-        <div className="grid grid-cols-3">
-          {projects.map(p => (
-            <div key={p.id} className="glass-panel">
-              <div className="flex-between" style={{ marginBottom: '8px' }}>
-                <span className="badge">KST {p.kst}</span>
-                <span className="badge">{p.status}</span>
-              </div>
-              <h3>{p.name}</h3>
-              <p style={{ fontSize: '0.8rem', margin: '6px 0' }}>Client: {p.client_name || 'Internal'}</p>
-              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '12px' }}>
-                <div>Manager: <strong>{p.manager_name}</strong></div>
-                <div>Region: {p.region_name}</div>
-                <div>Progress: {p.completed_objects_count}/{p.objects_count} Objects ({p.total_units} WE)</div>
-                <div>Budget: {formatEuro(p.budget)}</div>
-              </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div className="flex-between" style={{ flexWrap: 'wrap', gap: '10px' }}>
+            <div>
+              <h3 style={{ margin: 0 }}>Projects & Regional Rollouts ({projects.length})</h3>
+              <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: '2px 0 0' }}>Manage construction sites, FTTH rollout projects, and cost centers.</p>
             </div>
-          ))}
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button className="btn-secondary" onClick={() => setShowQuickAddRegion(true)}>+ New Region (PLZ)</button>
+              <button className="btn-primary" onClick={() => setShowAddProj(true)}>+ New Project</button>
+            </div>
+          </div>
+
+          {projects.length === 0 ? (
+            <div className="glass-panel" style={{ textAlign: 'center', padding: '40px 20px' }}>
+              <h4 style={{ marginBottom: '6px' }}>No projects created yet</h4>
+              <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: '16px' }}>Create your first project to organize building objects, field teams, and site surveys.</p>
+              <button className="btn-primary" onClick={() => setShowAddProj(true)}>+ Create First Project</button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-3">
+              {projects.map(p => (
+                <div key={p.id} className="glass-panel">
+                  <div className="flex-between" style={{ marginBottom: '8px' }}>
+                    <span className="badge">KST {p.kst}</span>
+                    <span className="badge">{p.status}</span>
+                  </div>
+                  <h3>{p.name}</h3>
+                  <p style={{ fontSize: '0.8rem', margin: '6px 0' }}>Client: {p.client_name || 'Internal'}</p>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <div>Manager: <strong>{p.manager_name}</strong></div>
+                    <div>Region: {p.region_name}</div>
+                    {p.start_date && <div>Duration: {formatDate(p.start_date)} {p.end_date ? `→ ${formatDate(p.end_date)}` : ''}</div>}
+                    <div>Progress: {p.completed_objects_count}/{p.objects_count} Objects ({p.total_units} WE)</div>
+                    <div>Budget: {formatEuro(p.budget)}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -3880,18 +4128,30 @@ export const ProjectsObjectsModule = () => {
             <button className="btn-primary" onClick={() => setShowAddDelegation(true)}>+ New Vertretung</button>
           </div>
           {showAddDelegation && (
-            <form onSubmit={handleCreateDelegation} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr auto', gap: '10px', marginBottom: '16px', padding: '12px', background: 'var(--surface)', borderRadius: '8px' }}>
-              <select value={newDel.delegator_id} onChange={e => setNewDel({...newDel, delegator_id: e.target.value})} required>
-                <option value="">Delegator (Absent PM)...</option>
-                {employees.map(e => <option key={e.id} value={e.id}>{e.full_name}</option>)}
-              </select>
-              <select value={newDel.delegatee_id} onChange={e => setNewDel({...newDel, delegatee_id: e.target.value})} required>
-                <option value="">Delegatee (Acting PM)...</option>
-                {employees.map(e => <option key={e.id} value={e.id}>{e.full_name}</option>)}
-              </select>
-              <input type="date" value={newDel.start_date} onChange={e => setNewDel({...newDel, start_date: e.target.value})} required />
-              <input type="date" value={newDel.end_date} onChange={e => setNewDel({...newDel, end_date: e.target.value})} required />
-              <button type="submit" className="btn-primary">Activate</button>
+            <form onSubmit={handleCreateDelegation} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr auto', gap: '10px', marginBottom: '16px', padding: '14px', background: 'var(--surface)', borderRadius: '8px', alignItems: 'end' }}>
+              <div>
+                <label style={{ fontSize: '0.75rem', fontWeight: 600, display: 'block', marginBottom: '4px' }}>Delegator (Absent PM) *</label>
+                <select value={newDel.delegator_id} onChange={e => setNewDel({...newDel, delegator_id: e.target.value})} required>
+                  <option value="">Select PM...</option>
+                  {employees.map(e => <option key={e.id} value={e.id}>{e.full_name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: '0.75rem', fontWeight: 600, display: 'block', marginBottom: '4px' }}>Acting PM (Vertreter) *</label>
+                <select value={newDel.delegatee_id} onChange={e => setNewDel({...newDel, delegatee_id: e.target.value})} required>
+                  <option value="">Select Acting PM...</option>
+                  {employees.map(e => <option key={e.id} value={e.id}>{e.full_name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: '0.75rem', fontWeight: 600, display: 'block', marginBottom: '4px' }}>Start Date *</label>
+                <input type="date" value={newDel.start_date} onChange={e => setNewDel({...newDel, start_date: e.target.value})} required />
+              </div>
+              <div>
+                <label style={{ fontSize: '0.75rem', fontWeight: 600, display: 'block', marginBottom: '4px' }}>End Date *</label>
+                <input type="date" value={newDel.end_date} onChange={e => setNewDel({...newDel, end_date: e.target.value})} required />
+              </div>
+              <button type="submit" className="btn-primary" style={{ height: '38px' }}>Activate</button>
             </form>
           )}
           <table style={{ width: '100%', textAlign: 'left', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
