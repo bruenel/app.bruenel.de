@@ -6,7 +6,7 @@ import {
   ChevronLeft, ChevronRight, ChevronDown, Globe, BarChart3, Plus, FolderOpen, Download, Trash2, User, KeyRound, Shield,
   LayoutDashboard
 } from 'lucide-react';
-import { fetchWithToken, uploadMediaFile, resolveMediaUrl } from '../core/api';
+import { fetchWithToken, uploadMediaFile, resolveMediaUrl, formatEuro, formatDate, formatDateTime, formatDateRange } from '../core/api';
 import { TRANSLATIONS, TASK_STATUS_CONFIG, getStatusStyle } from '../core/i18n';
 
 const fmtTimeInput = (isoStr) => {
@@ -17,10 +17,7 @@ const fmtTimeInput = (isoStr) => {
 };
 
 const fmtDateTime = (isoStr) => {
-  if (!isoStr) return '—';
-  const d = new Date(isoStr);
-  if (isNaN(d.getTime())) return isoStr;
-  return `${d.toLocaleDateString('de-DE')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  return formatDateTime(isoStr);
 };
 
 const toIsoDate = (d) => {
@@ -1007,7 +1004,7 @@ export const EmployeePortalPWA = ({ user, logout, onSwitchToManagement }) => {
                       {biSummary.daily_breakdown.map(d => {
                         const pct = Math.min((d.hours / 10) * 100, 100);
                         return (
-                          <div key={d.day} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px' }} title={`${d.date}: ${d.hours}h`}>
+                          <div key={d.day} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px' }} title={`${formatDate(d.date)}: ${d.hours}h`}>
                             <div style={{ fontSize: '0.54rem', fontWeight: 700, color: 'var(--text-muted)' }}>
                               {d.hours > 0 ? d.hours : ''}
                             </div>
@@ -1142,7 +1139,7 @@ export const EmployeePortalPWA = ({ user, logout, onSwitchToManagement }) => {
                           <div className="flex-between" style={{ gap: '6px', flexWrap: 'wrap' }}>
                             <div>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                <strong style={{ fontSize: '0.78rem' }}>{l.date}</strong>
+                                <strong style={{ fontSize: '0.78rem' }}>{formatDate(l.date)}</strong>
                                 <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
                                   {fmtTimeInput(l.check_in_time) || '—'} – {fmtTimeInput(l.check_out_time) || 'Active'} ({l.break_minutes || 0}m)
                                 </span>
@@ -1511,7 +1508,7 @@ export const EmployeePortalPWA = ({ user, logout, onSwitchToManagement }) => {
                     >
                       <div className="flex-between" style={{ gap: '8px', marginBottom: '4px' }}>
                         <strong style={{ fontSize: '0.82rem' }}>{tsk.title}</strong>
-                        <span className="badge" style={{ fontSize: '0.65rem' }}>{tsk.date}</span>
+                        <span className="badge" style={{ fontSize: '0.65rem' }}>{formatDate(tsk.date)}</span>
                       </div>
                       <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span><MapPin size={11} /> {tsk.object_address}</span>
@@ -1667,7 +1664,7 @@ export const EmployeePortalPWA = ({ user, logout, onSwitchToManagement }) => {
                     {leaves.map(lv => (
                       <div key={lv.id} style={{ padding: '9px 10px', borderRadius: '9px', background: 'rgba(255,255,255,0.5)' }}>
                         <div className="flex-between">
-                          <strong style={{ fontSize: '0.76rem' }}>{lv.start_date} → {lv.end_date}</strong>
+                          <strong style={{ fontSize: '0.76rem' }}>{formatDate(lv.start_date)} → {formatDate(lv.end_date)}</strong>
                           <span className="badge" style={{ fontSize: '0.64rem' }}>{lv.status}</span>
                         </div>
                         <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '2px' }}>{lv.type} • {lv.reason || '—'}</div>
@@ -1696,7 +1693,7 @@ export const EmployeePortalPWA = ({ user, logout, onSwitchToManagement }) => {
                   {sickness.map(s => (
                     <div key={s.id} style={{ padding: '9px 10px', borderRadius: '9px', background: 'rgba(255,255,255,0.5)', marginBottom: '6px' }}>
                       <div className="flex-between">
-                        <strong style={{ fontSize: '0.76rem' }}>{s.start_date} → {s.end_date}</strong>
+                        <strong style={{ fontSize: '0.76rem' }}>{formatDate(s.start_date)} → {formatDate(s.end_date)}</strong>
                         <span className="badge" style={{ fontSize: '0.64rem' }}>{s.status}</span>
                       </div>
                       <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '2px' }}>{s.symptoms_note}</div>
@@ -1826,27 +1823,27 @@ export const EmployeePortalPWA = ({ user, logout, onSwitchToManagement }) => {
                                 {lang === 'de' ? 'Bruttogehalt' : 'Gross Salary'}
                               </div>
                               <strong>
-                                {slip ? `€${Number(slip.gross_salary || 0).toFixed(2)}` : (myEmployeeProfile?.base_salary ? `€${Number(myEmployeeProfile.base_salary).toFixed(2)}` : '—')}
+                                {slip ? formatEuro(slip.gross_salary) : (myEmployeeProfile?.base_salary ? formatEuro(myEmployeeProfile.base_salary) : '—')}
                               </strong>
                             </div>
                             <div style={{ padding: '6px 8px', borderRadius: '8px', background: 'rgba(255,255,255,0.5)' }}>
                               <div style={{ fontSize: '0.62rem', color: 'var(--text-muted)' }}>
                                 {lang === 'de' ? 'Nettogehalt' : 'Net Salary'}
                               </div>
-                              <strong>{slip ? `€${Number(slip.net_salary || 0).toFixed(2)}` : '—'}</strong>
+                              <strong>{slip ? formatEuro(slip.net_salary) : '—'}</strong>
                             </div>
                             <div style={{ padding: '6px 8px', borderRadius: '8px', background: 'rgba(255,255,255,0.5)' }}>
                               <div style={{ fontSize: '0.62rem', color: 'var(--text-muted)' }}>
                                 {lang === 'de' ? 'Provision / Bonus' : 'Commission'}
                               </div>
-                              <strong>{slip ? `+€${Number(slip.commission_bonus || 0).toFixed(2)}` : '—'}</strong>
+                              <strong>{slip ? formatEuro(slip.commission_bonus, { showPlus: true }) : '—'}</strong>
                             </div>
                             <div style={{ padding: '6px 8px', borderRadius: '8px', background: 'rgba(255,255,255,0.5)' }}>
                               <div style={{ fontSize: '0.62rem', color: 'var(--text-muted)' }}>
                                 {lang === 'de' ? 'Auszahlungsbetrag' : 'Total Payout'}
                               </div>
                               <strong style={{ color: isUploaded ? 'var(--accent)' : 'var(--text-main)' }}>
-                                {slip ? `€${Number(slip.total_payout || 0).toFixed(2)}` : '—'}
+                                {slip ? formatEuro(slip.total_payout) : '—'}
                               </strong>
                             </div>
                           </div>
@@ -1916,7 +1913,7 @@ export const EmployeePortalPWA = ({ user, logout, onSwitchToManagement }) => {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                     <div className="flex-between" style={{ gap: '8px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                        <span className="badge">{selectedTask.date}</span>
+                        <span className="badge">{formatDate(selectedTask.date)}</span>
                         <span className="badge">{selectedTask.priority}</span>
                         {selectedTask.team_name && (
                           <span className="badge" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>

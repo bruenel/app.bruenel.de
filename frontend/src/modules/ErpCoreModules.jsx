@@ -5,7 +5,7 @@ import {
   MessageSquare, Download, ChevronLeft, ChevronRight, BarChart3, GripVertical,
   Search, KeyRound, Trash2, ShieldCheck, Briefcase, PhoneCall, AlertTriangle
 } from 'lucide-react';
-import { fetchWithToken, uploadMediaFile, resolveMediaUrl, TIER_LABELS } from '../core/api';
+import { fetchWithToken, uploadMediaFile, resolveMediaUrl, TIER_LABELS, formatEuro, formatDate, formatDateTime, formatDateRange } from '../core/api';
 import { TASK_STATUS_CONFIG, getStatusStyle } from '../core/i18n';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { PageHead, SubTabs, useQuickAction, Empty, downloadCsv } from '../components/ui';
@@ -99,17 +99,17 @@ export const ExecutiveDashboard = ({ user }) => {
         <div className="glass-panel kpi">
           <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>FIELD SALES & PROVISION</div>
           <div style={{ fontSize: '2.2rem', fontWeight: 800, color: '#2563eb', margin: '6px 0' }}>
-            €{(stats.sales?.total_revenue || 0).toLocaleString('de-DE', { minimumFractionDigits: 2 })}
+            {formatEuro(stats.sales?.total_revenue)}
           </div>
           <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-            €{(stats.sales?.total_commission || 0).toFixed(2)} earned commissions ({stats.sales?.total_units_sold || 0} units)
+            {formatEuro(stats.sales?.total_commission)} earned commissions ({stats.sales?.total_units_sold || 0} units)
           </div>
         </div>
 
         <div className="glass-panel kpi">
           <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>INVENTORY & EXPENSES</div>
           <div style={{ fontSize: '2.2rem', fontWeight: 800, color: lowStockCount > 0 ? '#d97706' : '#7c3aed', margin: '6px 0' }}>
-            €{(stats.accounting?.total_expenses_gross || 0).toFixed(2)}
+            {formatEuro(stats.accounting?.total_expenses_gross)}
           </div>
           <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
             {stats.accounting?.pending_expenses_count || 0} pending expenses • {lowStockCount} low-stock SKUs
@@ -156,7 +156,7 @@ export const ExecutiveDashboard = ({ user }) => {
                 <div key={a.id} style={{ padding: '8px 10px', borderRadius: '6px', background: 'var(--surface-2)', border: '1px solid var(--border)', fontSize: '0.78rem' }}>
                   <div className="flex-between">
                     <strong>{a.operation} on `{a.table_name}`</strong>
-                    <span style={{ color: 'var(--text-muted)' }}>{a.created_at ? new Date(a.created_at).toLocaleTimeString('de-DE') : ''}</span>
+                    <span style={{ color: 'var(--text-muted)' }}>{formatDateTime(a.created_at)}</span>
                   </div>
                   <div style={{ color: 'var(--text-muted)', marginTop: '2px' }}>By: {a.changed_by} • Record: {a.record_id?.slice(0, 12)}</div>
                 </div>
@@ -1055,10 +1055,10 @@ export const HRManagementModule = ({ user }) => {
         <div className="glass-panel kpi" style={{ padding: '14px 16px' }}>
           <div style={{ fontSize: '0.71rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>Total Monthly HR & Sub Cost</div>
           <div style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--accent)', margin: '4px 0' }}>
-            €{totalEstimatedMonthlyCost.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            {formatEuro(totalEstimatedMonthlyCost)}
           </div>
           <div style={{ fontSize: '0.73rem', color: 'var(--text-muted)' }}>
-            Base: €{totalBasePayrollSum.toLocaleString('de-DE', { minimumFractionDigits: 2 })}
+            Base: {formatEuro(totalBasePayrollSum)}
           </div>
         </div>
 
@@ -1068,7 +1068,7 @@ export const HRManagementModule = ({ user }) => {
             {totalOvertimeHoursSum} h
           </div>
           <div style={{ fontSize: '0.73rem', color: '#9a3412', fontWeight: 600 }}>
-            Cost: €{totalOvertimeCostSum.toLocaleString('de-DE', { minimumFractionDigits: 2 })} • {weeklyAlerts.length} Week Alert(s)
+            Cost: {formatEuro(totalOvertimeCostSum)} • {weeklyAlerts.length} Week Alert(s)
           </div>
         </div>
 
@@ -1612,10 +1612,10 @@ export const HRManagementModule = ({ user }) => {
                                   <div>
                                     <strong>{fc.title}</strong> • <span style={{ color: 'var(--text-muted)' }}>{fc.project_name}</span>
                                     <span style={{ marginLeft: 10, color: '#c2410c', fontWeight: 700 }}>
-                                      Tagessatz: €{fc.tagessatz}/Tag • Stundensatz: €{fc.stundensatz}/Std.
+                                      Tagessatz: {formatEuro(fc.tagessatz)}/Tag • Stundensatz: {formatEuro(fc.stundensatz)}/Std.
                                     </span>
                                     <span style={{ marginLeft: 10, fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                                      ({fc.start_date} – {fc.end_date})
+                                      ({formatDate(fc.start_date)} – {formatDate(fc.end_date)})
                                     </span>
                                   </div>
                                   <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
@@ -2180,7 +2180,7 @@ export const HRManagementModule = ({ user }) => {
                         </div>
                       ) : (
                         <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                          Quota: {attr.monthly_contract_hours || 160}h/mo ({attr.weekly_hours || 40}h/wk) • Probezeit: {attr.probezeit_end_date || '—'}
+                          Quota: {attr.monthly_contract_hours || 160}h/mo ({attr.weekly_hours || 40}h/wk) • Probezeit: {formatDate(attr.probezeit_end_date)}
                         </div>
                       )}
                     </td>
@@ -2189,7 +2189,7 @@ export const HRManagementModule = ({ user }) => {
                         <>
                           <div style={{ fontWeight: 600 }}>{attr.company_name}</div>
                           <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                            USt-ID: {attr.ust_id || '—'} • §48b: {attr.freistellungsbescheinigung_until || '—'}
+                            USt-ID: {attr.ust_id || '—'} • §48b: {formatDate(attr.freistellungsbescheinigung_until)}
                           </div>
                         </>
                       ) : (
@@ -2205,19 +2205,19 @@ export const HRManagementModule = ({ user }) => {
                       {isSub || isCandidate ? (
                         <>
                           <div style={{ fontWeight: 700, color: '#c2410c' }}>
-                            Tagessatz: €{Number(attr.tagessatz || 640).toLocaleString('de-DE')}/d
+                            Tagessatz: {formatEuro(attr.tagessatz || 640)}/Tag
                           </div>
                           <div style={{ fontSize: '0.73rem', fontWeight: 600 }}>
-                            Stundensatz: €{Number(attr.stundensatz || e.hourly_rate || 80).toFixed(2)}/h
+                            Stundensatz: {formatEuro(attr.stundensatz || e.hourly_rate || 80)}/h
                           </div>
                         </>
                       ) : (
                         <>
                           <div style={{ fontWeight: 700 }}>
-                            {e.base_salary > 0 ? `€${e.base_salary.toLocaleString('de-DE')}/mo` : `€${e.hourly_rate.toFixed(2)}/h`}
+                            {e.base_salary > 0 ? `${formatEuro(e.base_salary)}/Mo` : `${formatEuro(e.hourly_rate)}/h`}
                           </div>
                           <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                            Rate: €{e.hourly_rate.toFixed(2)}/h • Überstunden: €{(attr.overtime_rate ?? 28.5).toFixed(2)}/h
+                            Basis: {formatEuro(e.hourly_rate)}/h • Überstunden: {formatEuro(attr.overtime_rate ?? 28.5)}/h
                           </div>
                         </>
                       )}
@@ -2451,7 +2451,7 @@ export const HRManagementModule = ({ user }) => {
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(0, 1fr))', gap: '12px', marginBottom: '16px' }}>
                   {[
                     { label: 'Worked Hours (1st–31st)', val: `${biSummary.total_hours} h`, sub: `${biSummary.days_worked} days on site` },
-                    { label: 'Überstunden (Overtime)', val: `${biSummary.total_overtime_hours || 0} h`, sub: `€${(biSummary.total_overtime_cost || 0).toFixed(2)} • ${(biSummary.weekly_alerts || []).length} KW Alert(s)`, color: '#ea580c' },
+                    { label: 'Überstunden (Overtime)', val: `${biSummary.total_overtime_hours || 0} h`, sub: `${formatEuro(biSummary.total_overtime_cost)} • ${(biSummary.weekly_alerts || []).length} KW Alert(s)`, color: '#ea580c' },
                     { label: 'Approved / Pending Shifts', val: `${biSummary.approved_hours} h / ${biSummary.pending_hours} h`, sub: `Break: ${biSummary.total_break_minutes} min` },
                     { label: 'Urlaub Credit (+8h/Day)', val: `+${biSummary.leave_credited_hours || 0} h`, sub: `${biSummary.leave_days_count || 0} Urlaub day(s)`, color: '#ca8a04' },
                     { label: 'Krankheit Credit (+8h/Day)', val: `+${biSummary.sick_credited_hours || 0} h`, sub: `${biSummary.sick_days_count || 0} Krankheit day(s)`, color: '#dc2626' },
@@ -2608,7 +2608,7 @@ export const HRManagementModule = ({ user }) => {
                               <td style={{ padding: '8px' }}>
                                 {eb.overtime_hours > 0 ? (
                                   <span style={{ fontWeight: 700, color: '#ea580c' }}>
-                                    +{eb.overtime_hours}h (€{(eb.overtime_cost || 0).toFixed(2)})
+                                    +{eb.overtime_hours}h ({formatEuro(eb.overtime_cost)})
                                   </span>
                                 ) : (
                                   '0 h'
@@ -2622,7 +2622,7 @@ export const HRManagementModule = ({ user }) => {
                                 )}
                               </td>
                               <td style={{ padding: '8px', fontWeight: 800 }}>
-                                €{(eb.estimated_monthly_cost || eb.base_salary || 0).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                {formatEuro(eb.estimated_monthly_cost || eb.base_salary)}
                               </td>
                             </tr>
                           ))}
@@ -2677,7 +2677,7 @@ export const HRManagementModule = ({ user }) => {
                               style={{ width: '135px', padding: '4px 6px' }}
                             />
                           ) : (
-                            l.date
+                            formatDate(l.date)
                           )}
                         </td>
                         <td style={{ padding: '10px 8px', fontWeight: 600 }}>{l.employee_name}</td>
@@ -2784,7 +2784,7 @@ export const HRManagementModule = ({ user }) => {
                 <tr key={lv.id} style={{ borderBottom: '1px solid var(--border)' }}>
                   <td style={{ padding: '10px 8px', fontWeight: 600 }}>{lv.employee_name}</td>
                   <td style={{ padding: '10px 8px' }}>{lv.type}</td>
-                  <td style={{ padding: '10px 8px' }}>{lv.start_date} → {lv.end_date}</td>
+                  <td style={{ padding: '10px 8px' }}>{formatDate(lv.start_date)} → {formatDate(lv.end_date)}</td>
                   <td style={{ padding: '10px 8px' }}>{lv.reason || '—'}</td>
                   <td style={{ padding: '10px 8px' }}>
                     <span className="badge" style={{
@@ -2830,7 +2830,7 @@ export const HRManagementModule = ({ user }) => {
               {sickness.map(s => (
                 <tr key={s.id} style={{ borderBottom: '1px solid var(--border)' }}>
                   <td style={{ padding: '10px 8px', fontWeight: 600 }}>{s.employee_name}</td>
-                  <td style={{ padding: '10px 8px' }}>{s.start_date} → {s.end_date}</td>
+                  <td style={{ padding: '10px 8px' }}>{formatDate(s.start_date)} → {formatDate(s.end_date)}</td>
                   <td style={{ padding: '10px 8px' }}>{s.symptoms_note || '—'} ({s.doctor_visited ? 'Doctor visited' : 'Self-report'})</td>
                   <td style={{ padding: '10px 8px' }}>
                     {s.au_document_url ? (
@@ -2881,10 +2881,10 @@ export const HRManagementModule = ({ user }) => {
                 <tr key={p.id} style={{ borderBottom: '1px solid var(--border)' }}>
                   <td style={{ padding: '10px 8px', fontWeight: 700 }}>{p.period_label}</td>
                   <td style={{ padding: '10px 8px', fontWeight: 600 }}>{p.employee_name}</td>
-                  <td style={{ padding: '10px 8px' }}>€{p.gross_salary.toFixed(2)}</td>
-                  <td style={{ padding: '10px 8px' }}>€{p.net_salary.toFixed(2)}</td>
-                  <td style={{ padding: '10px 8px', color: '#059669' }}>+€{p.commission_bonus.toFixed(2)}</td>
-                  <td style={{ padding: '10px 8px', fontWeight: 700, color: 'var(--accent)' }}>€{p.total_payout.toFixed(2)}</td>
+                  <td style={{ padding: '10px 8px' }}>{formatEuro(p.gross_salary)}</td>
+                  <td style={{ padding: '10px 8px' }}>{formatEuro(p.net_salary)}</td>
+                  <td style={{ padding: '10px 8px', color: '#059669' }}>{formatEuro(p.commission_bonus, { showPlus: true })}</td>
+                  <td style={{ padding: '10px 8px', fontWeight: 700, color: 'var(--accent)' }}>{formatEuro(p.total_payout)}</td>
                   <td style={{ padding: '10px 8px' }}>
                     <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
                       {p.document_url && (
@@ -3401,7 +3401,7 @@ export const ProjectsObjectsModule = () => {
                       <div key={c.id} style={{ padding: '10px', borderRadius: '8px', background: 'var(--surface-2)', border: '1px solid var(--border)', fontSize: '0.8rem' }}>
                         <div className="flex-between" style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: '4px' }}>
                           <strong>{c.author_name}</strong>
-                          <span>{c.created_at ? new Date(c.created_at).toLocaleString('de-DE') : ''}</span>
+                          <span>{formatDateTime(c.created_at)}</span>
                         </div>
                         <div>{c.text}</div>
                       </div>
@@ -3433,7 +3433,7 @@ export const ProjectsObjectsModule = () => {
                       <div key={m.id} style={{ padding: '10px', borderRadius: '8px', background: 'var(--surface-2)', border: '1px solid var(--border)' }}>
                         <div className="flex-between" style={{ fontSize: '0.75rem', marginBottom: '6px' }}>
                           <strong>{m.file_name}</strong>
-                          <span style={{ color: 'var(--text-muted)' }}>{m.created_at ? new Date(m.created_at).toLocaleString('de-DE') : ''}</span>
+                          <span style={{ color: 'var(--text-muted)' }}>{formatDateTime(m.created_at)}</span>
                         </div>
                         {m.mime_type?.startsWith('video') ? (
                           <video controls style={{ width: '100%', borderRadius: '6px', maxHeight: '160px', background: '#000' }} src={resolveMediaUrl(m.url)} />
@@ -3750,7 +3750,7 @@ export const ProjectsObjectsModule = () => {
                     const st = getStatusStyle(a.task_status);
                     return (
                       <tr key={a.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                        <td style={{ padding: '10px 8px', fontWeight: 600 }}>{a.date}</td>
+                        <td style={{ padding: '10px 8px', fontWeight: 600 }}>{formatDate(a.date)}</td>
                         <td style={{ padding: '10px 8px' }}>{a.assignee_label}</td>
                         <td style={{ padding: '10px 8px' }}>
                           <div style={{ fontWeight: 600 }}>{a.title}</div>
@@ -3863,7 +3863,7 @@ export const ProjectsObjectsModule = () => {
                 <div>Manager: <strong>{p.manager_name}</strong></div>
                 <div>Region: {p.region_name}</div>
                 <div>Progress: {p.completed_objects_count}/{p.objects_count} Objects ({p.total_units} WE)</div>
-                <div>Budget: €{p.budget.toLocaleString('de-DE')}</div>
+                <div>Budget: {formatEuro(p.budget)}</div>
               </div>
             </div>
           ))}
@@ -3909,8 +3909,8 @@ export const ProjectsObjectsModule = () => {
                 <tr key={d.id} style={{ borderBottom: '1px solid var(--border)' }}>
                   <td style={{ padding: '8px', fontWeight: 600 }}>{d.delegator_name}</td>
                   <td style={{ padding: '8px', fontWeight: 600, color: 'var(--accent)' }}>{d.delegatee_name}</td>
-                  <td style={{ padding: '8px' }}>{d.start_date}</td>
-                  <td style={{ padding: '8px' }}>{d.end_date}</td>
+                  <td style={{ padding: '8px' }}>{formatDate(d.start_date)}</td>
+                  <td style={{ padding: '8px' }}>{formatDate(d.end_date)}</td>
                   <td style={{ padding: '8px' }}><span className="badge">{d.is_active ? 'Active' : 'Expired'}</span></td>
                 </tr>
               ))}

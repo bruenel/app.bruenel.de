@@ -3,7 +3,7 @@ import {
   Package, Truck, Wrench, Calendar as CalendarIcon, Receipt, ShoppingBag,
   Plus, ArrowRightLeft, AlertTriangle, Download, Check, X, FileText, Video, MessageSquare, Upload
 } from 'lucide-react';
-import { fetchWithToken, uploadMediaFile, resolveMediaUrl, API_URL, getToken } from '../core/api';
+import { fetchWithToken, uploadMediaFile, resolveMediaUrl, API_URL, getToken, formatEuro, formatDate, formatDateTime, formatDateRange } from '../core/api';
 import { TASK_STATUS_CONFIG } from '../core/i18n';
 import { useParams, useNavigate } from 'react-router-dom';
 import { PageHead, SubTabs, useQuickAction, Empty } from '../components/ui';
@@ -212,7 +212,7 @@ export const InventoryLedgerModule = () => {
                 <tr key={m.id} style={{ borderBottom: '1px solid var(--border)' }}>
                   <td style={{ padding: 10, fontFamily: 'monospace' }}>{m.sku}</td><td style={{ padding: 10, fontWeight: 600 }}>{m.name}</td>
                   <td style={{ padding: 10 }}><span className="badge">{m.category}</span></td><td style={{ padding: 10 }}>{m.unit}</td>
-                  <td style={{ padding: 10 }}>{m.min_stock_threshold}</td><td style={{ padding: 10 }}>€{m.unit_cost.toFixed(2)}</td>
+                  <td style={{ padding: 10 }}>{m.min_stock_threshold}</td><td style={{ padding: 10 }}>{formatEuro(m.unit_cost)}</td>
                 </tr>))}</tbody>
             </table>
           </div>
@@ -589,7 +589,7 @@ export const MasterCalendarModule = () => {
   for (let d = 1; d <= days; d++) cells.push(new Date(y, m, d));
   while (cells.length % 7) cells.push(null);
   const todayIso = iso(new Date());
-  const monthLabel = cursor.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+  const monthLabel = cursor.toLocaleDateString('de-DE', { month: 'long', year: 'numeric' });
 
   // Week days calculation
   const weekDays = (() => {
@@ -759,7 +759,7 @@ export const MasterCalendarModule = () => {
               style={{ borderLeft: `4px solid ${ev.hex_color}`, cursor: ev.event_type === 'Assignment' ? 'pointer' : 'default' }}
             >
               <div className="flex-between" style={{ marginBottom: 6 }}>
-                <span style={{ fontSize: 12, fontWeight: 600 }}>{ev.date}</span><span className="badge">{ev.task_status || ev.event_type}</span>
+                <span style={{ fontSize: 12, fontWeight: 600 }}>{formatDate(ev.date)}</span><span className="badge">{ev.task_status || ev.event_type}</span>
               </div>
               <h4>{ev.title}</h4><p style={{ fontSize: 13 }}>{ev.subtitle}</p>
             </div>
@@ -774,7 +774,7 @@ export const MasterCalendarModule = () => {
             <div className="flex-between" style={{ marginBottom: 14 }}>
               <div>
                 <div style={{ display: 'flex', gap: 8, marginBottom: 4 }}>
-                  <span className="badge">{taskDocModal.date}</span>
+                  <span className="badge">{formatDate(taskDocModal.date)}</span>
                   <span className="badge">{taskDocModal.assignee_label}</span>
                 </div>
                 <h3>{taskDocModal.title}</h3>
@@ -804,7 +804,7 @@ export const MasterCalendarModule = () => {
                     <div key={c.id} style={{ padding: 10, borderRadius: 8, background: 'var(--surface-2)', border: '1px solid var(--border)', fontSize: 13 }}>
                       <div className="flex-between" style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 3 }}>
                         <strong>{c.author_name}</strong>
-                        <span>{c.created_at ? new Date(c.created_at).toLocaleString('de-DE') : ''}</span>
+                        <span>{formatDateTime(c.created_at)}</span>
                       </div>
                       <div>{c.text}</div>
                     </div>
@@ -846,7 +846,7 @@ export const MasterCalendarModule = () => {
         <div className="modal-overlay">
           <div className="glass-panel" style={{ width: 520 }}>
             <div className="flex-between" style={{ marginBottom: 16 }}>
-              <h3>{new Date(dayModal.date).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}</h3>
+              <h3>{new Date(dayModal.date).toLocaleDateString('de-DE', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' })}</h3>
               <button className="btn-secondary btn-sm" onClick={() => setDayModal(null)}>Close</button>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -946,10 +946,10 @@ export const AccountingModule = () => {
 
       {summary && sec === 'overview' && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
-          <div className="glass-panel"><div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>TOTAL EXPENSES (GROSS)</div><div style={{ fontSize: '1.8rem', fontWeight: 700, color: 'var(--accent)' }}>€{summary.total_expenses_gross.toFixed(2)}</div></div>
-          <div className="glass-panel"><div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>APPROVED FOR REIMBURSEMENT</div><div style={{ fontSize: '1.8rem', fontWeight: 700, color: '#059669' }}>€{summary.approved_expenses_gross.toFixed(2)}</div></div>
-          <div className="glass-panel"><div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>FIELD SALES REVENUE</div><div style={{ fontSize: '1.8rem', fontWeight: 700, color: '#2563eb' }}>€{summary.total_field_sales_revenue.toFixed(2)}</div></div>
-          <div className="glass-panel"><div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>PAYROLL GROSS ISSUED</div><div style={{ fontSize: '1.8rem', fontWeight: 700 }}>€{summary.total_payroll_gross.toFixed(2)}</div></div>
+          <div className="glass-panel"><div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>TOTAL EXPENSES (GROSS)</div><div style={{ fontSize: '1.8rem', fontWeight: 700, color: 'var(--accent)' }}>{formatEuro(summary.total_expenses_gross)}</div></div>
+          <div className="glass-panel"><div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>APPROVED FOR REIMBURSEMENT</div><div style={{ fontSize: '1.8rem', fontWeight: 700, color: '#059669' }}>{formatEuro(summary.approved_expenses_gross)}</div></div>
+          <div className="glass-panel"><div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>FIELD SALES REVENUE</div><div style={{ fontSize: '1.8rem', fontWeight: 700, color: '#2563eb' }}>{formatEuro(summary.total_field_sales_revenue)}</div></div>
+          <div className="glass-panel"><div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>PAYROLL GROSS ISSUED</div><div style={{ fontSize: '1.8rem', fontWeight: 700 }}>{formatEuro(summary.total_payroll_gross)}</div></div>
         </div>
       )}
 
@@ -976,7 +976,7 @@ export const AccountingModule = () => {
           <table><thead><tr style={{ textAlign: 'left', color: 'var(--text-muted)' }}><th style={{ padding: 10 }}>Time</th><th style={{ padding: 10 }}>Table</th><th style={{ padding: 10 }}>Operation</th><th style={{ padding: 10 }}>Record</th><th style={{ padding: 10 }}>By</th></tr></thead>
             <tbody>{summary.recent_audit_logs.map((a) => (
               <tr key={a.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                <td style={{ padding: 10 }}>{a.created_at ? new Date(a.created_at).toLocaleString('de-DE') : ''}</td><td style={{ padding: 10 }}><code>{a.table_name}</code></td>
+                <td style={{ padding: 10 }}>{formatDateTime(a.created_at)}</td><td style={{ padding: 10 }}><code>{a.table_name}</code></td>
                 <td style={{ padding: 10 }}><span className="badge">{a.operation}</span></td><td style={{ padding: 10, fontFamily: 'monospace', fontSize: 12 }}>{a.record_id}</td><td style={{ padding: 10 }}>{a.changed_by}</td>
               </tr>))}</tbody></table>
         </div>
@@ -1025,15 +1025,15 @@ export const AccountingModule = () => {
           <tbody>
             {expenses.filter((e) => statusFilter === 'All' || e.status === statusFilter).map(ex => (
               <tr key={ex.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                <td style={{ padding: '10px 8px' }}>{ex.expense_date}</td>
+                <td style={{ padding: '10px 8px' }}>{formatDate(ex.expense_date)}</td>
                 <td style={{ padding: '10px 8px', fontWeight: 600 }}>{ex.employee_name}</td>
                 <td style={{ padding: '10px 8px' }}>
                   <div><strong>{ex.category}</strong> — {ex.merchant}</div>
                   <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{ex.description}</div>
                 </td>
                 <td style={{ padding: '10px 8px' }}>
-                  €{ex.amount_net.toFixed(2)} net<br/>
-                  <strong>€{ex.amount_gross.toFixed(2)} gross</strong>
+                  {formatEuro(ex.amount_net)} Netto<br/>
+                  <strong>{formatEuro(ex.amount_gross)} Brutto</strong>
                 </td>
                 <td style={{ padding: '10px 8px' }}>
                   {ex.receipt_url ? <a href={resolveMediaUrl(ex.receipt_url)} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}><Receipt size={13} /> View Receipt</a> : '—'}
@@ -1100,8 +1100,8 @@ export const FieldSalesAdminModule = () => {
       ]} />
       {dashboard && sec === 'feed' && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
-          <div className="glass-panel kpi"><label>Revenue</label><div style={{ fontSize: 28, fontWeight: 700 }}>€{dashboard.total_revenue.toFixed(2)}</div></div>
-          <div className="glass-panel kpi"><label>Provision earned</label><div style={{ fontSize: 28, fontWeight: 700, color: 'var(--success)' }}>€{dashboard.total_commission.toFixed(2)}</div></div>
+          <div className="glass-panel kpi"><label>Revenue</label><div style={{ fontSize: 28, fontWeight: 700 }}>{formatEuro(dashboard.total_revenue)}</div></div>
+          <div className="glass-panel kpi"><label>Provision earned</label><div style={{ fontSize: 28, fontWeight: 700, color: 'var(--success)' }}>{formatEuro(dashboard.total_commission)}</div></div>
           <div className="glass-panel kpi"><label>Units sold</label><div style={{ fontSize: 28, fontWeight: 700 }}>{dashboard.total_units_sold}</div></div>
         </div>
       )}
@@ -1134,11 +1134,11 @@ export const FieldSalesAdminModule = () => {
             <div key={c.id} className="flex-between" style={{ padding: '10px 0', borderBottom: '1px solid var(--border)', fontSize: '0.85rem' }}>
               <div>
                 <div style={{ fontWeight: 600 }}>{c.item_name}</div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>SKU: {c.sku} • Buy: €{c.buy_price.toFixed(2)}</div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>SKU: {c.sku} • Buy: {formatEuro(c.buy_price)}</div>
               </div>
               <div style={{ textAlign: 'right' }}>
-                <div style={{ fontWeight: 700, color: 'var(--accent)' }}>€{c.sell_price.toFixed(2)}</div>
-                <div style={{ fontSize: '0.75rem', color: '#059669' }}>Provision: €{c.commission_amount.toFixed(2)}</div>
+                <div style={{ fontWeight: 700, color: 'var(--accent)' }}>{formatEuro(c.sell_price)}</div>
+                <div style={{ fontSize: '0.75rem', color: '#059669' }}>Provision: {formatEuro(c.commission_amount)}</div>
               </div>
             </div>
           ))}
@@ -1153,8 +1153,8 @@ export const FieldSalesAdminModule = () => {
                 <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{lb.units} hardware units sold</div>
               </div>
               <div style={{ textAlign: 'right' }}>
-                <div style={{ fontWeight: 700, color: '#059669' }}>+€{lb.commission.toFixed(2)} Provision</div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Revenue: €{lb.revenue.toFixed(2)}</div>
+                <div style={{ fontWeight: 700, color: '#059669' }}>{formatEuro(lb.commission, { showPlus: true })} Provision</div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Revenue: {formatEuro(lb.revenue)}</div>
               </div>
             </div>
           ))}
@@ -1177,7 +1177,7 @@ export const FieldSalesAdminModule = () => {
           <tbody>
             {(dashboard?.transactions || []).map(t => (
               <tr key={t.sale_id} style={{ borderBottom: '1px solid var(--border)' }}>
-                <td style={{ padding: '8px', fontSize: '0.78rem' }}>{t.sale_timestamp ? new Date(t.sale_timestamp).toLocaleString('de-DE') : ''}</td>
+                <td style={{ padding: '8px', fontSize: '0.78rem' }}>{formatDateTime(t.sale_timestamp)}</td>
                 <td style={{ padding: '8px', fontWeight: 600 }}>{t.employee_name}</td>
                 <td style={{ padding: '8px' }}><span className="badge" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}><Truck size={12} /> {t.vehicle_plate} (-{t.quantity})</span></td>
                 <td style={{ padding: '8px' }}>
@@ -1186,7 +1186,7 @@ export const FieldSalesAdminModule = () => {
                 </td>
                 <td style={{ padding: '8px' }}><span className="badge">{t.payment_method}</span></td>
                 <td style={{ padding: '8px' }}>
-                  <strong>€{t.total_revenue.toFixed(2)}</strong> / <span style={{ color: '#059669' }}>+€{t.total_commission.toFixed(2)}</span>
+                  <strong>{formatEuro(t.total_revenue)}</strong> / <span style={{ color: '#059669' }}>{formatEuro(t.total_commission, { showPlus: true })}</span>
                 </td>
               </tr>
             ))}
