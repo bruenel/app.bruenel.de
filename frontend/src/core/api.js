@@ -123,9 +123,18 @@ export const useAuth = () => {
   const [loading, setLoading] = useState(true);
 
   const loadMe = async (token) => {
-    const res = await fetch(`${API_URL}/api/auth/me`, {
-      headers: { 'Authorization': `Bearer ${token}` },
-    });
+    // Timeout so a slow/cold backend can never leave the app stuck on "Loading session…"
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 12000);
+    let res;
+    try {
+      res = await fetch(`${API_URL}/api/auth/me`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
     if (!res.ok) throw new Error('Token expired');
     return res.json();
   };
