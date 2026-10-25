@@ -148,8 +148,10 @@ def ensure_employee_linked(db: Session, user: models.User) -> Optional[models.Em
 
     user.employee_id = emp.id
     user.role_tier = get_effective_tier(user)
-    if user.role_tier <= 4 and not user.can_access_app:
+    if user.role_tier <= 3 and not user.can_access_app:
         user.can_access_app = True
+    elif user.role_tier > 3:
+        user.can_access_app = False
     db.commit()
     db.refresh(user)
     return emp

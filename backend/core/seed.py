@@ -150,7 +150,7 @@ def seed_initial_erp_data(db: Session):
     demo_users = [
         ("markus.weber@bruenel.de", models.RoleEnum.PROJECT_MANAGER, 2, pm_id, True, ["mod_dashboard", "mod_projects", "mod_inventory", "mod_fleet", "mod_calendar", "mod_hr", "mod_sales"]),
         ("sabine.keller@bruenel.de", models.RoleEnum.HR_FINANCE, 3, hr_id, True, ["mod_dashboard", "mod_hr", "mod_accounting", "mod_calendar", "mod_sales", "mod_vault"]),
-        ("lukas.schmidt@bruenel.de", models.RoleEnum.TEAM_LEAD, 4, lead_id, True, ["mod_dashboard", "mod_projects", "mod_inventory", "mod_fleet", "mod_calendar", "mod_sales"]),
+        ("lukas.schmidt@bruenel.de", models.RoleEnum.TEAM_LEAD, 4, lead_id, False, []),
         ("ali.yilmaz@bruenel.de", models.RoleEnum.FIELD_EMPLOYEE, 5, tech1_id, False, []),
     ]
     for email, r_enum, tier, eid, app_access, mods in demo_users:

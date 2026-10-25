@@ -512,13 +512,18 @@ export default function App() {
     );
   }
 
-  const showEmployeePortal = isPortalHostname || !user.can_access_app || portalModeOverride;
+  // Only Management Tiers (Tier 1 Owner, Tier 2 Project Manager, Tier 3 HR & Finance) have access to the Management Portal
+  // Team Leaders (Tier 4) and Employees (Tier 5) have no access to the management portal
+  const isManagementTier = (user?.role_tier && user.role_tier <= 3) || user?.role === 'Owner' || user?.role === 'Project Manager' || user?.role === 'HR & Finance';
+  const canAccessManagement = isManagementTier && user?.can_access_app !== false && !isPortalHostname;
+
+  const showEmployeePortal = isPortalHostname || !canAccessManagement || portalModeOverride;
   if (showEmployeePortal) {
     return (
       <EmployeePortalPWA
         user={user}
         logout={logout}
-        onSwitchToManagement={user.can_access_app && !isPortalHostname ? () => togglePortalMode('management') : null}
+        onSwitchToManagement={canAccessManagement ? () => togglePortalMode('management') : null}
       />
     );
   }

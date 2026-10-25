@@ -68,7 +68,7 @@ def register_user(
         raise HTTPException(status_code=400, detail="Email already registered")
 
     tier = user.role_tier or ROLE_TO_TIER.get(user.role, 5)
-    can_app = user.can_access_app if user.can_access_app is not None else (tier <= 4)
+    can_app = user.can_access_app if user.can_access_app is not None else (tier <= 3)
 
     new_user = models.User(
         email=user.email,
@@ -257,7 +257,7 @@ def admin_create_user(
         raise HTTPException(status_code=400, detail="Email already registered")
 
     tier = user.role_tier or ROLE_TO_TIER.get(user.role, 5)
-    can_app = user.can_access_app if user.can_access_app is not None else (tier <= 4 or bool(user.allowed_modules))
+    can_app = user.can_access_app if user.can_access_app is not None else (tier <= 3)
 
     new_user = models.User(
         email=user.email,

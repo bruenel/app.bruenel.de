@@ -166,7 +166,7 @@ def create_employee(
                 role=role_enum,
                 role_tier=payload.role_tier,
                 employee_id=emp.id,
-                can_access_app=(payload.role_tier <= 4),
+                can_access_app=(payload.role_tier <= 3),
                 can_access_portal=True,
                 must_change_password=True,
             )
@@ -230,7 +230,7 @@ def update_employee(
             u.email = emp.email
         if emp.role_tier:
             u.role_tier = emp.role_tier
-            u.can_access_app = (emp.role_tier <= 4)
+            u.can_access_app = (emp.role_tier <= 3)
     elif emp.email and emp.employment_type and emp.employment_type != "Candidate":
         otp_plain = _generate_otp_code(8)
         merged_attrs = dict(emp.attributes or {})
@@ -243,7 +243,7 @@ def update_employee(
             role=models.RoleEnum.FIELD_EMPLOYEE if (emp.role_tier or 5) == 5 else models.RoleEnum.MITARBEITER,
             role_tier=emp.role_tier or 5,
             employee_id=emp.id,
-            can_access_app=((emp.role_tier or 5) <= 4),
+            can_access_app=((emp.role_tier or 5) <= 3),
             can_access_portal=True,
             must_change_password=True,
         )

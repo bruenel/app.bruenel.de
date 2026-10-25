@@ -3,7 +3,8 @@ import {
   Clock, Calendar, HeartPulse, FileText, ShoppingBag,
   Upload, Play, Pause, Square, LogOut, Users,
   MapPin, Wrench, MessageSquare, Lock, Edit3, Check, X,
-  ChevronLeft, ChevronRight, ChevronDown, Globe, BarChart3, Plus, FolderOpen, Download, Trash2, User, KeyRound, Shield
+  ChevronLeft, ChevronRight, ChevronDown, Globe, BarChart3, Plus, FolderOpen, Download, Trash2, User, KeyRound, Shield,
+  LayoutDashboard
 } from 'lucide-react';
 import { fetchWithToken, uploadMediaFile, resolveMediaUrl } from '../core/api';
 import { TRANSLATIONS, TASK_STATUS_CONFIG, getStatusStyle } from '../core/i18n';
@@ -51,7 +52,7 @@ const MONTH_LIST_DE = [
   { num: 12, short: '12 · Dez', labelDe: 'Dezember', labelEn: 'December' },
 ];
 
-export const EmployeePortalPWA = ({ user, logout }) => {
+export const EmployeePortalPWA = ({ user, logout, onSwitchToManagement }) => {
   const [lang, setLang] = useState(() => user?.preferred_language || localStorage.getItem('bruenel_lang') || 'de');
   const t = TRANSLATIONS[lang] || TRANSLATIONS.de;
 
@@ -648,6 +649,34 @@ export const EmployeePortalPWA = ({ user, logout }) => {
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {onSwitchToManagement && (
+              <button
+                type="button"
+                onClick={onSwitchToManagement}
+                className="btn-primary"
+                style={{
+                  padding: '6px 14px',
+                  minHeight: '34px',
+                  borderRadius: '999px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '7px',
+                  fontSize: '0.74rem',
+                  fontWeight: 800,
+                  background: 'linear-gradient(135deg, #ff6b00, #ea580c)',
+                  color: '#ffffff',
+                  border: 'none',
+                  boxShadow: '0 3px 10px rgba(255,107,0,0.3)',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                }}
+                title={lang === 'de' ? 'Zurück zum Management Portal (Brünel OS)' : 'Return to Management Console'}
+              >
+                <LayoutDashboard size={15} />
+                <span>{lang === 'de' ? 'Management Portal' : 'Management Portal'}</span>
+              </button>
+            )}
+
             <button
               type="button"
               onClick={() => {
@@ -2206,6 +2235,37 @@ export const EmployeePortalPWA = ({ user, logout }) => {
                   {lang === 'de' ? 'Passwort speichern' : 'Update Password'}
                 </button>
               </form>
+
+              {/* Management Portal Shortcut for Tiers 1-3 */}
+              {onSwitchToManagement && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowUserModal(false);
+                    onSwitchToManagement();
+                  }}
+                  className="btn-primary"
+                  style={{
+                    width: '100%',
+                    padding: '10px 14px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px',
+                    fontSize: '0.82rem',
+                    fontWeight: 800,
+                    background: 'linear-gradient(135deg, #ff6b00, #ea580c)',
+                    color: '#ffffff',
+                    borderRadius: '10px',
+                    border: 'none',
+                    cursor: 'pointer',
+                    boxShadow: '0 4px 12px rgba(255,107,0,0.25)',
+                  }}
+                >
+                  <LayoutDashboard size={16} />
+                  <span>{lang === 'de' ? 'Zum Management Portal wechseln' : 'Switch to Management Portal'}</span>
+                </button>
+              )}
 
               {/* 4. Logout & Land on Login Page */}
               <button
