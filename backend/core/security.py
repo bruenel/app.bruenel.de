@@ -120,31 +120,40 @@ def ensure_employee_linked(db: Session, user: models.User) -> Optional[models.Em
 
     # Check if an employee with this email already exists
     emp = db.query(models.Employee).filter(models.Employee.email == user.email).first()
-    if not emp:
-        name_part = user.email.split("@")[0]
-        parts = name_part.replace(".", " ").replace("_", " ").split()
-        first_name = parts[0].capitalize() if parts else "Brünel"
-        last_name = " ".join(p.capitalize() for p in parts[1:]) if len(parts) > 1 else "User"
-        tier = get_effective_tier(user)
-        emp_num = f"BRN-{1000 + (user.id or 1)}"
-        # Avoid duplicate employee_number
-        existing_num = db.query(models.Employee).filter(models.Employee.employee_number == emp_num).first()
-        if existing_num:
-            emp_num = f"BRN-{1000 + (user.id or 1)}-{int(datetime.utcnow().timestamp()) % 1000}"
-
-        emp = models.Employee(
-            employee_number=emp_num,
-            first_name=first_name,
-            last_name=last_name,
-            email=user.email,
-            employment_type="Full-time",
-            role=user.role.value if hasattr(user.role, "value") else str(user.role),
-            role_tier=tier,
-            attributes={"auto_created": True}
-        )
-        db.add(emp)
+    if emp:
+        user.employee_id = emp.id
         db.commit()
-        db.refresh(emp)
+        return emp
+
+    # For Owner / Super Admin: do not auto-inject an employee row on login,
+    # so that the employee directory can start completely clean/empty from scratch.
+    if user.role == models.RoleEnum.OWNER or getattr(user, "role_tier", 1) == 1:
+        return None
+
+    name_part = user.email.split("@")[0]
+    parts = name_part.replace(".", " ").replace("_", " ").split()
+    first_name = parts[0].capitalize() if parts else "Brünel"
+    last_name = " ".join(p.capitalize() for p in parts[1:]) if len(parts) > 1 else "User"
+    tier = get_effective_tier(user)
+    emp_num = f"BRN-{1000 + (user.id or 1)}"
+    # Avoid duplicate employee_number
+    existing_num = db.query(models.Employee).filter(models.Employee.employee_number == emp_num).first()
+    if existing_num:
+        emp_num = f"BRN-{1000 + (user.id or 1)}-{int(datetime.utcnow().timestamp()) % 1000}"
+
+    emp = models.Employee(
+        employee_number=emp_num,
+        first_name=first_name,
+        last_name=last_name,
+        email=user.email,
+        employment_type="Full-time",
+        role=user.role.value if hasattr(user.role, "value") else str(user.role),
+        role_tier=tier,
+        attributes={"auto_created": True}
+    )
+    db.add(emp)
+    db.commit()
+    db.refresh(emp)
 
     user.employee_id = emp.id
     user.role_tier = get_effective_tier(user)

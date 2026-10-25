@@ -38,6 +38,10 @@ def seed_initial_erp_data(db: Session):
             owner.allowed_modules = models.ALL_MODULE_KEYS
         db.commit()
 
+    # In production and clean environments, do NOT auto-seed demo data
+    if os.getenv("SEED_DEMO_DATA", "").lower() not in ("1", "true", "yes"):
+        return
+
     owner_emp = ensure_employee_linked(db, owner)
     if owner_emp:
         owner_emp.first_name = "Sam"
