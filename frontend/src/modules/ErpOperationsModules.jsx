@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { DateInput, TimeInput } from '../components/DateTimeInputs';
 import {
   Package, Truck, Wrench, Calendar as CalendarIcon, Receipt, ShoppingBag,
   Plus, ArrowRightLeft, AlertTriangle, Download, Check, X, FileText, Video, MessageSquare, Upload
@@ -996,7 +997,7 @@ export const AccountingModule = () => {
               </select>
               <input placeholder="Merchant (e.g. Aral, Bauhaus)" required value={newExp.merchant} onChange={e => setNewExp({...newExp, merchant: e.target.value})} />
               <input type="number" step="0.01" placeholder="Gross Amount in EUR" required value={newExp.amount_gross} onChange={e => setNewExp({...newExp, amount_gross: e.target.value})} />
-              <input type="date" required value={newExp.expense_date} onChange={e => setNewExp({...newExp, expense_date: e.target.value})} />
+              <DateInput  required value={newExp.expense_date} onChange={e => setNewExp({...newExp, expense_date: e.target.value})} />
               <input type="file" accept="image/*,.pdf" onChange={e => setReceiptFile(e.target.files[0])} />
               <textarea placeholder="Description..." value={newExp.description} onChange={e => setNewExp({...newExp, description: e.target.value})} />
               <div style={{ display: 'flex', gap: '10px' }}>

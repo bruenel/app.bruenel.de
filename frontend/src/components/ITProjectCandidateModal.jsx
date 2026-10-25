@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { DateInput, TimeInput } from './DateTimeInputs';
 import {
   Briefcase, User, FileText, MapPin, ShieldCheck, Upload, CheckCircle2,
   ArrowRight, ArrowLeft, X, Sparkles, Globe, Building2, Check,
@@ -497,8 +498,8 @@ export function ITProjectCandidateModal({ onClose, onRegistered }) {
                   </div>
                   <div>
                     <label>Date of Birth (Geburtsdatum)</label>
-                    <input
-                      type="date"
+                    <DateInput
+                      
                       value={form.birth_date}
                       onChange={(e) => setForm({ ...form, birth_date: e.target.value })}
                       style={{ fontSize: 15, padding: '12px 14px' }}

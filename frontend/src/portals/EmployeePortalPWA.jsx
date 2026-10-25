@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { DateInput, TimeInput } from '../components/DateTimeInputs';
 import {
   Clock, Calendar, HeartPulse, FileText, ShoppingBag,
   Upload, Play, Pause, Square, LogOut, Users,
@@ -1038,8 +1039,8 @@ export const EmployeePortalPWA = ({ user, logout, onSwitchToManagement }) => {
                   <div className="neo-form-2">
                     <div>
                       <label style={{ fontSize: '0.66rem', fontWeight: 700, color: 'var(--text-muted)' }}>{t.colDate}</label>
-                      <input
-                        type="date"
+                      <DateInput
+                        
                         required
                         value={manualLogForm.date}
                         onChange={e => setManualLogForm({ ...manualLogForm, date: e.target.value })}
@@ -1060,8 +1061,8 @@ export const EmployeePortalPWA = ({ user, logout, onSwitchToManagement }) => {
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 0.8fr', gap: '6px' }}>
                     <div>
                       <label style={{ fontSize: '0.66rem', fontWeight: 700, color: 'var(--text-muted)' }}>{t.colStart}</label>
-                      <input
-                        type="time"
+                      <TimeInput
+                        
                         required
                         value={manualLogForm.check_in_time}
                         onChange={e => setManualLogForm({ ...manualLogForm, check_in_time: e.target.value })}
@@ -1069,8 +1070,8 @@ export const EmployeePortalPWA = ({ user, logout, onSwitchToManagement }) => {
                     </div>
                     <div>
                       <label style={{ fontSize: '0.66rem', fontWeight: 700, color: 'var(--text-muted)' }}>{t.colFinish}</label>
-                      <input
-                        type="time"
+                      <TimeInput
+                        
                         required
                         value={manualLogForm.check_out_time}
                         onChange={e => setManualLogForm({ ...manualLogForm, check_out_time: e.target.value })}
@@ -1121,9 +1122,9 @@ export const EmployeePortalPWA = ({ user, logout, onSwitchToManagement }) => {
                         {isEditing ? (
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                             <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr 0.7fr', gap: '5px' }}>
-                              <input type="date" value={editLogForm.date} onChange={e => setEditLogForm({ ...editLogForm, date: e.target.value })} />
-                              <input type="time" value={editLogForm.check_in_time} onChange={e => setEditLogForm({ ...editLogForm, check_in_time: e.target.value })} />
-                              <input type="time" value={editLogForm.check_out_time} onChange={e => setEditLogForm({ ...editLogForm, check_out_time: e.target.value })} />
+                              <DateInput  value={editLogForm.date} onChange={e => setEditLogForm({ ...editLogForm, date: e.target.value })} />
+                              <TimeInput  value={editLogForm.check_in_time} onChange={e => setEditLogForm({ ...editLogForm, check_in_time: e.target.value })} />
+                              <TimeInput  value={editLogForm.check_out_time} onChange={e => setEditLogForm({ ...editLogForm, check_out_time: e.target.value })} />
                               <input type="number" min="0" value={editLogForm.break_minutes} onChange={e => setEditLogForm({ ...editLogForm, break_minutes: e.target.value })} />
                             </div>
                             <div style={{ display: 'flex', gap: '6px' }}>
@@ -1650,8 +1651,8 @@ export const EmployeePortalPWA = ({ user, logout, onSwitchToManagement }) => {
                       <option value="Long-term">Mehrere Tage (Long-term)</option>
                     </select>
                     <div className="neo-form-2">
-                      <input type="date" required value={leaveForm.start_date} onChange={e => setLeaveForm({ ...leaveForm, start_date: e.target.value })} />
-                      <input type="date" required value={leaveForm.end_date} onChange={e => setLeaveForm({ ...leaveForm, end_date: e.target.value })} />
+                      <DateInput  required value={leaveForm.start_date} onChange={e => setLeaveForm({ ...leaveForm, start_date: e.target.value })} />
+                      <DateInput  required value={leaveForm.end_date} onChange={e => setLeaveForm({ ...leaveForm, end_date: e.target.value })} />
                     </div>
                     <textarea placeholder="Grund / Übergabenotiz..." value={leaveForm.reason} onChange={e => setLeaveForm({ ...leaveForm, reason: e.target.value })} />
                     <button type="submit" className="btn-primary">{lang === 'de' ? 'Urlaubsantrag senden' : 'Submit Request'}</button>
@@ -1679,8 +1680,8 @@ export const EmployeePortalPWA = ({ user, logout, onSwitchToManagement }) => {
                   <h3 style={{ fontSize: '0.86rem', marginBottom: '8px' }}>{t.tabSick}</h3>
                   <form onSubmit={handleSubmitSickness} style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                     <div className="neo-form-2">
-                      <input type="date" required value={sickForm.start_date} onChange={e => setSickForm({ ...sickForm, start_date: e.target.value })} />
-                      <input type="date" required value={sickForm.end_date} onChange={e => setSickForm({ ...sickForm, end_date: e.target.value })} />
+                      <DateInput  required value={sickForm.start_date} onChange={e => setSickForm({ ...sickForm, start_date: e.target.value })} />
+                      <DateInput  required value={sickForm.end_date} onChange={e => setSickForm({ ...sickForm, end_date: e.target.value })} />
                     </div>
                     <textarea placeholder="Symptome / Notiz für HR..." value={sickForm.symptoms_note} onChange={e => setSickForm({ ...sickForm, symptoms_note: e.target.value })} />
                     <input type="file" accept="image/*,.pdf" onChange={e => setAuFile(e.target.files[0])} />

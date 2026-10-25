@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { DateInput, TimeInput } from '../components/DateTimeInputs';
 import {
   Users, Clock, Calendar, FileText, HeartPulse, Plus, Check, X, Upload,
   Building2, MapPin, Video, Image, ShieldAlert, ArrowRightLeft, Lock, Edit3,
@@ -1291,7 +1292,7 @@ export const HRManagementModule = ({ user }) => {
                       </div>
                       <div>
                         <label>Geburtsdatum (Birth Date)</label>
-                        <input type="date" value={newEmp.attributes?.birth_date || ''} onChange={e => setEmpAttr('birth_date', e.target.value)} />
+                        <DateInput  value={newEmp.attributes?.birth_date || ''} onChange={e => setEmpAttr('birth_date', e.target.value)} />
                       </div>
                     </div>
 
@@ -1566,11 +1567,11 @@ export const HRManagementModule = ({ user }) => {
                             </div>
                             <div>
                               <label style={{ fontSize: '0.7rem' }}>Start</label>
-                              <input type="date" value={newFc.start_date} onChange={e => setNewFc({ ...newFc, start_date: e.target.value })} />
+                              <DateInput  value={newFc.start_date} onChange={e => setNewFc({ ...newFc, start_date: e.target.value })} />
                             </div>
                             <div>
                               <label style={{ fontSize: '0.7rem' }}>Ende</label>
-                              <input type="date" value={newFc.end_date} onChange={e => setNewFc({ ...newFc, end_date: e.target.value })} />
+                              <DateInput  value={newFc.end_date} onChange={e => setNewFc({ ...newFc, end_date: e.target.value })} />
                             </div>
                             <div>
                               <label style={{ fontSize: '0.7rem' }}>Tagessatz (€)</label>
@@ -1640,15 +1641,15 @@ export const HRManagementModule = ({ user }) => {
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
                           <div>
                             <label>Vertrag unterschrieben am (Signed Date)</label>
-                            <input type="date" value={newEmp.attributes?.contract_signed_date || ''} onChange={e => setEmpAttr('contract_signed_date', e.target.value)} />
+                            <DateInput  value={newEmp.attributes?.contract_signed_date || ''} onChange={e => setEmpAttr('contract_signed_date', e.target.value)} />
                           </div>
                           <div>
                             <label>Vertragsbeginn (Start Date)</label>
-                            <input type="date" value={newEmp.attributes?.contract_start_date || ''} onChange={e => setEmpAttr('contract_start_date', e.target.value)} />
+                            <DateInput  value={newEmp.attributes?.contract_start_date || ''} onChange={e => setEmpAttr('contract_start_date', e.target.value)} />
                           </div>
                           <div>
                             <label>Probezeit Ende am (Probezeit Ends On)</label>
-                            <input type="date" value={newEmp.attributes?.probezeit_end_date || ''} onChange={e => setEmpAttr('probezeit_end_date', e.target.value)} />
+                            <DateInput  value={newEmp.attributes?.probezeit_end_date || ''} onChange={e => setEmpAttr('probezeit_end_date', e.target.value)} />
                           </div>
                         </div>
 
@@ -1832,7 +1833,7 @@ export const HRManagementModule = ({ user }) => {
                       </div>
                       <div>
                         <label>Freistellungsbescheinigung §48b gültig bis</label>
-                        <input type="date" value={newEmp.attributes?.freistellungsbescheinigung_until || ''} onChange={e => setEmpAttr('freistellungsbescheinigung_until', e.target.value)} />
+                        <DateInput  value={newEmp.attributes?.freistellungsbescheinigung_until || ''} onChange={e => setEmpAttr('freistellungsbescheinigung_until', e.target.value)} />
                       </div>
                       <div>
                         <label>BG BAU Unbedenklichkeitsbescheinigung</label>
@@ -2405,15 +2406,15 @@ export const HRManagementModule = ({ user }) => {
                 </div>
                 <div>
                   <label style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)' }}>Date</label>
-                  <input type="date" required value={manualTimeForm.date} onChange={e => setManualTimeForm({ ...manualTimeForm, date: e.target.value })} />
+                  <DateInput  required value={manualTimeForm.date} onChange={e => setManualTimeForm({ ...manualTimeForm, date: e.target.value })} />
                 </div>
                 <div>
                   <label style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)' }}>Start</label>
-                  <input type="time" required value={manualTimeForm.check_in_time} onChange={e => setManualTimeForm({ ...manualTimeForm, check_in_time: e.target.value })} />
+                  <TimeInput  required value={manualTimeForm.check_in_time} onChange={e => setManualTimeForm({ ...manualTimeForm, check_in_time: e.target.value })} />
                 </div>
                 <div>
                   <label style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)' }}>Finish</label>
-                  <input type="time" required value={manualTimeForm.check_out_time} onChange={e => setManualTimeForm({ ...manualTimeForm, check_out_time: e.target.value })} />
+                  <TimeInput  required value={manualTimeForm.check_out_time} onChange={e => setManualTimeForm({ ...manualTimeForm, check_out_time: e.target.value })} />
                 </div>
                 <div>
                   <label style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)' }}>Break (m)</label>
@@ -2670,8 +2671,8 @@ export const HRManagementModule = ({ user }) => {
                       <tr key={l.id} style={{ borderBottom: '1px solid var(--border)' }}>
                         <td style={{ padding: '10px 8px', fontWeight: 600 }}>
                           {isEditing ? (
-                            <input
-                              type="date"
+                            <DateInput
+                              
                               value={editLogForm.date}
                               onChange={e => setEditLogForm({ ...editLogForm, date: e.target.value })}
                               style={{ width: '135px', padding: '4px 6px' }}
@@ -2699,9 +2700,9 @@ export const HRManagementModule = ({ user }) => {
                         <td style={{ padding: '10px 8px', fontSize: '0.8rem' }}>
                           {isEditing ? (
                             <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                              <input type="time" value={editLogForm.check_in_time} onChange={e => setEditLogForm({ ...editLogForm, check_in_time: e.target.value })} style={{ width: '105px', padding: '4px 6px' }} />
+                              <TimeInput  value={editLogForm.check_in_time} onChange={e => setEditLogForm({ ...editLogForm, check_in_time: e.target.value })} style={{ width: '105px', padding: '4px 6px' }} />
                               <span>→</span>
-                              <input type="time" value={editLogForm.check_out_time} onChange={e => setEditLogForm({ ...editLogForm, check_out_time: e.target.value })} style={{ width: '105px', padding: '4px 6px' }} />
+                              <TimeInput  value={editLogForm.check_out_time} onChange={e => setEditLogForm({ ...editLogForm, check_out_time: e.target.value })} style={{ width: '105px', padding: '4px 6px' }} />
                             </div>
                           ) : (
                             <>
@@ -3438,7 +3439,7 @@ export const ProjectsObjectsModule = () => {
                 {objects.map(o => <option key={o.id} value={o.id}>{o.address} ({o.units_count} WE)</option>)}
               </select>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                <input type="date" value={newTask.date} onChange={e => setNewTask({...newTask, date: e.target.value})} required />
+                <DateInput  value={newTask.date} onChange={e => setNewTask({...newTask, date: e.target.value})} required />
                 <select value={newTask.priority} onChange={e => setNewTask({...newTask, priority: e.target.value})}>
                   <option value="Normal">Normal Priority</option>
                   <option value="High">High Priority</option>
@@ -3685,13 +3686,13 @@ export const ProjectsObjectsModule = () => {
                   <label style={{ fontSize: '0.78rem', fontWeight: 600, display: 'block', marginBottom: '4px' }}>
                     Start Date (Projektbeginn)
                   </label>
-                  <input type="date" value={newProj.start_date} onChange={e => setNewProj({...newProj, start_date: e.target.value})} />
+                  <DateInput  value={newProj.start_date} onChange={e => setNewProj({...newProj, start_date: e.target.value})} />
                 </div>
                 <div>
                   <label style={{ fontSize: '0.78rem', fontWeight: 600, display: 'block', marginBottom: '4px' }}>
                     End Date (Projektende)
                   </label>
-                  <input type="date" value={newProj.end_date} onChange={e => setNewProj({...newProj, end_date: e.target.value})} />
+                  <DateInput  value={newProj.end_date} onChange={e => setNewProj({...newProj, end_date: e.target.value})} />
                 </div>
               </div>
 
@@ -4145,11 +4146,11 @@ export const ProjectsObjectsModule = () => {
               </div>
               <div>
                 <label style={{ fontSize: '0.75rem', fontWeight: 600, display: 'block', marginBottom: '4px' }}>Start Date *</label>
-                <input type="date" value={newDel.start_date} onChange={e => setNewDel({...newDel, start_date: e.target.value})} required />
+                <DateInput  value={newDel.start_date} onChange={e => setNewDel({...newDel, start_date: e.target.value})} required />
               </div>
               <div>
                 <label style={{ fontSize: '0.75rem', fontWeight: 600, display: 'block', marginBottom: '4px' }}>End Date *</label>
-                <input type="date" value={newDel.end_date} onChange={e => setNewDel({...newDel, end_date: e.target.value})} required />
+                <DateInput  value={newDel.end_date} onChange={e => setNewDel({...newDel, end_date: e.target.value})} required />
               </div>
               <button type="submit" className="btn-primary" style={{ height: '38px' }}>Activate</button>
             </form>
