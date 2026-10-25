@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Request, Form
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse, Response
 from sqlalchemy.orm import Session
 from typing import Optional
 import os
 import uuid
 import mimetypes
+import base64
 
 import models
 import database
@@ -79,21 +80,29 @@ async def upload_stream_target(
 ):
     """
     Local S3-compatible PUT stream receiver for pre-signed uploads (supports large video files without multipart overhead).
+    Saves file to disk and persists resilient base64 backup in the database for serverless (Vercel) environments.
     """
     if not verify_presigned_token(storage_key, token):
         raise HTTPException(status_code=403, detail="Invalid or expired pre-signed upload token")
 
     full_path = get_local_file_path(storage_key)
     total_bytes = 0
+    buffer = bytearray()
     with open(full_path, "wb") as f:
         async for chunk in request.stream():
             f.write(chunk)
+            buffer.extend(chunk)
             total_bytes += len(chunk)
 
     doc = db.query(models.DocumentRecord).filter(models.DocumentRecord.storage_key == storage_key).first()
     if doc:
         doc.status = "Uploaded"
         doc.file_size = total_bytes
+        # Store in metadata_json as resilient backup for serverless environments (Vercel)
+        meta = dict(doc.metadata_json or {})
+        if total_bytes <= 30 * 1024 * 1024:
+            meta["base64_data"] = base64.b64encode(buffer).decode("ascii")
+        doc.metadata_json = meta
         db.commit()
 
     return {"status": "Uploaded", "storage_key": storage_key, "bytes_written": total_bytes}
@@ -119,15 +128,21 @@ async def direct_multipart_upload(
     full_path = get_local_file_path(storage_key)
 
     total_bytes = 0
+    file_bytes_buf = bytearray()
     with open(full_path, "wb") as out_file:
         while True:
             chunk = await file.read(1024 * 1024)  # 1MB chunks for large video memory safety
             if not chunk:
                 break
             out_file.write(chunk)
+            file_bytes_buf.extend(chunk)
             total_bytes += len(chunk)
 
     mime_type = file.content_type or mimetypes.guess_type(safe_name)[0] or "application/octet-stream"
+
+    meta_payload = {}
+    if total_bytes <= 30 * 1024 * 1024:
+        meta_payload["base64_data"] = base64.b64encode(file_bytes_buf).decode("ascii")
 
     doc = models.DocumentRecord(
         id=doc_id,
@@ -142,6 +157,7 @@ async def direct_multipart_upload(
         storage_key=storage_key,
         drive_file_id=f"s3://{storage_key}",
         status="Uploaded",
+        metadata_json=meta_payload,
     )
     db.add(doc)
     db.commit()
@@ -163,19 +179,57 @@ async def direct_multipart_upload(
 
 
 @router.get("/stream/{storage_key:path}")
-def stream_media_file(storage_key: str, token: Optional[str] = None):
+def stream_media_file(
+    storage_key: str,
+    token: Optional[str] = None,
+    db: Session = Depends(database.get_db),
+):
     """
     Stream media/video/PDF with HTTP Range support (automatic via FileResponse).
+    If running on serverless Vercel and the ephemeral /tmp was recycled, automatically
+    restores the file from the database base64 backup.
     """
     if not token or not verify_presigned_token(storage_key, token):
         raise HTTPException(status_code=403, detail="Invalid or expired media access token")
 
     full_path = get_local_file_path(storage_key)
+    doc = None
     if not os.path.exists(full_path):
-        raise HTTPException(status_code=404, detail="Media file not found on storage volume")
+        doc = db.query(models.DocumentRecord).filter(models.DocumentRecord.storage_key == storage_key).first()
+        if doc and doc.metadata_json and doc.metadata_json.get("base64_data"):
+            try:
+                raw_bytes = base64.b64decode(doc.metadata_json["base64_data"])
+                # Cache to local disk if writable
+                try:
+                    os.makedirs(os.path.dirname(full_path), exist_ok=True)
+                    with open(full_path, "wb") as f:
+                        f.write(raw_bytes)
+                except Exception:
+                    pass
+                return Response(
+                    content=raw_bytes,
+                    media_type=doc.mime_type or "application/pdf",
+                    headers={
+                        "Content-Disposition": f'inline; filename="{doc.file_name}"',
+                        "Content-Length": str(len(raw_bytes)),
+                    },
+                )
+            except Exception as e:
+                print(f"Failed to stream from base64 backup: {e}")
+
+    if not os.path.exists(full_path):
+        raise HTTPException(
+            status_code=404,
+            detail="Media file not found on storage volume. If this file was uploaded before persistent database backup was enabled, please re-upload it.",
+        )
 
     mime_type = mimetypes.guess_type(full_path)[0] or "application/octet-stream"
-    return FileResponse(full_path, media_type=mime_type, filename=os.path.basename(full_path))
+    return FileResponse(
+        full_path,
+        media_type=mime_type,
+        filename=os.path.basename(full_path),
+        content_disposition_type="inline",
+    )
 
 
 @router.get("/list")
