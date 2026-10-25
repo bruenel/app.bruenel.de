@@ -370,6 +370,8 @@ export const HRManagementModule = ({ user }) => {
     file_name: '',
   });
   const [uploadingFcPdf, setUploadingFcPdf] = useState(false);
+  const [editingDocId, setEditingDocId] = useState(null);
+  const [editingDocTitle, setEditingDocTitle] = useState('');
 
   const [newEmp, setNewEmp] = useState({
     first_name: '',
@@ -935,11 +937,44 @@ export const HRManagementModule = ({ user }) => {
         title: labelTitle,
       });
       setCustomDocLabel('');
+      e.target.value = '';
       loadAll();
     } catch (err) {
       alert(err.message);
     }
     setUploadingEmpDoc(false);
+  };
+
+  const handleDeleteEmpDocument = async (docId) => {
+    if (!window.confirm('Möchten Sie dieses Dokument wirklich unwiderruflich aus der Personalakte löschen?')) return;
+    try {
+      await fetchWithToken(`/api/v1/media/${docId}`, { method: 'DELETE' });
+      setNewEmp(prev => ({
+        ...prev,
+        documents: (prev.documents || []).filter(d => d.id !== docId),
+      }));
+      loadAll();
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  const handleSaveDocTitle = async (docId) => {
+    if (!editingDocTitle.trim()) return;
+    try {
+      await fetchWithToken(`/api/v1/media/${docId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ title: editingDocTitle.trim() }),
+      });
+      setNewEmp(prev => ({
+        ...prev,
+        documents: (prev.documents || []).map(d => d.id === docId ? { ...d, title: editingDocTitle.trim() } : d),
+      }));
+      setEditingDocId(null);
+      loadAll();
+    } catch (err) {
+      alert(err.message);
+    }
   };
 
   const handleResetEmployeeOtp = async () => {
@@ -1933,11 +1968,23 @@ export const HRManagementModule = ({ user }) => {
                         <div>
                           <label>
                             {editingEmpId ? 'Select File to Upload Immediately' : 'Attach File on Save'}
+                            {uploadingEmpDoc && <span style={{ color: 'var(--accent)', marginLeft: '6px', fontWeight: 600 }}>• Uploading...</span>}
                           </label>
                           {editingEmpId ? (
                             <input type="file" accept=".pdf,image/*,.doc,.docx" onChange={handleUploadEmpDocumentNow} disabled={uploadingEmpDoc} />
                           ) : (
-                            <input type="file" accept=".pdf,image/*,.doc,.docx" onChange={e => setContractFile(e.target.files?.[0] || null)} />
+                            <div>
+                              <input type="file" accept=".pdf,image/*,.doc,.docx" onChange={e => setContractFile(e.target.files?.[0] || null)} />
+                              {contractFile && (
+                                <div style={{ marginTop: '6px', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--accent)' }}>
+                                  <FileText size={13} />
+                                  <span>Selected: <strong>{contractFile.name}</strong></span>
+                                  <button type="button" className="btn-secondary btn-sm" style={{ padding: '1px 5px', fontSize: '0.7rem', color: '#dc2626' }} onClick={() => setContractFile(null)}>
+                                    <X size={11} /> Cancel
+                                  </button>
+                                </div>
+                              )}
+                            </div>
                           )}
                         </div>
                       </div>
@@ -1950,20 +1997,119 @@ export const HRManagementModule = ({ user }) => {
                           {(newEmp.documents || []).length === 0 ? (
                             <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Noch keine Dokumente in dieser Personalakte hinterlegt.</p>
                           ) : (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                              {(newEmp.documents || []).map(doc => (
-                                <div key={doc.id} className="flex-between" style={{ padding: '8px 10px', borderRadius: '8px', background: 'var(--surface)', border: '1px solid var(--border)', fontSize: '0.8rem' }}>
-                                  <div>
-                                    <strong>{doc.title}</strong>
-                                    <span style={{ color: 'var(--text-muted)', marginLeft: '8px', fontSize: '0.72rem' }}>({doc.reference_type || doc.category || 'HR Doc'})</span>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                              {(newEmp.documents || []).map(doc => {
+                                const fileUrl = doc.url || doc.download_url || doc.file_url;
+                                const isEditingThis = editingDocId === doc.id;
+                                const ext = (doc.file_name || '').split('.').pop()?.toUpperCase() || 'FILE';
+                                return (
+                                  <div key={doc.id} className="flex-between" style={{ padding: '10px 14px', borderRadius: '8px', background: 'var(--surface)', border: '1px solid var(--border)', fontSize: '0.8rem', gap: '12px' }}>
+                                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', minWidth: 0, flex: 1 }}>
+                                      <div style={{ marginTop: '2px', padding: '6px', borderRadius: '6px', background: 'rgba(255, 107, 0, 0.1)', color: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                        <FileText size={16} />
+                                      </div>
+                                      <div style={{ minWidth: 0, flex: 1 }}>
+                                        {isEditingThis ? (
+                                          <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginBottom: '6px' }}>
+                                            <input
+                                              value={editingDocTitle}
+                                              onChange={e => setEditingDocTitle(e.target.value)}
+                                              style={{ fontSize: '0.82rem', padding: '4px 8px', flex: 1 }}
+                                              placeholder="Document Title / Bezeichnung"
+                                              autoFocus
+                                            />
+                                            <button
+                                              type="button"
+                                              className="btn-primary btn-sm"
+                                              style={{ padding: '4px 8px' }}
+                                              title="Save Title"
+                                              onClick={() => handleSaveDocTitle(doc.id)}
+                                            >
+                                              <Check size={13} /> Save
+                                            </button>
+                                            <button
+                                              type="button"
+                                              className="btn-secondary btn-sm"
+                                              style={{ padding: '4px 8px' }}
+                                              title="Cancel"
+                                              onClick={() => setEditingDocId(null)}
+                                            >
+                                              <X size={13} />
+                                            </button>
+                                          </div>
+                                        ) : (
+                                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '4px' }}>
+                                            <strong style={{ wordBreak: 'break-word', fontSize: '0.86rem' }}>{doc.title}</strong>
+                                            <span className="badge" style={{ fontSize: '0.68rem', padding: '2px 7px', background: 'rgba(255, 107, 0, 0.12)', color: 'var(--accent)', fontWeight: 600 }}>
+                                              {doc.reference_type || doc.category || 'HR Document'}
+                                            </span>
+                                            <span className="badge" style={{ fontSize: '0.68rem', padding: '2px 6px', background: '#e2e8f0', color: '#475569' }}>
+                                              {ext}
+                                            </span>
+                                          </div>
+                                        )}
+                                        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', fontSize: '0.73rem', color: 'var(--text-muted)' }}>
+                                          {doc.file_name && (
+                                            <span>
+                                              File: <strong style={{ color: 'var(--text)' }}>{doc.file_name}</strong>
+                                            </span>
+                                          )}
+                                          {doc.file_size ? (
+                                            <span>
+                                              Size: <strong style={{ color: 'var(--text)' }}>{(doc.file_size / 1024).toFixed(1)} KB</strong>
+                                            </span>
+                                          ) : null}
+                                          {doc.created_at ? (
+                                            <span>
+                                              Uploaded: <strong style={{ color: 'var(--text)' }}>{formatDateTime(doc.created_at)}</strong>
+                                            </span>
+                                          ) : null}
+                                        </div>
+                                      </div>
+                                    </div>
+
+                                    {/* Action buttons: Download, Edit Title, Remove */}
+                                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexShrink: 0 }}>
+                                      {fileUrl && (
+                                        <a
+                                          href={resolveMediaUrl(fileUrl)}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                          download={doc.file_name || true}
+                                          className="btn-secondary btn-sm"
+                                          style={{ textDecoration: 'none', color: 'var(--accent)', display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '4px 9px' }}
+                                          title="Open & Download File"
+                                        >
+                                          <Download size={13} /> Download
+                                        </a>
+                                      )}
+                                      {!isEditingThis && (
+                                        <button
+                                          type="button"
+                                          className="btn-secondary btn-sm"
+                                          style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 9px' }}
+                                          title="Edit Title / Label"
+                                          onClick={() => {
+                                            setEditingDocId(doc.id);
+                                            setEditingDocTitle(doc.title || doc.file_name || '');
+                                          }}
+                                        >
+                                          <Edit3 size={13} /> Edit
+                                        </button>
+                                      )}
+                                      <button
+                                        type="button"
+                                        className="btn-secondary btn-sm"
+                                        style={{ color: '#dc2626', display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 9px' }}
+                                        title="Remove Document from Personalakte"
+                                        onClick={() => handleDeleteEmpDocument(doc.id)}
+                                      >
+                                        <Trash2 size={13} /> Remove
+                                      </button>
+                                    </div>
                                   </div>
-                                  {(doc.download_url || doc.file_url) && (
-                                    <a href={resolveMediaUrl(doc.download_url || doc.file_url)} target="_blank" rel="noreferrer" className="btn-secondary btn-sm" style={{ textDecoration: 'none', color: 'var(--accent)' }}>
-                                      <Download size={12} /> Open / Download
-                                    </a>
-                                  )}
-                                </div>
-                              ))}
+                                );
+                              })}
                             </div>
                           )}
                         </div>

@@ -41,13 +41,16 @@ def serialize_employee(emp: models.Employee, db: Optional[Session] = None, inclu
             .all()
         )
         for d in doc_rows:
+            download_link = create_presigned_download(d.storage_key)
             docs.append({
                 "id": d.id,
                 "reference_type": d.reference_type,
                 "file_name": d.file_name,
                 "title": d.title or d.file_name,
                 "mime_type": d.mime_type,
-                "url": create_presigned_download(d.storage_key),
+                "file_size": d.file_size or 0,
+                "url": download_link,
+                "download_url": download_link,
                 "created_at": d.created_at.isoformat() if d.created_at else None,
             })
 

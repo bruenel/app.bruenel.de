@@ -111,3 +111,37 @@ def create_presigned_download(storage_key: str, expires_in: int = 7200) -> str:
 
     token = generate_presigned_token(storage_key, expires_in)
     return f"/api/v1/media/stream/{storage_key}?token={token}"
+
+
+def delete_storage_file(storage_key: str) -> bool:
+    """
+    Delete file from S3 / R2 or local storage volume.
+    """
+    deleted = False
+    if STORAGE_PROVIDER in ("s3", "r2", "minio") and S3_ACCESS_KEY and S3_SECRET_KEY:
+        try:
+            import boto3
+            from botocore.config import Config
+            s3_client = boto3.client(
+                "s3",
+                region_name=S3_REGION,
+                endpoint_url=S3_ENDPOINT_URL or None,
+                aws_access_key_id=S3_ACCESS_KEY,
+                aws_secret_access_key=S3_SECRET_KEY,
+                config=Config(signature_version="s3v4"),
+            )
+            s3_client.delete_object(Bucket=S3_BUCKET, Key=storage_key)
+            deleted = True
+        except Exception as e:
+            print(f"S3 delete error: {e}")
+
+    try:
+        full_path = get_local_file_path(storage_key)
+        if os.path.exists(full_path):
+            os.remove(full_path)
+            deleted = True
+    except Exception as e:
+        print(f"Local storage delete error: {e}")
+
+    return deleted
+

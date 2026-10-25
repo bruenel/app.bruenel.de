@@ -14,6 +14,7 @@ from core.storage import (
     create_presigned_upload,
     create_presigned_download,
     verify_presigned_token,
+    delete_storage_file,
     STORAGE_PROVIDER,
 )
 from core.audit import log_audit
@@ -212,3 +213,81 @@ def list_media_documents(
         }
         for d in docs
     ]
+
+
+@router.delete("/{document_id}")
+def delete_media_document(
+    document_id: str,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """
+    Delete a document record and its underlying physical storage file.
+    Only Tier 1-3 (Management / HR / PM) can delete arbitrary documents,
+    Tier 4-5 can only delete their own uploaded documents.
+    """
+    tier = get_effective_tier(current_user)
+    doc = db.query(models.DocumentRecord).filter(models.DocumentRecord.id == document_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    if tier > 3 and doc.employee_id != current_user.employee_id:
+        raise HTTPException(status_code=403, detail="Not authorized to delete this document")
+
+    # Remove physical file from S3 / R2 or local storage
+    if doc.storage_key:
+        delete_storage_file(doc.storage_key)
+
+    # Detach from referenced records if linked
+    db.query(models.Payslip).filter(models.Payslip.document_id == doc.id).update({"document_id": None})
+    db.query(models.Expense).filter(models.Expense.document_id == doc.id).update({"document_id": None})
+    db.query(models.SickLeaveRecord).filter(models.SickLeaveRecord.au_document_id == doc.id).update({"au_document_id": None})
+
+    doc_info = {"title": doc.title, "file_name": doc.file_name, "reference_type": doc.reference_type, "reference_id": doc.reference_id}
+
+    db.delete(doc)
+    db.commit()
+
+    log_audit(db, "documents", "DELETE", document_id, current_user.email, doc_info, None)
+    return {"status": "success", "message": "Document deleted successfully", "id": document_id}
+
+
+@router.patch("/{document_id}")
+def update_media_document(
+    document_id: str,
+    payload: dict,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """
+    Update document metadata (title, custom label, or category).
+    """
+    tier = get_effective_tier(current_user)
+    doc = db.query(models.DocumentRecord).filter(models.DocumentRecord.id == document_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    if tier > 3 and doc.employee_id != current_user.employee_id:
+        raise HTTPException(status_code=403, detail="Not authorized to edit this document")
+
+    if "title" in payload and payload["title"]:
+        doc.title = str(payload["title"]).strip()
+    if "reference_type" in payload and payload["reference_type"]:
+        doc.reference_type = str(payload["reference_type"]).strip()
+
+    db.commit()
+    db.refresh(doc)
+    download_link = create_presigned_download(doc.storage_key)
+    return {
+        "id": doc.id,
+        "title": doc.title,
+        "reference_type": doc.reference_type,
+        "file_name": doc.file_name,
+        "file_size": doc.file_size or 0,
+        "mime_type": doc.mime_type,
+        "url": download_link,
+        "download_url": download_link,
+        "created_at": doc.created_at.isoformat() if doc.created_at else None,
+    }
+
+
