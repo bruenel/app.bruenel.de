@@ -1,7 +1,9 @@
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, Request, HTTPException
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text, inspect
+from sqlalchemy.exc import IntegrityError
 import models
 import database
 from database import engine, SessionLocal
@@ -56,25 +58,80 @@ app = FastAPI(
     description="Unified REST API for app.bruenel.de (Management Portal) and portal.bruenel.de (Employee Field PWA)",
 )
 
+ALLOWED_CORS_ORIGINS = [
+    "https://app.bruenel.de",
+    "https://portal.bruenel.de",
+    "https://www.bruenel.de",
+    "https://bruenel.de",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:3001",
+    "http://127.0.0.1:3001",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://app.bruenel.de",
-        "https://portal.bruenel.de",
-        "https://www.bruenel.de",
-        "https://bruenel.de",
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:3001",
-        "http://127.0.0.1:3001",
-    ],
+    allow_origins=ALLOWED_CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
     expose_headers=["*"],
 )
+
+
+def _cors_headers_for(request: Request) -> dict:
+    req_origin = request.headers.get("origin") or ""
+    cors_origin = req_origin if req_origin in ALLOWED_CORS_ORIGINS else "*"
+    return {
+        "Access-Control-Allow-Origin": cors_origin,
+        "Access-Control-Allow-Credentials": "true",
+        "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+        "Access-Control-Allow-Headers": "*",
+    }
+
+
+@app.exception_handler(HTTPException)
+async def custom_http_exception_handler(request: Request, exc: HTTPException):
+    headers = _cors_headers_for(request)
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail},
+        headers=headers,
+    )
+
+
+@app.exception_handler(IntegrityError)
+async def integrity_error_handler(request: Request, exc: IntegrityError):
+    headers = _cors_headers_for(request)
+    err_str = str(exc.orig if hasattr(exc, "orig") else exc)
+    if "unique constraint" in err_str.lower() or "duplicate key" in err_str.lower():
+        msg = "Ein Datensatz mit dieser E-Mail-Adresse oder Mitarbeiternummer existiert bereits."
+    else:
+        msg = "Datenbankintegritätsfehler bei der Verarbeitung der Anfrage."
+    return JSONResponse(
+        status_code=400,
+        content={"detail": msg},
+        headers=headers,
+    )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    headers = _cors_headers_for(request)
+    err_str = str(exc)
+    if "unique constraint" in err_str.lower() or "duplicate key" in err_str.lower():
+        return JSONResponse(
+            status_code=400,
+            content={"detail": "Ein Datensatz mit dieser E-Mail-Adresse oder Mitarbeiternummer existiert bereits."},
+            headers=headers,
+        )
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"Interner Serverfehler: {err_str}"},
+        headers=headers,
+    )
 
 
 @app.options("/{rest_of_path:path}")

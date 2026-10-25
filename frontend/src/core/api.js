@@ -45,7 +45,18 @@ export const fetchWithToken = async (url, options = {}) => {
   }
 
   const fullUrl = url.startsWith('http') ? url : `${API_URL}${url}`;
-  const res = await fetch(fullUrl, { ...options, headers });
+  let res;
+  try {
+    res = await fetch(fullUrl, { ...options, headers });
+  } catch (netErr) {
+    console.error('Fetch request failed for', fullUrl, netErr);
+    if (netErr?.name === 'TypeError' && (netErr.message === 'Load failed' || netErr.message === 'Failed to fetch')) {
+      throw new Error(
+        'Verbindung zum Server fehlgeschlagen (Load failed / Netzwerkfehler). Bitte überprüfen Sie Ihre Internetverbindung oder wenden Sie sich an die Administration.'
+      );
+    }
+    throw netErr;
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.detail || `Request failed (${res.status})`);

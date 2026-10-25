@@ -115,6 +115,19 @@ def create_employee(
     if tier not in (1, 2, 3):
         raise HTTPException(status_code=403, detail="Only Management or HR & Finance Admin can create employees.")
 
+    clean_email = (payload.email or "").strip()
+    if clean_email:
+        existing_emp = (
+            db.query(models.Employee)
+            .filter(models.Employee.email.ilike(clean_email))
+            .first()
+        )
+        if existing_emp:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Ein Mitarbeiter mit der E-Mail '{clean_email}' existiert bereits ({existing_emp.first_name} {existing_emp.last_name}, {existing_emp.employee_number}). Bitte öffnen Sie dessen Personalakte zur Bearbeitung.",
+            )
+
     emp_num = payload.employee_number or f"BRN-{1000 + db.query(models.Employee).count() + 1}"
     if db.query(models.Employee).filter(models.Employee.employee_number == emp_num).first():
         emp_num = f"{emp_num}-{int(datetime.utcnow().timestamp()) % 100}"
@@ -129,7 +142,7 @@ def create_employee(
         employee_number=emp_num,
         first_name=payload.first_name,
         last_name=payload.last_name,
-        email=payload.email,
+        email=clean_email,
         phone=payload.phone,
         department=payload.department or "Field Operations",
         employment_type=payload.employment_type,
@@ -140,9 +153,19 @@ def create_employee(
         annual_leave_days=payload.annual_leave_days or 30,
         attributes=attrs,
     )
-    db.add(emp)
-    db.commit()
-    db.refresh(emp)
+    try:
+        db.add(emp)
+        db.commit()
+        db.refresh(emp)
+    except Exception as e:
+        db.rollback()
+        err_msg = str(e)
+        if "unique constraint" in err_msg.lower() or "duplicate key" in err_msg.lower():
+            raise HTTPException(
+                status_code=400,
+                detail=f"Ein Mitarbeiter mit diesen Daten (E-Mail '{clean_email}' oder Nummer '{emp_num}') existiert bereits.",
+            )
+        raise HTTPException(status_code=500, detail=f"Fehler beim Speichern der Personalakte: {err_msg}")
 
     # Auto-create or link a User login account with One-Time Password (OTP) and must_change_password=True
     if payload.email:
@@ -200,6 +223,19 @@ def update_employee(
     if not emp:
         raise HTTPException(status_code=404, detail="Employee not found")
 
+    if "email" in payload and payload["email"]:
+        clean_email = payload["email"].strip()
+        existing_other = (
+            db.query(models.Employee)
+            .filter(models.Employee.email.ilike(clean_email), models.Employee.id != emp_id)
+            .first()
+        )
+        if existing_other:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Die E-Mail '{clean_email}' wird bereits von einem anderen Mitarbeiter verwendet ({existing_other.first_name} {existing_other.last_name}, {existing_other.employee_number}).",
+            )
+
     old_vals = serialize_employee(emp, db=None, include_sensitive=True)
     for field in [
         "first_name", "last_name", "email", "phone", "department",
@@ -249,8 +285,18 @@ def update_employee(
         )
         db.add(new_u)
 
-    db.commit()
-    db.refresh(emp)
+    try:
+        db.commit()
+        db.refresh(emp)
+    except Exception as e:
+        db.rollback()
+        err_msg = str(e)
+        if "unique constraint" in err_msg.lower() or "duplicate key" in err_msg.lower():
+            raise HTTPException(
+                status_code=400,
+                detail="Ein Mitarbeiter mit dieser E-Mail-Adresse existiert bereits.",
+            )
+        raise HTTPException(status_code=500, detail=f"Fehler beim Aktualisieren der Personalakte: {err_msg}")
     log_audit(db, "employees", "UPDATE", emp.id, current_user.email, old_vals, serialize_employee(emp, db=None, include_sensitive=True))
     return serialize_employee(emp, db=db, include_sensitive=True)
 

@@ -847,26 +847,55 @@ export const HRManagementModule = ({ user }) => {
           }),
         });
       } else {
-        const created = await fetchWithToken('/api/v1/hr/employees', {
-          method: 'POST',
-          body: JSON.stringify({
-            first_name: newEmp.first_name,
-            last_name: newEmp.last_name,
-            email: newEmp.email,
-            phone: newEmp.phone,
-            department: newEmp.department,
-            employment_type: newEmp.employment_type,
-            role: newEmp.role,
-            role_tier: newEmp.role_tier,
-            base_salary: Number(newEmp.base_salary || 0),
-            hourly_rate: effectiveHourly,
-            annual_leave_days: Number(newEmp.annual_leave_days || 0),
-            assigned_project_id: mergedAttrs.assigned_project_id,
-            one_time_password: newEmp.one_time_password || generateRandomOtp(),
-            attributes: mergedAttrs,
-          }),
-        });
-        targetEmpId = created.id;
+        const cleanEmail = (newEmp.email || '').trim().toLowerCase();
+        const existingEmp = cleanEmail ? employees.find(emp => (emp.email || '').trim().toLowerCase() === cleanEmail) : null;
+        if (existingEmp) {
+          const proceed = window.confirm(
+            `Ein Mitarbeiter mit der E-Mail "${newEmp.email}" existiert bereits (${existingEmp.full_name}, ${existingEmp.employee_number || ''}).\n\nMöchten Sie stattdessen die bestehende Personalakte dieses Mitarbeiters mit den eingegebenen Daten aktualisieren?`
+          );
+          if (!proceed) return;
+          await fetchWithToken(`/api/v1/hr/employees/${existingEmp.id}`, {
+            method: 'PUT',
+            body: JSON.stringify({
+              first_name: newEmp.first_name,
+              last_name: newEmp.last_name,
+              email: newEmp.email,
+              phone: newEmp.phone,
+              department: newEmp.department,
+              employment_type: newEmp.employment_type,
+              role: newEmp.role,
+              role_tier: newEmp.role_tier,
+              base_salary: Number(newEmp.base_salary || 0),
+              hourly_rate: effectiveHourly,
+              annual_leave_days: Number(newEmp.annual_leave_days || 0),
+              is_active: newEmp.is_active,
+              assigned_project_id: mergedAttrs.assigned_project_id,
+              attributes: mergedAttrs,
+            }),
+          });
+          targetEmpId = existingEmp.id;
+        } else {
+          const created = await fetchWithToken('/api/v1/hr/employees', {
+            method: 'POST',
+            body: JSON.stringify({
+              first_name: newEmp.first_name,
+              last_name: newEmp.last_name,
+              email: newEmp.email,
+              phone: newEmp.phone,
+              department: newEmp.department,
+              employment_type: newEmp.employment_type,
+              role: newEmp.role,
+              role_tier: newEmp.role_tier,
+              base_salary: Number(newEmp.base_salary || 0),
+              hourly_rate: effectiveHourly,
+              annual_leave_days: Number(newEmp.annual_leave_days || 0),
+              assigned_project_id: mergedAttrs.assigned_project_id,
+              one_time_password: newEmp.one_time_password || generateRandomOtp(),
+              attributes: mergedAttrs,
+            }),
+          });
+          targetEmpId = created.id;
+        }
       }
 
       if (contractFile && targetEmpId) {
@@ -1270,6 +1299,22 @@ export const HRManagementModule = ({ user }) => {
                       <div>
                         <label>E-Mail (Portal Login) *</label>
                         <input type="email" required value={newEmp.email} onChange={e => setNewEmp({ ...newEmp, email: e.target.value })} placeholder="name@bruenel.de" />
+                        {!editingEmpId && newEmp.email && employees.some(em => (em.email || '').trim().toLowerCase() === newEmp.email.trim().toLowerCase()) && (() => {
+                          const dup = employees.find(em => (em.email || '').trim().toLowerCase() === newEmp.email.trim().toLowerCase());
+                          return (
+                            <div style={{ marginTop: 4, fontSize: '0.72rem', color: '#b45309', background: '#fef3c7', padding: '4px 8px', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+                              <span>⚠️ Existiert bereits ({dup?.full_name})</span>
+                              <button
+                                type="button"
+                                className="btn-secondary btn-sm"
+                                style={{ padding: '2px 6px', fontSize: '0.68rem', height: 'auto', background: '#ffffff' }}
+                                onClick={() => openEditEmployeeModal(dup)}
+                              >
+                                Zu Akte
+                              </button>
+                            </div>
+                          );
+                        })()}
                       </div>
                       <div>
                         <label>Telefon / Mobil *</label>
