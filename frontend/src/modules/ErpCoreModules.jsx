@@ -4,7 +4,8 @@ import {
   Users, Clock, Calendar, FileText, HeartPulse, Plus, Check, X, Upload,
   Building2, MapPin, Video, Image, ShieldAlert, ArrowRightLeft, Lock, Edit3,
   MessageSquare, Download, ChevronLeft, ChevronRight, BarChart3, GripVertical,
-  Search, KeyRound, Trash2, ShieldCheck, Briefcase, PhoneCall, AlertTriangle
+  Search, KeyRound, Trash2, ShieldCheck, Briefcase, PhoneCall, AlertTriangle,
+  Sparkles, ScanLine, FolderOpen, ShieldCheck as ShieldKey
 } from 'lucide-react';
 import { fetchWithToken, uploadMediaFile, resolveMediaUrl, TIER_LABELS, formatEuro, formatDate, formatDateTime, formatDateRange } from '../core/api';
 import { TASK_STATUS_CONFIG, getStatusStyle } from '../core/i18n';
@@ -373,6 +374,11 @@ export const HRManagementModule = ({ user }) => {
   const [editingDocId, setEditingDocId] = useState(null);
   const [editingDocTitle, setEditingDocTitle] = useState('');
 
+  // AI Document Reader state
+  const [aiDocReading, setAiDocReading] = useState(false);
+  const [aiDocResult, setAiDocResult] = useState(null); // { fields, raw }
+  const [aiDocError, setAiDocError] = useState(null);
+
   const [newEmp, setNewEmp] = useState({
     first_name: '',
     last_name: '',
@@ -461,6 +467,129 @@ export const HRManagementModule = ({ user }) => {
     if (!yr || !mo) return;
     const qs = `year=${yr}&month=${mo}&include_absence_credits=true${empId ? `&employee_id=${empId}` : ''}`;
     fetchWithToken(`/api/v1/hr/time-logs/bi-summary?${qs}`).then(setBiSummary).catch(() => null);
+  };
+
+  // ── AI Document Reader ─────────────────────────────────────────────────────
+  const handleAiDocumentRead = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+    setAiDocReading(true);
+    setAiDocResult(null);
+    setAiDocError(null);
+
+    try {
+      // 1. Upload the document immediately and attach it to the employee record
+      const uploadedDoc = await uploadMediaFile({
+        file,
+        referenceType: 'PersonalDokument',
+        referenceId: editingEmpId || 'NEW_EMPLOYEE',
+        title: `KI-Upload: ${file.name}`,
+      });
+
+      // 2. If editing an existing employee, persist the document to the DB
+      if (editingEmpId && uploadedDoc?.document_id) {
+        await fetchWithToken(`/api/v1/hr/employees/${editingEmpId}/documents`, {
+          method: 'POST',
+          body: JSON.stringify({
+            document_id: uploadedDoc.document_id,
+            category: docCategory || 'Personalausweis / Reisepass',
+            title: `KI-Upload: ${file.name}`,
+          }),
+        }).catch(() => null); // non-fatal — doc is already uploaded
+        loadAll();
+      }
+
+      // 3. Convert image/PDF to base64 for Gemini Vision
+      const toBase64 = (f) =>
+        new Promise((res, rej) => {
+          const reader = new FileReader();
+          reader.onload = () => res(reader.result.split(',')[1]);
+          reader.onerror = rej;
+          reader.readAsDataURL(f);
+        });
+
+      const b64 = await toBase64(file);
+      const mimeType = file.type || 'image/jpeg';
+
+      const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || '';
+      if (!GEMINI_KEY) {
+        setAiDocError('VITE_GEMINI_API_KEY not configured. Document uploaded — please fill in fields manually.');
+        setAiDocReading(false);
+        return;
+      }
+
+      const prompt = `You are an HR document parser for a German company. Analyze this document image (it may be a Personalausweis, Reisepass, Aufenthaltstitel, or other HR document).
+Extract as many of the following fields as you can find. Return ONLY valid JSON (no markdown):
+{
+  "first_name": "",
+  "last_name": "",
+  "birth_date": "YYYY-MM-DD",
+  "nationality": "",
+  "gender": "",
+  "street": "",
+  "postal_code": "",
+  "city": "",
+  "steuer_id": "",
+  "document_type": "",
+  "document_number": "",
+  "document_valid_until": "YYYY-MM-DD",
+  "company_name": "",
+  "ust_id": "",
+  "iban": "",
+  "notes": ""
+}
+Leave a field as empty string if you cannot find it. Do not guess. Only return JSON.`;
+
+      const geminiRes = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_KEY}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{
+              parts: [
+                { text: prompt },
+                { inline_data: { mime_type: mimeType, data: b64 } },
+              ],
+            }],
+            generationConfig: { temperature: 0, responseMimeType: 'application/json' },
+          }),
+        }
+      );
+
+      if (!geminiRes.ok) throw new Error(`Gemini API error ${geminiRes.status}`);
+      const geminiJson = await geminiRes.json();
+      const rawText = geminiJson?.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+      let fields = {};
+      try { fields = JSON.parse(rawText); } catch { fields = {}; }
+
+      // 4. Auto-fill form fields from extracted data
+      setNewEmp((prev) => {
+        const attrs = { ...(prev.attributes || {}) };
+        if (fields.birth_date) attrs.birth_date = fields.birth_date;
+        if (fields.nationality) attrs.nationality = fields.nationality;
+        if (fields.street) attrs.street = fields.street;
+        if (fields.postal_code) attrs.postal_code = fields.postal_code;
+        if (fields.city) attrs.city = fields.city;
+        if (fields.steuer_id) attrs.steuer_id = fields.steuer_id;
+        if (fields.company_name) attrs.company_name = fields.company_name;
+        if (fields.ust_id) attrs.ust_id = fields.ust_id;
+        if (fields.iban) attrs.iban = fields.iban;
+        return {
+          ...prev,
+          first_name: fields.first_name || prev.first_name,
+          last_name: fields.last_name || prev.last_name,
+          attributes: attrs,
+        };
+      });
+
+      setAiDocResult({ fields, fileName: file.name, uploadedDoc });
+    } catch (err) {
+      setAiDocError(err.message || 'AI read failed');
+    } finally {
+      setAiDocReading(false);
+    }
   };
 
   const handleUploadPayslipFile = async (e, slipObj) => {
@@ -1283,23 +1412,28 @@ export const HRManagementModule = ({ user }) => {
               </div>
             </div>
 
-            {/* Static Section Tabs Bar */}
-            <div className="subtabs" style={{ padding: '10px 24px 0', margin: 0, borderBottom: '1px solid var(--border)', background: '#ffffff', flexWrap: 'wrap' }}>
+            {/* Mac Finder–Style Section Tabs Bar */}
+            <div className="finder-tabs">
               {[
-                { id: 'personal', label: '1. Stammdaten, Position & Abteilung' },
-                { id: 'contract', label: isFreelanceModal ? '2. Freelancing, Tagessatz & Multi-Verträge' : '2. Vertrag, Gehalt & Überstunden' },
-                { id: 'tax', label: '3. Steuer-ID, Krankenversicherung & Bank' },
-                { id: 'sos', label: '4. SOS Notfallkontakt' },
-                { id: 'sub', label: '5. Freelancer / Subunternehmer (§48b)' },
-                { id: 'docs', label: `6. Dokumente (${(newEmp.documents || []).length}) & OTP` },
+                { id: 'personal', num: 1, label: 'Stammdaten & Position' },
+                { id: 'contract', num: 2, label: isFreelanceModal ? 'Freelancing & Verträge' : 'Vertrag & Gehalt' },
+                { id: 'tax', num: 3, label: 'Steuer, KV & Bank' },
+                { id: 'sos', num: 4, label: 'SOS Notfallkontakt' },
+                { id: 'sub', num: 5, label: 'Freelancer / Sub §48b' },
+                { id: 'docs', num: 6, label: `Dokumente`, badge: (newEmp.documents || []).length || null },
+                { id: 'security', num: 7, label: 'Account & Sicherheit' },
               ].map(st => (
                 <button
                   key={st.id}
                   type="button"
-                  className={`subtab ${empCardTab === st.id ? 'active' : ''}`}
+                  className={`finder-tab ${empCardTab === st.id ? 'active' : ''}`}
                   onClick={() => setEmpCardTab(st.id)}
                 >
+                  <span className="ftab-num">{st.num}</span>
                   {st.label}
+                  {st.badge != null && st.badge > 0 && (
+                    <span className="ftab-badge">{st.badge}</span>
+                  )}
                 </button>
               ))}
             </div>
@@ -1328,6 +1462,44 @@ export const HRManagementModule = ({ user }) => {
                       <div>
                         <label>Geburtsdatum (Birth Date)</label>
                         <DateInput  value={newEmp.attributes?.birth_date || ''} onChange={e => setEmpAttr('birth_date', e.target.value)} />
+                      </div>
+                    </div>
+
+                    {/* Employment Type Dropdown — inline in form, Tab 1 */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', padding: '12px 14px', borderRadius: 10, background: 'linear-gradient(135deg,#fff7ed,#fff)', border: '1.5px solid rgba(255,107,0,0.25)' }}>
+                      <div>
+                        <label style={{ fontWeight: 700, color: '#9a3412' }}>Mitarbeiter-Typ (Employment Type) *</label>
+                        <select
+                          value={newEmp.employment_type}
+                          onChange={e => handleEmploymentTypeSwitch(e.target.value)}
+                          style={{ fontWeight: 700, borderColor: 'rgba(255,107,0,0.4)', background: '#fffbf7' }}
+                        >
+                          <option value="Full-time">Full-time — Vollzeit Angestellter</option>
+                          <option value="Part-time">Part-time — Teilzeit</option>
+                          <option value="Minijob">Minijob — Geringfügig Beschäftigt</option>
+                          <option value="Freelancer">Freelancer — Freier Mitarbeiter</option>
+                          <option value="Subunternehmer">Subunternehmer — Nachunternehmer</option>
+                          <option value="Candidate">Candidate — Bewerber (IT Projects)</option>
+                        </select>
+                        <div style={{ marginTop: 4, fontSize: '0.7rem', color: '#c2410c' }}>
+                          {newEmp.employment_type === 'Full-time' && '📋 Vollzeit · Arbeitsvertrag · ELStAM pflicht'}
+                          {newEmp.employment_type === 'Part-time' && '📋 Teilzeit · Angestelltenverhältnis'}
+                          {newEmp.employment_type === 'Minijob' && '📋 538€ Grenze · Minijobzentrale'}
+                          {newEmp.employment_type === 'Freelancer' && '🔑 Freier Mitarbeiter · Tagessatz / Stundensatz · Multi-Verträge'}
+                          {newEmp.employment_type === 'Subunternehmer' && '🏗️ §48b EStG · Freistellungsbescheinigung · BG BAU'}
+                          {newEmp.employment_type === 'Candidate' && '🎯 IT Bewerber · Kein Vertrag · Nur Personalakte'}
+                        </div>
+                      </div>
+                      <div>
+                        <label style={{ fontWeight: 700 }}>Registrierungsstatus (HR/ELStAM)</label>
+                        <select value={newEmp.attributes?.registration_status || ''} onChange={e => setEmpAttr('registration_status', e.target.value)}>
+                          <option value="Angemeldet (ELStAM & SV aktiv)">Angemeldet (ELStAM & SV aktiv)</option>
+                          <option value="Sofortmeldung abgegeben">Sofortmeldung abgegeben (Bau)</option>
+                          <option value="Freelancer Aktiv (Vertrag geprüft)">Freelancer Aktiv (Vertrag geprüft)</option>
+                          <option value="Subunternehmer Verifiziert (§48b EStG)">Subunternehmer Verifiziert (§48b EStG)</option>
+                          <option value="Bewerber (DSGVO akzeptiert)">Bewerber / Candidate (IT Projects)</option>
+                          <option value="Abgemeldet / Inaktiv">Abgemeldet / Inaktiv</option>
+                        </select>
                       </div>
                     </div>
 
@@ -1423,7 +1595,7 @@ export const HRManagementModule = ({ user }) => {
                       </div>
                     </div>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr', gap: '12px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: '12px' }}>
                       <div>
                         <label>Zugewiesenes Projekt (Assigned Project)</label>
                         <select
@@ -1456,17 +1628,6 @@ export const HRManagementModule = ({ user }) => {
                           <option value={3}>Tier 3 — HR & Finance Admin</option>
                           <option value={4}>Tier 4 — Team Lead (Vorarbeiter)</option>
                           <option value={5}>Tier 5 — Field Employee / Freelancer / Sub</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label>Registrierungsstatus (HR/ELStAM)</label>
-                        <select value={newEmp.attributes?.registration_status || ''} onChange={e => setEmpAttr('registration_status', e.target.value)}>
-                          <option value="Angemeldet (ELStAM & SV aktiv)">Angemeldet (ELStAM & SV aktiv)</option>
-                          <option value="Sofortmeldung abgegeben">Sofortmeldung abgegeben (Bau)</option>
-                          <option value="Freelancer Aktiv (Vertrag geprüft)">Freelancer Aktiv (Vertrag geprüft)</option>
-                          <option value="Subunternehmer Verifiziert (§48b EStG)">Subunternehmer Verifiziert (§48b EStG)</option>
-                          <option value="Bewerber (DSGVO akzeptiert)">Bewerber / Candidate (IT Projects)</option>
-                          <option value="Abgemeldet / Inaktiv">Abgemeldet / Inaktiv</option>
                         </select>
                       </div>
                     </div>
@@ -1882,93 +2043,129 @@ export const HRManagementModule = ({ user }) => {
                   </div>
                 )}
 
-                {/* SECTION 6: DOKUMENTE UPLOAD (WITH SONSTIGES + CUSTOM LABEL) & ONE-TIME PASSWORD (OTP) */}
+                {/* SECTION 6: DOKUMENTE — AI READER + UPLOAD + ARCHIVE (sorted by type) */}
                 {empCardTab === 'docs' && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                    <div style={{ padding: '14px', borderRadius: '10px', background: 'rgba(255, 107, 0, 0.07)', border: '1px solid rgba(255, 107, 0, 0.28)' }}>
-                      <div className="flex-between" style={{ flexWrap: 'wrap', gap: '10px' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+
+                    {/* ── AI Ausweis / Document Reader ──────────────────────────── */}
+                    <div style={{ padding: '16px', borderRadius: '12px', background: 'linear-gradient(135deg,#f0fdf4,#fffbf7)', border: '1.5px solid rgba(16,185,129,0.3)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
+                        <div style={{ padding: '8px', borderRadius: '8px', background: 'rgba(16,185,129,0.12)', color: '#059669', display: 'flex' }}>
+                          <ScanLine size={18} />
+                        </div>
                         <div>
-                          <strong style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.9rem' }}>
-                            <KeyRound size={15} style={{ color: 'var(--accent)' }} />
-                            One-Time Password (Einmalpasswort) & Account Security
+                          <strong style={{ fontSize: '0.92rem', color: '#065f46' }}>
+                            <Sparkles size={14} style={{ verticalAlign: 'middle', marginRight: 4 }} />
+                            KI-Dokumentenleser — Ausweis / Reisepass / Aufenthaltstitel automatisch einlesen
                           </strong>
-                          <p style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                            {editingEmpId
-                              ? 'Resetting generates a new One-Time Password (OTP). On next login, the employee is required to set their own personal password.'
-                              : 'Generate a One-Time Password for the new employee. After first login with this OTP, the employee must choose their own password.'}
+                          <p style={{ fontSize: '0.73rem', color: '#6b7280', margin: '2px 0 0' }}>
+                            Foto oder Scan hochladen → KI liest Felder automatisch aus und füllt das Formular. Dokument wird gleichzeitig in der Personalakte gespeichert.
                           </p>
                         </div>
-                        {editingEmpId ? (
-                          <button type="button" className="btn-primary btn-sm" onClick={handleResetEmployeeOtp}>
-                            <KeyRound size={13} /> Reset Password / Generate New OTP
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            className="btn-secondary btn-sm"
-                            onClick={() => setNewEmp({ ...newEmp, one_time_password: generateRandomOtp() })}
-                          >
-                            Generate New OTP
-                          </button>
-                        )}
                       </div>
-
-                      <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginTop: '10px', flexWrap: 'wrap' }}>
-                        <div style={{ flex: 1, minWidth: '220px' }}>
-                          <label style={{ fontSize: '0.72rem' }}>
-                            {editingEmpId ? 'Last Issued One-Time Password (OTP)' : 'Initial One-Time Password (OTP)'}
-                          </label>
-                          <input
-                            value={newEmp.one_time_password || ''}
-                            onChange={e => setNewEmp({ ...newEmp, one_time_password: e.target.value })}
-                            placeholder="BRN-XXXXXX!"
-                            style={{ fontFamily: 'monospace', fontWeight: 700 }}
-                          />
+                      <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+                        <div style={{ flex: 1, minWidth: '180px' }}>
+                          <label style={{ fontSize: '0.72rem' }}>Dokumenttyp für KI-Upload</label>
+                          <select value={docCategory} onChange={e => setDocCategory(e.target.value)} style={{ fontSize: '0.82rem' }}>
+                            <option value="Personalausweis / Reisepass">🪪 Personalausweis / Reisepass / Aufenthaltstitel</option>
+                            <option value="Arbeitsvertrag / Werkvertrag">📄 Arbeitsvertrag / Werkvertrag</option>
+                            <option value="Freelancer Projektvertrag">📑 Freelancer Projektvertrag</option>
+                            <option value="Krankenkassenkarte / SV-Ausweis">🏥 Krankenkassenkarte / SV-Ausweis</option>
+                            <option value="Freistellungsbescheinigung §48b EStG">📋 Freistellungsbescheinigung §48b EStG</option>
+                            <option value="Gewerbeanmeldung / BG BAU">🏗️ Gewerbeanmeldung / BG BAU Nachweis</option>
+                            <option value="Führerschein / Zertifikat">🚗 Führerschein / Schulungszertifikat</option>
+                            <option value="Lebenslauf / CV">📝 Lebenslauf / CV</option>
+                            <option value="Sonstiges">📎 Sonstiges</option>
+                          </select>
                         </div>
-                        {editingEmpId && (
-                          <span className="badge" style={{ marginTop: '18px', background: newEmp.must_change_password ? 'rgba(234,179,8,0.2)' : 'rgba(34,197,94,0.16)', color: newEmp.must_change_password ? '#ca8a04' : '#16a34a' }}>
-                            {newEmp.must_change_password ? 'Waiting for Employee First-Login Password Change' : 'Personal Password Set by Employee'}
-                          </span>
-                        )}
+                        <div>
+                          <label style={{ fontSize: '0.72rem' }}>
+                            {aiDocReading ? '⏳ KI liest Dokument...' : '📎 Dokument / Foto auswählen'}
+                          </label>
+                          <label style={{
+                            display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '8px 14px',
+                            borderRadius: '8px', background: aiDocReading ? '#d1fae5' : '#059669', color: '#fff',
+                            cursor: aiDocReading ? 'not-allowed' : 'pointer', fontSize: '0.82rem', fontWeight: 700,
+                            border: 'none', transition: 'background 0.2s',
+                          }}>
+                            {aiDocReading ? <><Sparkles size={14} /> Lese Dokument...</> : <><ScanLine size={14} /> KI-Upload & Einlesen</>}
+                            <input
+                              type="file"
+                              accept=".pdf,image/*,.doc,.docx"
+                              style={{ display: 'none' }}
+                              disabled={aiDocReading}
+                              onChange={handleAiDocumentRead}
+                            />
+                          </label>
+                        </div>
                       </div>
 
-                      {otpBanner && (
-                        <div style={{ marginTop: '10px', padding: '10px 12px', borderRadius: '8px', background: '#ecfdf5', border: '1px solid #10b981', color: '#065f46', fontSize: '0.82rem' }}>
-                          New One-Time Password generated: <strong style={{ fontFamily: 'monospace', fontSize: '0.95rem' }}>{otpBanner}</strong>
+                      {/* AI Result Banner */}
+                      {aiDocResult && (
+                        <div style={{ marginTop: '12px', padding: '12px 14px', borderRadius: '8px', background: '#ecfdf5', border: '1px solid #10b981', fontSize: '0.8rem' }}>
+                          <div style={{ fontWeight: 700, color: '#065f46', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <Check size={14} /> KI hat folgende Felder erkannt & ins Formular übernommen:
+                          </div>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                            {Object.entries(aiDocResult.fields).filter(([, v]) => v).map(([k, v]) => (
+                              <span key={k} style={{ padding: '2px 8px', borderRadius: '20px', background: '#d1fae5', color: '#065f46', fontSize: '0.72rem', fontWeight: 600 }}>
+                                {k.replace(/_/g, ' ')}: <strong>{String(v)}</strong>
+                              </span>
+                            ))}
+                          </div>
+                          <div style={{ marginTop: '6px', fontSize: '0.7rem', color: '#6b7280' }}>
+                            Datei «{aiDocResult.fileName}» hochgeladen & in Personalakte gespeichert.
+                          </div>
+                        </div>
+                      )}
+                      {aiDocError && (
+                        <div style={{ marginTop: '10px', padding: '10px 12px', borderRadius: '8px', background: '#fef2f2', border: '1px solid #fca5a5', color: '#991b1b', fontSize: '0.78rem' }}>
+                          ⚠️ {aiDocError}
                         </div>
                       )}
                     </div>
 
-                    {/* Contract & HR Document Upload with Sonstiges + Custom Label */}
+                    {/* ── Divider: Manual Upload ─────────────────────────────────── */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />
+                      <span style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                        Manueller Upload
+                      </span>
+                      <div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />
+                    </div>
+
+                    {/* ── Manual Document Upload ────────────────────────────────── */}
                     <div style={{ padding: '14px', borderRadius: '10px', background: 'var(--surface-2)', border: '1px solid var(--border)' }}>
-                      <h4 style={{ fontSize: '0.9rem', marginBottom: '10px' }}>Upload Document to Personalakte (inkl. Sonstiges & Custom Label)</h4>
+                      <h4 style={{ fontSize: '0.88rem', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <Upload size={14} /> Dokument manuell zur Personalakte hinzufügen
+                      </h4>
                       <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 1.1fr 1.3fr', gap: '10px', alignItems: 'end' }}>
                         <div>
-                          <label>Dokumententyp (Document Category)</label>
+                          <label>Dokumententyp (Kategorie)</label>
                           <select value={docCategory} onChange={e => setDocCategory(e.target.value)}>
+                            <option value="Personalausweis / Reisepass">Personalausweis / Reisepass / Aufenthaltstitel</option>
                             <option value="Arbeitsvertrag / Werkvertrag">Arbeitsvertrag / Werkvertrag</option>
                             <option value="Freelancer Projektvertrag">Freelancer Projektvertrag</option>
-                            <option value="Personalausweis / Reisepass">Personalausweis / Reisepass / Aufenthaltstitel</option>
                             <option value="Krankenkassenkarte / SV-Ausweis">Krankenkassenkarte / SV-Ausweis</option>
                             <option value="Freistellungsbescheinigung §48b EStG">Freistellungsbescheinigung §48b EStG</option>
                             <option value="Gewerbeanmeldung / BG BAU">Gewerbeanmeldung / BG BAU Nachweis</option>
                             <option value="Führerschein / Zertifikat">Führerschein / Schulungszertifikat</option>
                             <option value="Lebenslauf / CV">Lebenslauf / CV</option>
-                            <option value="Sonstiges">Sonstiges (Other — Add Custom Label)</option>
+                            <option value="Sonstiges">Sonstiges (Eigene Bezeichnung)</option>
                           </select>
                         </div>
                         <div>
-                          <label>Custom Label / Dokumenten-Bezeichnung {docCategory === 'Sonstiges' ? '*' : '(Optional)'}</label>
+                          <label>Bezeichnung {docCategory === 'Sonstiges' ? '*' : '(Optional)'}</label>
                           <input
-                            placeholder={docCategory === 'Sonstiges' ? 'Enter custom label for this document...' : 'e.g. Nachtrag Nr. 2 / Sicherheitsschein'}
+                            placeholder={docCategory === 'Sonstiges' ? 'Bezeichnung eingeben...' : 'z.B. Nachtrag Nr. 2 / Sicherheitsschein'}
                             value={customDocLabel}
                             onChange={e => setCustomDocLabel(e.target.value)}
                           />
                         </div>
                         <div>
                           <label>
-                            {editingEmpId ? 'Select File to Upload Immediately' : 'Attach File on Save'}
-                            {uploadingEmpDoc && <span style={{ color: 'var(--accent)', marginLeft: '6px', fontWeight: 600 }}>• Uploading...</span>}
+                            {editingEmpId ? 'Datei sofort hochladen' : 'Datei beim Speichern hinzufügen'}
+                            {uploadingEmpDoc && <span style={{ color: 'var(--accent)', marginLeft: '6px', fontWeight: 600 }}>• Hochladen...</span>}
                           </label>
                           {editingEmpId ? (
                             <input type="file" accept=".pdf,image/*,.doc,.docx" onChange={handleUploadEmpDocumentNow} disabled={uploadingEmpDoc} />
@@ -1978,9 +2175,9 @@ export const HRManagementModule = ({ user }) => {
                               {contractFile && (
                                 <div style={{ marginTop: '6px', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--accent)' }}>
                                   <FileText size={13} />
-                                  <span>Selected: <strong>{contractFile.name}</strong></span>
+                                  <span>Ausgewählt: <strong>{contractFile.name}</strong></span>
                                   <button type="button" className="btn-secondary btn-sm" style={{ padding: '1px 5px', fontSize: '0.7rem', color: '#dc2626' }} onClick={() => setContractFile(null)}>
-                                    <X size={11} /> Cancel
+                                    <X size={11} /> Abbrechen
                                   </button>
                                 </div>
                               )}
@@ -1988,136 +2185,192 @@ export const HRManagementModule = ({ user }) => {
                           )}
                         </div>
                       </div>
+                    </div>
 
-                      {editingEmpId && (
-                        <div style={{ marginTop: '12px' }}>
-                          <div style={{ fontSize: '0.76rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '6px' }}>
-                            Gespeicherte Personal- & Vertragsdokumente ({(newEmp.documents || []).length})
+                    {/* ── Divider: Archive ─────────────────────────────────────── */}
+                    {editingEmpId && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />
+                        <span style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                          Dokumente-Archiv ({(newEmp.documents || []).length})
+                        </span>
+                        <div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />
+                      </div>
+                    )}
+
+                    {/* ── Documents Archive sorted by type ─────────────────────── */}
+                    {editingEmpId && (
+                      <div>
+                        {(newEmp.documents || []).length === 0 ? (
+                          <div style={{ padding: '20px', textAlign: 'center', border: '1px dashed var(--border)', borderRadius: '10px', color: 'var(--text-muted)', fontSize: '0.82rem' }}>
+                            Noch keine Dokumente in dieser Personalakte hinterlegt.
                           </div>
-                          {(newEmp.documents || []).length === 0 ? (
-                            <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Noch keine Dokumente in dieser Personalakte hinterlegt.</p>
-                          ) : (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                              {(newEmp.documents || []).map(doc => {
-                                const fileUrl = doc.url || doc.download_url || doc.file_url;
-                                const isEditingThis = editingDocId === doc.id;
-                                const ext = (doc.file_name || '').split('.').pop()?.toUpperCase() || 'FILE';
-                                return (
-                                  <div key={doc.id} className="flex-between" style={{ padding: '10px 14px', borderRadius: '8px', background: 'var(--surface)', border: '1px solid var(--border)', fontSize: '0.8rem', gap: '12px' }}>
-                                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', minWidth: 0, flex: 1 }}>
-                                      <div style={{ marginTop: '2px', padding: '6px', borderRadius: '6px', background: 'rgba(255, 107, 0, 0.1)', color: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                        <FileText size={16} />
-                                      </div>
-                                      <div style={{ minWidth: 0, flex: 1 }}>
-                                        {isEditingThis ? (
-                                          <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginBottom: '6px' }}>
-                                            <input
-                                              value={editingDocTitle}
-                                              onChange={e => setEditingDocTitle(e.target.value)}
-                                              style={{ fontSize: '0.82rem', padding: '4px 8px', flex: 1 }}
-                                              placeholder="Document Title / Bezeichnung"
-                                              autoFocus
-                                            />
-                                            <button
-                                              type="button"
-                                              className="btn-primary btn-sm"
-                                              style={{ padding: '4px 8px' }}
-                                              title="Save Title"
-                                              onClick={() => handleSaveDocTitle(doc.id)}
-                                            >
-                                              <Check size={13} /> Save
-                                            </button>
-                                            <button
-                                              type="button"
-                                              className="btn-secondary btn-sm"
-                                              style={{ padding: '4px 8px' }}
-                                              title="Cancel"
-                                              onClick={() => setEditingDocId(null)}
-                                            >
-                                              <X size={13} />
-                                            </button>
-                                          </div>
-                                        ) : (
-                                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '4px' }}>
-                                            <strong style={{ wordBreak: 'break-word', fontSize: '0.86rem' }}>{doc.title}</strong>
-                                            <span className="badge" style={{ fontSize: '0.68rem', padding: '2px 7px', background: 'rgba(255, 107, 0, 0.12)', color: 'var(--accent)', fontWeight: 600 }}>
-                                              {doc.reference_type || doc.category || 'HR Document'}
-                                            </span>
-                                            <span className="badge" style={{ fontSize: '0.68rem', padding: '2px 6px', background: '#e2e8f0', color: '#475569' }}>
-                                              {ext}
-                                            </span>
-                                          </div>
-                                        )}
-                                        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', fontSize: '0.73rem', color: 'var(--text-muted)' }}>
-                                          {doc.file_name && (
-                                            <span>
-                                              File: <strong style={{ color: 'var(--text)' }}>{doc.file_name}</strong>
-                                            </span>
-                                          )}
-                                          {doc.file_size ? (
-                                            <span>
-                                              Size: <strong style={{ color: 'var(--text)' }}>{(doc.file_size / 1024).toFixed(1)} KB</strong>
-                                            </span>
-                                          ) : null}
-                                          {doc.created_at ? (
-                                            <span>
-                                              Uploaded: <strong style={{ color: 'var(--text)' }}>{formatDateTime(doc.created_at)}</strong>
-                                            </span>
-                                          ) : null}
-                                        </div>
-                                      </div>
-                                    </div>
-
-                                    {/* Action buttons: Download, Edit Title, Remove */}
-                                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexShrink: 0 }}>
-                                      {fileUrl && (
-                                        <a
-                                          href={resolveMediaUrl(fileUrl)}
-                                          target="_blank"
-                                          rel="noreferrer"
-                                          download={doc.file_name || true}
-                                          className="btn-secondary btn-sm"
-                                          style={{ textDecoration: 'none', color: 'var(--accent)', display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '4px 9px' }}
-                                          title="Open & Download File"
-                                        >
-                                          <Download size={13} /> Download
-                                        </a>
-                                      )}
-                                      {!isEditingThis && (
-                                        <button
-                                          type="button"
-                                          className="btn-secondary btn-sm"
-                                          style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 9px' }}
-                                          title="Edit Title / Label"
-                                          onClick={() => {
-                                            setEditingDocId(doc.id);
-                                            setEditingDocTitle(doc.title || doc.file_name || '');
-                                          }}
-                                        >
-                                          <Edit3 size={13} /> Edit
-                                        </button>
-                                      )}
-                                      <button
-                                        type="button"
-                                        className="btn-secondary btn-sm"
-                                        style={{ color: '#dc2626', display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 9px' }}
-                                        title="Remove Document from Personalakte"
-                                        onClick={() => handleDeleteEmpDocument(doc.id)}
-                                      >
-                                        <Trash2 size={13} /> Remove
-                                      </button>
-                                    </div>
+                        ) : (() => {
+                          const DOC_TYPE_ORDER = [
+                            'Personalausweis / Reisepass',
+                            'Arbeitsvertrag / Werkvertrag',
+                            'Freelancer Projektvertrag',
+                            'Krankenkassenkarte / SV-Ausweis',
+                            'Freistellungsbescheinigung §48b EStG',
+                            'Gewerbeanmeldung / BG BAU',
+                            'Führerschein / Zertifikat',
+                            'Lebenslauf / CV',
+                            'Sonstiges',
+                          ];
+                          const grouped = {};
+                          (newEmp.documents || []).forEach(doc => {
+                            const cat = doc.reference_type || doc.category || 'Sonstiges';
+                            if (!grouped[cat]) grouped[cat] = [];
+                            grouped[cat].push(doc);
+                          });
+                          const sortedCats = [
+                            ...DOC_TYPE_ORDER.filter(c => grouped[c]),
+                            ...Object.keys(grouped).filter(c => !DOC_TYPE_ORDER.includes(c)),
+                          ];
+                          return (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                              {sortedCats.map(cat => (
+                                <div key={cat}>
+                                  <div style={{ fontSize: '0.72rem', fontWeight: 800, color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px', padding: '4px 10px', background: 'rgba(255,107,0,0.07)', borderRadius: '6px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                                    <FileText size={11} /> {cat} <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>({grouped[cat].length})</span>
                                   </div>
-                                );
-                              })}
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                    {grouped[cat].map(doc => {
+                                      const fileUrl = doc.url || doc.download_url || doc.file_url;
+                                      const isEditingThis = editingDocId === doc.id;
+                                      const ext = (doc.file_name || '').split('.').pop()?.toUpperCase() || 'FILE';
+                                      return (
+                                        <div key={doc.id} className="flex-between" style={{ padding: '10px 14px', borderRadius: '8px', background: 'var(--surface)', border: '1px solid var(--border)', fontSize: '0.8rem', gap: '12px' }}>
+                                          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', minWidth: 0, flex: 1 }}>
+                                            <div style={{ marginTop: '2px', padding: '6px', borderRadius: '6px', background: 'rgba(255,107,0,0.1)', color: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                              <FileText size={16} />
+                                            </div>
+                                            <div style={{ minWidth: 0, flex: 1 }}>
+                                              {isEditingThis ? (
+                                                <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginBottom: '6px' }}>
+                                                  <input value={editingDocTitle} onChange={e => setEditingDocTitle(e.target.value)} style={{ fontSize: '0.82rem', padding: '4px 8px', flex: 1 }} placeholder="Dokumenten-Bezeichnung" autoFocus />
+                                                  <button type="button" className="btn-primary btn-sm" style={{ padding: '4px 8px' }} onClick={() => handleSaveDocTitle(doc.id)}><Check size={13} /> Speichern</button>
+                                                  <button type="button" className="btn-secondary btn-sm" style={{ padding: '4px 8px' }} onClick={() => setEditingDocId(null)}><X size={13} /></button>
+                                                </div>
+                                              ) : (
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '4px' }}>
+                                                  <strong style={{ wordBreak: 'break-word', fontSize: '0.86rem' }}>{doc.title}</strong>
+                                                  <span className="badge" style={{ fontSize: '0.68rem', padding: '2px 6px', background: '#e2e8f0', color: '#475569' }}>{ext}</span>
+                                                </div>
+                                              )}
+                                              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', fontSize: '0.73rem', color: 'var(--text-muted)' }}>
+                                                {doc.file_name && <span>Datei: <strong style={{ color: 'var(--text)' }}>{doc.file_name}</strong></span>}
+                                                {doc.file_size ? <span>Größe: <strong style={{ color: 'var(--text)' }}>{(doc.file_size / 1024).toFixed(1)} KB</strong></span> : null}
+                                                {doc.created_at ? <span>Hochgeladen: <strong style={{ color: 'var(--text)' }}>{formatDateTime(doc.created_at)}</strong></span> : null}
+                                              </div>
+                                            </div>
+                                          </div>
+                                          <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexShrink: 0 }}>
+                                            {fileUrl && (
+                                              <a href={resolveMediaUrl(fileUrl)} target="_blank" rel="noreferrer" download={doc.file_name || true} className="btn-secondary btn-sm" style={{ textDecoration: 'none', color: 'var(--accent)', display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '4px 9px' }}>
+                                                <Download size={13} /> Download
+                                              </a>
+                                            )}
+                                            {!isEditingThis && (
+                                              <button type="button" className="btn-secondary btn-sm" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 9px' }} onClick={() => { setEditingDocId(doc.id); setEditingDocTitle(doc.title || doc.file_name || ''); }}>
+                                                <Edit3 size={13} /> Umbenennen
+                                              </button>
+                                            )}
+                                            <button type="button" className="btn-secondary btn-sm" style={{ color: '#dc2626', display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 9px' }} onClick={() => handleDeleteEmpDocument(doc.id)}>
+                                              <Trash2 size={13} /> Löschen
+                                            </button>
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              ))}
                             </div>
-                          )}
+                          );
+                        })()}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* SECTION 7: ACCOUNT SECURITY & ONE-TIME PASSWORD (OTP) */}
+                {empCardTab === 'security' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    <div style={{ padding: '16px', borderRadius: '12px', background: 'rgba(255,107,0,0.06)', border: '1.5px solid rgba(255,107,0,0.22)' }}>
+                      <div className="flex-between" style={{ flexWrap: 'wrap', gap: '10px', marginBottom: '14px' }}>
+                        <div>
+                          <strong style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.95rem' }}>
+                            <KeyRound size={16} style={{ color: 'var(--accent)' }} />
+                            Einmalpasswort (OTP) & Account-Sicherheit
+                          </strong>
+                          <p style={{ fontSize: '0.77rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                            {editingEmpId
+                              ? 'Neues OTP generieren: Mitarbeiter muss beim nächsten Login ein persönliches Passwort setzen.'
+                              : 'Einmalpasswort für den ersten Login. Der Mitarbeiter muss es beim ersten Login ändern.'}
+                          </p>
+                        </div>
+                        {editingEmpId ? (
+                          <button type="button" className="btn-primary btn-sm" onClick={handleResetEmployeeOtp}>
+                            <KeyRound size={13} /> Passwort zurücksetzen / Neues OTP
+                          </button>
+                        ) : (
+                          <button type="button" className="btn-secondary btn-sm" onClick={() => setNewEmp({ ...newEmp, one_time_password: generateRandomOtp() })}>
+                            Neues OTP generieren
+                          </button>
+                        )}
+                      </div>
+
+                      <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+                        <div style={{ flex: 1, minWidth: '220px' }}>
+                          <label style={{ fontSize: '0.72rem' }}>
+                            {editingEmpId ? 'Zuletzt ausgestelltes Einmalpasswort (OTP)' : 'Initiales Einmalpasswort (OTP)'}
+                          </label>
+                          <input
+                            value={newEmp.one_time_password || ''}
+                            onChange={e => setNewEmp({ ...newEmp, one_time_password: e.target.value })}
+                            placeholder="BRN-XXXXXX!"
+                            style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '1rem', letterSpacing: '0.08em' }}
+                          />
+                        </div>
+                        {editingEmpId && (
+                          <span className="badge" style={{ marginTop: '18px', background: newEmp.must_change_password ? 'rgba(234,179,8,0.2)' : 'rgba(34,197,94,0.16)', color: newEmp.must_change_password ? '#ca8a04' : '#16a34a' }}>
+                            {newEmp.must_change_password ? '⏳ Warte auf ersten Login' : '✅ Eigenes Passwort gesetzt'}
+                          </span>
+                        )}
+                      </div>
+
+                      {otpBanner && (
+                        <div style={{ marginTop: '12px', padding: '10px 14px', borderRadius: '8px', background: '#ecfdf5', border: '1px solid #10b981', color: '#065f46', fontSize: '0.84rem' }}>
+                          Neues OTP generiert: <strong style={{ fontFamily: 'monospace', fontSize: '1rem' }}>{otpBanner}</strong>
                         </div>
                       )}
                     </div>
+
+                    <div style={{ padding: '14px', borderRadius: '10px', background: 'var(--surface-2)', border: '1px solid var(--border)', fontSize: '0.82rem' }}>
+                      <strong style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px' }}>
+                        <ShieldCheck size={15} /> Portal-Zugangsdaten
+                      </strong>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                        <div>
+                          <label style={{ fontSize: '0.7rem' }}>Login E-Mail</label>
+                          <div style={{ fontWeight: 700, padding: '8px', borderRadius: '6px', background: 'var(--surface)', border: '1px solid var(--border)' }}>{newEmp.email || '—'}</div>
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '0.7rem' }}>Account-Status</label>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                              <input type="checkbox" checked={newEmp.is_active} onChange={e => setNewEmp({ ...newEmp, is_active: e.target.checked })} />
+                              <span style={{ fontWeight: 600, color: newEmp.is_active ? '#16a34a' : '#dc2626' }}>
+                                {newEmp.is_active ? '✅ Account aktiv — Portal-Zugang erlaubt' : '🔒 Account gesperrt'}
+                              </span>
+                            </label>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                )}
-              </div>
+                )}              </div>
 
               {/* Fixed Static Footer */}
               <div className="flex-between" style={{ padding: '14px 24px', borderTop: '1px solid var(--border)', background: '#f8fafc' }}>
@@ -2246,7 +2499,53 @@ export const HRManagementModule = ({ user }) => {
               <option value="4">Tier 4 · Team Lead</option>
               <option value="5">Tier 5 · Field Tech / External</option>
             </select>
-            <button className="btn-secondary" style={{ marginLeft: 'auto' }} onClick={() => downloadCsv(filteredEmps, 'employees.csv')}>Export CSV</button>
+            <button className="btn-secondary" style={{ marginLeft: 'auto' }} onClick={() => downloadCsv({
+                rows: filteredEmps,
+                columns: [
+                  { key: 'employee_number', label: 'Mitarbeiter-Nr.' },
+                  { key: 'full_name', label: 'Vollständiger Name' },
+                  { key: 'first_name', label: 'Vorname' },
+                  { key: 'last_name', label: 'Nachname' },
+                  { key: 'email', label: 'E-Mail (Login)' },
+                  { key: 'phone', label: 'Telefon / Mobil' },
+                  { key: 'employment_type', label: 'Beschäftigungsart' },
+                  { key: 'role', label: 'Position / Rolle' },
+                  { key: 'department', label: 'Abteilung' },
+                  { key: 'base_salary', label: 'Grundgehalt (€/Mo)' },
+                  { key: 'hourly_rate', label: 'Stundenlohn (€/h)' },
+                  { key: 'annual_leave_days', label: 'Jahresurlaub (Tage)' },
+                  { key: 'is_active', label: 'Aktiv' },
+                  { label: 'Geburtsdatum', fn: r => r.attributes?.birth_date || '' },
+                  { label: 'Nationalität', fn: r => r.attributes?.nationality || '' },
+                  { label: 'Straße', fn: r => r.attributes?.street || '' },
+                  { label: 'PLZ', fn: r => r.attributes?.postal_code || '' },
+                  { label: 'Stadt', fn: r => r.attributes?.city || '' },
+                  { label: 'Steuer-ID', fn: r => r.attributes?.steuer_id || '' },
+                  { label: 'Steuerklasse', fn: r => r.attributes?.steuerklasse || '' },
+                  { label: 'KV-Name', fn: r => r.attributes?.krankenversicherung_name || '' },
+                  { label: 'SV-Nummer', fn: r => r.attributes?.sozialversicherungsnummer || '' },
+                  { label: 'IBAN', fn: r => r.attributes?.iban || '' },
+                  { label: 'BIC', fn: r => r.attributes?.bic || '' },
+                  { label: 'Bank', fn: r => r.attributes?.bank_name || '' },
+                  { label: 'Vertragsmodell', fn: r => r.attributes?.contract_model || '' },
+                  { label: 'Vertragsbeginn', fn: r => r.attributes?.contract_start_date || '' },
+                  { label: 'Probezeit Ende', fn: r => r.attributes?.probezeit_end_date || '' },
+                  { label: 'Wochenstunden', fn: r => r.attributes?.weekly_hours ?? '' },
+                  { label: 'Tagessatz (€)', fn: r => r.attributes?.tagessatz ?? '' },
+                  { label: 'Stundensatz (€)', fn: r => r.attributes?.stundensatz ?? '' },
+                  { label: 'Überstunden-Satz (€)', fn: r => r.attributes?.overtime_rate ?? '' },
+                  { label: 'SOS Kontakt', fn: r => r.attributes?.sos_contact_name || '' },
+                  { label: 'SOS Telefon', fn: r => r.attributes?.sos_contact_phone || '' },
+                  { label: 'Firmenname (Sub)', fn: r => r.attributes?.company_name || '' },
+                  { label: 'USt-ID', fn: r => r.attributes?.ust_id || '' },
+                  { label: 'Freistellungsbescheinigung bis', fn: r => r.attributes?.freistellungsbescheinigung_until || '' },
+                  { label: 'Registrierungsstatus', fn: r => r.attributes?.registration_status || '' },
+                  { label: 'Zugewiesenes Projekt', fn: r => r.attributes?.assigned_project_name || '' },
+                  { key: 'role_tier', label: 'RBAC Tier' },
+                ],
+              }, `bruenel_mitarbeiter_${new Date().toISOString().slice(0,10)}.csv`)}>
+              📥 Mitarbeiter CSV exportieren
+            </button>
           </div>
           <table style={{ width: '100%', textAlign: 'left', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
             <thead>
@@ -2786,7 +3085,30 @@ export const HRManagementModule = ({ user }) => {
               <p>
                 {timeLogs.filter((t) => !t.check_out_time).length} live shift(s) right now • Management can add, change projects, edit dates/times/breaks, approve & delete any working hours entry
               </p>
-              <button className="btn-secondary" style={{ marginLeft: 'auto' }} onClick={() => downloadCsv(timeLogs, 'working-hours.csv')}>Export CSV</button>
+              <button className="btn-secondary" style={{ marginLeft: 'auto' }} onClick={() => downloadCsv({
+                rows: timeLogs,
+                columns: [
+                  { key: 'id', label: 'Log-ID' },
+                  { key: 'employee_name', label: 'Mitarbeiter Name' },
+                  { key: 'employee_id', label: 'Mitarbeiter-ID' },
+                  { key: 'date', label: 'Datum' },
+                  { key: 'project_name', label: 'Projekt' },
+                  { key: 'project_id', label: 'Projekt-ID' },
+                  { label: 'Check-In (Uhrzeit)', fn: l => l.check_in_time ? new Date(l.check_in_time).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : '' },
+                  { label: 'Check-Out (Uhrzeit)', fn: l => l.check_out_time ? new Date(l.check_out_time).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : 'Aktiv' },
+                  { key: 'break_minutes', label: 'Pause (Min)' },
+                  { label: 'Nettostunden', fn: l => {
+                    if (!l.check_in_time || !l.check_out_time) return '';
+                    const diff = (new Date(l.check_out_time) - new Date(l.check_in_time)) / 3600000 - (l.break_minutes || 0) / 60;
+                    return diff > 0 ? diff.toFixed(2) : '0';
+                  }},
+                  { key: 'status', label: 'Status' },
+                  { key: 'notes', label: 'Notizen' },
+                  { key: 'created_at', label: 'Erstellt am' },
+                ],
+              }, `bruenel_arbeitszeiten_${new Date().toISOString().slice(0,10)}.csv`)}>
+              📥 Arbeitszeiten CSV exportieren
+            </button>
             </div>
             <table style={{ width: '100%', textAlign: 'left', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
               <thead>
