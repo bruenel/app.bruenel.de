@@ -513,11 +513,6 @@ export const HRManagementModule = ({ user }) => {
       const mimeType = file.type || 'image/jpeg';
 
       const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || '';
-      if (!GEMINI_KEY) {
-        setAiDocError('VITE_GEMINI_API_KEY not configured. Document uploaded — please fill in fields manually.');
-        setAiDocReading(false);
-        return;
-      }
 
       const prompt = `You are an HR document parser for a German company. Analyze this document image (it may be a Personalausweis, Reisepass, Aufenthaltstitel, or other HR document).
 Extract as many of the following fields as you can find. Return ONLY valid JSON (no markdown):
@@ -541,46 +536,64 @@ Extract as many of the following fields as you can find. Return ONLY valid JSON 
 }
 Leave a field as empty string if you cannot find it. Do not guess. Only return JSON.`;
 
-      // Models to try in order of capability / availability
-      const modelsToTry = ['gemini-3.8-flash', 'gemini-flash-latest', 'gemini-2.5-flash'];
-      let geminiRes = null;
-      let lastErr = null;
-
-      for (const model of modelsToTry) {
-        try {
-          const res = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                contents: [{
-                  parts: [
-                    { text: prompt },
-                    { inline_data: { mime_type: mimeType, data: b64 } },
-                  ],
-                }],
-                generationConfig: { temperature: 0, responseMimeType: 'application/json' },
-              }),
-            }
-          );
-          if (res.ok) {
-            geminiRes = res;
-            break;
-          } else {
-            const errBody = await res.json().catch(() => ({}));
-            lastErr = errBody?.error?.message || `API error ${res.status}`;
-          }
-        } catch (e) {
-          lastErr = e.message;
-        }
-      }
-
-      if (!geminiRes) throw new Error(lastErr || 'Gemini API request failed');
-      const geminiJson = await geminiRes.json();
-      const rawText = geminiJson?.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
       let fields = {};
-      try { fields = JSON.parse(rawText); } catch { fields = {}; }
+
+      if (GEMINI_KEY) {
+        // Direct Client-Side Gemini Vision Call
+        const modelsToTry = ['gemini-3.8-flash', 'gemini-flash-latest', 'gemini-2.5-flash'];
+        let geminiRes = null;
+        let lastErr = null;
+
+        for (const model of modelsToTry) {
+          try {
+            const res = await fetch(
+              `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`,
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  contents: [{
+                    parts: [
+                      { text: prompt },
+                      { inline_data: { mime_type: mimeType, data: b64 } },
+                    ],
+                  }],
+                  generationConfig: { temperature: 0, responseMimeType: 'application/json' },
+                }),
+              }
+            );
+            if (res.ok) {
+              geminiRes = res;
+              break;
+            } else {
+              const errBody = await res.json().catch(() => ({}));
+              lastErr = errBody?.error?.message || `API error ${res.status}`;
+            }
+          } catch (e) {
+            lastErr = e.message;
+          }
+        }
+
+        if (geminiRes) {
+          const geminiJson = await geminiRes.json();
+          const rawText = geminiJson?.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+          try { fields = JSON.parse(rawText); } catch { fields = {}; }
+        } else {
+          // Fallback to backend endpoint
+          const backendRes = await fetchWithToken('/api/v1/hr/ai/read-document', {
+            method: 'POST',
+            body: JSON.stringify({ mime_type: mimeType, data: b64 }),
+          });
+          fields = backendRes?.fields || {};
+        }
+      } else {
+        // Fallback to backend AI endpoint
+        const backendRes = await fetchWithToken('/api/v1/hr/ai/read-document', {
+          method: 'POST',
+          body: JSON.stringify({ mime_type: mimeType, data: b64 }),
+        });
+        fields = backendRes?.fields || {};
+      }
 
       // 4. Auto-fill form fields from extracted data
       setNewEmp((prev) => {

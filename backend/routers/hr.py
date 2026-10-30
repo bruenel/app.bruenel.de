@@ -304,6 +304,85 @@ def update_employee(
     return serialize_employee(emp, db=db, include_sensitive=True)
 
 
+@router.post("/ai/read-document")
+async def ai_read_document_backend(
+    payload: dict,
+    current_user: models.User = Depends(get_current_user),
+):
+    """
+    Parses an identity or HR document via Google Gemini Vision.
+    Extracts structured fields (first_name, last_name, birth_date, nationality, street, etc.).
+    Uses GEMINI_API_KEY from environment variables.
+    """
+    import urllib.request
+    import json
+
+    gemini_key = os.getenv("GEMINI_API_KEY")
+    if not gemini_key:
+        raise HTTPException(
+            status_code=400,
+            detail="GEMINI_API_KEY is not configured on the server environment. Please set GEMINI_API_KEY.",
+        )
+
+    mime_type = payload.get("mime_type") or "image/jpeg"
+    b64_data = payload.get("data")
+    if not b64_data:
+        raise HTTPException(status_code=400, detail="Missing image data")
+
+    prompt = """You are an HR document parser for a German company. Analyze this document image (it may be a Personalausweis, Reisepass, Aufenthaltstitel, or other HR document).
+Extract as many of the following fields as you can find. Return ONLY valid JSON (no markdown):
+{
+  "first_name": "",
+  "last_name": "",
+  "birth_date": "YYYY-MM-DD",
+  "nationality": "",
+  "gender": "",
+  "street": "",
+  "postal_code": "",
+  "city": "",
+  "steuer_id": "",
+  "document_type": "",
+  "document_number": "",
+  "document_valid_until": "YYYY-MM-DD",
+  "company_name": "",
+  "ust_id": "",
+  "iban": "",
+  "notes": ""
+}
+Leave a field as empty string if you cannot find it. Do not guess. Only return JSON."""
+
+    models_to_try = ["gemini-3.8-flash", "gemini-flash-latest", "gemini-2.5-flash"]
+    last_err = None
+
+    for model_name in models_to_try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={gemini_key}"
+        body = json.dumps({
+            "contents": [{
+                "parts": [
+                    {"text": prompt},
+                    {"inline_data": {"mime_type": mime_type, "data": b64_data}}
+                ]
+            }],
+            "generationConfig": {"temperature": 0, "responseMimeType": "application/json"}
+        }).encode("utf-8")
+        req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                resp_json = json.loads(resp.read().decode("utf-8"))
+                raw_text = resp_json.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "{}")
+                try:
+                    fields = json.loads(raw_text)
+                except Exception:
+                    fields = {}
+                return {"fields": fields, "model": model_name}
+        except urllib.error.HTTPError as e:
+            last_err = f"HTTP {e.code}: {e.read().decode('utf-8')[:200]}"
+        except Exception as e:
+            last_err = str(e)
+
+    raise HTTPException(status_code=502, detail=f"Gemini API request failed: {last_err}")
+
+
 @router.post("/candidates/upload-cv")
 async def upload_candidate_cv_public(
     file: UploadFile = File(...),
