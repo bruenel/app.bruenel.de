@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 export { formatEuro, formatDate, formatDateTime, formatDateRange } from './formatters';
 
-let API_BASE = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
+let API_BASE = import.meta.env.VITE_API_URL || (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1' ? 'https://app-bruenel-de-backend.vercel.app' : 'http://127.0.0.1:8000');
 if (API_BASE && !API_BASE.startsWith('http')) {
   API_BASE = `https://${API_BASE}`;
 }

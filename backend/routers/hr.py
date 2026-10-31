@@ -1429,6 +1429,11 @@ def update_leave_status(
 
     old_status = lv.status
     lv.status = payload.get("status", "Approved")
+    if not current_user.employee_id:
+        emp = db.query(models.Employee).filter(models.Employee.email == current_user.email).first()
+        if emp:
+            current_user.employee_id = emp.id
+            db.commit()
     lv.approved_by = current_user.employee_id
     db.commit()
 
