@@ -13,7 +13,7 @@ import {
   LayoutDashboard, Building2, Users, Package, Truck, Calendar, Receipt, ShoppingBag,
   Briefcase, Mail, Lock, BarChart as BarChartIcon, Settings, ShieldCheck, LogOut,
   Smartphone, ChevronRight, ChevronsLeft, ChevronsRight, Search, Plus, Bell,
-  UserPlus, ClipboardList, ArrowRightLeft, FilePlus2, CornerDownLeft,
+  UserPlus, ClipboardList, ArrowRightLeft, FilePlus2, CornerDownLeft, Clock,
 } from 'lucide-react';
 
 import { useAuth, TIER_LABELS, fetchWithToken } from './core/api';
@@ -132,6 +132,7 @@ export const NAV = [
 ];
 
 const QUICK_ACTIONS = [
+  { label: 'Arbeitszeiten erfassen', icon: Clock, href: 'https://www.bruenel.de/employee', mod: null },
   { label: 'New Employee', icon: UserPlus, to: '/hr/employees', action: 'add-employee', mod: 'mod_hr' },
   { label: 'Assign Task', icon: ClipboardList, to: '/projects/tasks', action: 'add-task', mod: 'mod_projects' },
   { label: 'New Building Object', icon: Building2, to: '/projects/objects', action: 'add-object', mod: 'mod_projects' },
@@ -339,6 +340,10 @@ const ManagementLayout = ({ user, logout, onSwitchToPortal, children }) => {
 
   const go = (item) => {
     setPaletteOpen(false); setMenu(null);
+    if (item.href) {
+      window.open(item.href, '_blank', 'noopener,noreferrer');
+      return;
+    }
     navigate(item.to, { state: item.action ? { action: item.action, t: Date.now() } : undefined });
   };
 
@@ -405,6 +410,16 @@ const ManagementLayout = ({ user, logout, onSwitchToPortal, children }) => {
         })}
 
         <div className="sidebar-foot">
+          <a
+            href="https://www.bruenel.de/employee"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="nav-item"
+            title="Arbeitszeiten erfassen & Aufgabenverwaltung"
+            style={{ textDecoration: 'none' }}
+          >
+            <Clock size={18} style={{ color: '#FF0055' }} /><span className="nav-label" style={{ fontWeight: 700 }}>Arbeitszeiten erfassen</span>
+          </a>
           <button className="nav-item" onClick={onSwitchToPortal} title="Open employee portal">
             <Smartphone size={18} /><span className="nav-label">Employee Portal</span>
           </button>
@@ -422,6 +437,30 @@ const ManagementLayout = ({ user, logout, onSwitchToPortal, children }) => {
           </div>
 
           <div className="topbar-actions" ref={menuRef}>
+            <a
+              href="https://www.bruenel.de/employee"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn-secondary"
+              title="Zur Arbeitszeiterfassung (bruenel.de/employee) weiterleiten"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                textDecoration: 'none',
+                fontWeight: 700,
+                fontSize: 12,
+                color: '#0A0A0A',
+                border: '1px solid rgba(255, 0, 85, 0.35)',
+                background: 'rgba(255, 0, 85, 0.05)',
+                borderRadius: 8,
+                padding: '6px 12px',
+              }}
+            >
+              <Clock size={14} style={{ color: '#FF0055' }} />
+              <span>Arbeitszeiten erfassen</span>
+            </a>
+
             <button className="search-trigger" onClick={() => setPaletteOpen(true)}>
               <Search size={16} /><span>Search or jump to…</span><span className="kbd">⌘K</span>
             </button>

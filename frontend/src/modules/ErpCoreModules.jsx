@@ -5,7 +5,7 @@ import {
   Building2, MapPin, Video, Image, ShieldAlert, ArrowRightLeft, Lock, Edit3,
   MessageSquare, Download, ChevronLeft, ChevronRight, BarChart3, GripVertical,
   Search, KeyRound, Trash2, ShieldCheck, Briefcase, PhoneCall, AlertTriangle,
-  Sparkles, ScanLine, FolderOpen, ShieldCheck as ShieldKey
+  Sparkles, ScanLine, FolderOpen, ShieldCheck as ShieldKey, ArrowLeft,
 } from 'lucide-react';
 import { fetchWithToken, uploadMediaFile, resolveMediaUrl, TIER_LABELS, formatEuro, formatDate, formatDateTime, formatDateRange } from '../core/api';
 import { TASK_STATUS_CONFIG, getStatusStyle } from '../core/i18n';
@@ -469,52 +469,30 @@ export const HRManagementModule = ({ user }) => {
     fetchWithToken(`/api/v1/hr/time-logs/bi-summary?${qs}`).then(setBiSummary).catch(() => null);
   };
 
-  // ── AI Document Reader ─────────────────────────────────────────────────────
+  // ── AI Document Reader (Multi-file support) ────────────────────────────────
   const handleAiDocumentRead = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
     e.target.value = '';
     setAiDocReading(true);
     setAiDocResult(null);
     setAiDocError(null);
 
-    try {
-      // 1. Upload the document immediately and attach it to the employee record
-      const uploadedDoc = await uploadMediaFile({
-        file,
-        referenceType: 'PersonalDokument',
-        referenceId: editingEmpId || 'NEW_EMPLOYEE',
-        title: `KI-Upload: ${file.name}`,
+    const mergedFields = {};
+    const uploadedDocsList = [];
+
+    const toBase64 = (f) =>
+      new Promise((res, rej) => {
+        const reader = new FileReader();
+        reader.onload = () => res(reader.result.split(',')[1]);
+        reader.onerror = rej;
+        reader.readAsDataURL(f);
       });
 
-      // 2. If editing an existing employee, persist the document to the DB
-      if (editingEmpId && uploadedDoc?.document_id) {
-        await fetchWithToken(`/api/v1/hr/employees/${editingEmpId}/documents`, {
-          method: 'POST',
-          body: JSON.stringify({
-            document_id: uploadedDoc.document_id,
-            category: docCategory || 'Personalausweis / Reisepass',
-            title: `KI-Upload: ${file.name}`,
-          }),
-        }).catch(() => null); // non-fatal — doc is already uploaded
-        loadAll();
-      }
+    const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || '';
+    const modelsToTry = ['gemini-3.8-flash', 'gemini-flash-latest', 'gemini-2.5-flash'];
 
-      // 3. Convert image/PDF to base64 for Gemini Vision
-      const toBase64 = (f) =>
-        new Promise((res, rej) => {
-          const reader = new FileReader();
-          reader.onload = () => res(reader.result.split(',')[1]);
-          reader.onerror = rej;
-          reader.readAsDataURL(f);
-        });
-
-      const b64 = await toBase64(file);
-      const mimeType = file.type || 'image/jpeg';
-
-      const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || '';
-
-      const prompt = `You are an HR document parser for a German company. Analyze this document image (it may be a Personalausweis, Reisepass, Aufenthaltstitel, or other HR document).
+    const prompt = `You are an HR document parser for a German company. Analyze this document image (it may be a Personalausweis, Reisepass, Aufenthaltstitel, Arbeitsvertrag, Gewerbeanmeldung, Freistellungsbescheinigung, or other HR document).
 Extract as many of the following fields as you can find. Return ONLY valid JSON (no markdown):
 {
   "first_name": "",
@@ -536,88 +514,140 @@ Extract as many of the following fields as you can find. Return ONLY valid JSON 
 }
 Leave a field as empty string if you cannot find it. Do not guess. Only return JSON.`;
 
-      let fields = {};
+    try {
+      for (const file of files) {
+        // 1. Upload each document immediately as a separate file
+        const uploadedDoc = await uploadMediaFile({
+          file,
+          referenceType: 'PersonalDokument',
+          referenceId: editingEmpId || 'NEW_EMPLOYEE',
+          title: `KI-Upload: ${file.name}`,
+        });
 
-      if (GEMINI_KEY) {
-        // Direct Client-Side Gemini Vision Call
-        const modelsToTry = ['gemini-3.8-flash', 'gemini-flash-latest', 'gemini-2.5-flash'];
-        let geminiRes = null;
-        let lastErr = null;
-
-        for (const model of modelsToTry) {
-          try {
-            const res = await fetch(
-              `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`,
-              {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  contents: [{
-                    parts: [
-                      { text: prompt },
-                      { inline_data: { mime_type: mimeType, data: b64 } },
-                    ],
-                  }],
-                  generationConfig: { temperature: 0, responseMimeType: 'application/json' },
-                }),
-              }
-            );
-            if (res.ok) {
-              geminiRes = res;
-              break;
-            } else {
-              const errBody = await res.json().catch(() => ({}));
-              lastErr = errBody?.error?.message || `API error ${res.status}`;
-            }
-          } catch (e) {
-            lastErr = e.message;
+        if (uploadedDoc?.document_id) {
+          uploadedDocsList.push({ ...uploadedDoc, name: file.name });
+          if (editingEmpId) {
+            await fetchWithToken(`/api/v1/hr/employees/${editingEmpId}/documents`, {
+              method: 'POST',
+              body: JSON.stringify({
+                document_id: uploadedDoc.document_id,
+                category: docCategory || 'Personalausweis / Reisepass',
+                title: `KI-Upload: ${file.name}`,
+              }),
+            }).catch(() => null);
           }
         }
 
-        if (geminiRes) {
-          const geminiJson = await geminiRes.json();
-          const rawText = geminiJson?.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
-          try { fields = JSON.parse(rawText); } catch { fields = {}; }
-        } else {
-          // Fallback to backend endpoint
-          const backendRes = await fetchWithToken('/api/v1/hr/ai/read-document', {
-            method: 'POST',
-            body: JSON.stringify({ mime_type: mimeType, data: b64 }),
-          });
-          fields = backendRes?.fields || {};
+        // 2. Read each document with Gemini Vision
+        try {
+          const b64 = await toBase64(file);
+          const mimeType = file.type || 'image/jpeg';
+          let docFields = {};
+
+          if (GEMINI_KEY) {
+            let geminiRes = null;
+            for (const model of modelsToTry) {
+              try {
+                const res = await fetch(
+                  `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`,
+                  {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      contents: [{
+                        parts: [
+                          { text: prompt },
+                          { inline_data: { mime_type: mimeType, data: b64 } },
+                        ],
+                      }],
+                      generationConfig: { temperature: 0, responseMimeType: 'application/json' },
+                    }),
+                  }
+                );
+                if (res.ok) {
+                  geminiRes = res;
+                  break;
+                }
+              } catch (e) {
+                // next model
+              }
+            }
+
+            if (geminiRes) {
+              const geminiJson = await geminiRes.json();
+              const rawText = geminiJson?.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+              try { docFields = JSON.parse(rawText); } catch { docFields = {}; }
+            } else {
+              const backendRes = await fetchWithToken('/api/v1/hr/ai/read-document', {
+                method: 'POST',
+                body: JSON.stringify({ mime_type: mimeType, data: b64 }),
+              }).catch(() => null);
+              docFields = backendRes?.fields || {};
+            }
+          } else {
+            const backendRes = await fetchWithToken('/api/v1/hr/ai/read-document', {
+              method: 'POST',
+              body: JSON.stringify({ mime_type: mimeType, data: b64 }),
+            }).catch(() => null);
+            docFields = backendRes?.fields || {};
+          }
+
+          for (const [k, v] of Object.entries(docFields)) {
+            if (v && String(v).trim()) {
+              mergedFields[k] = v;
+            }
+          }
+        } catch (readErr) {
+          console.warn('Error reading file with AI:', file.name, readErr);
         }
-      } else {
-        // Fallback to backend AI endpoint
-        const backendRes = await fetchWithToken('/api/v1/hr/ai/read-document', {
-          method: 'POST',
-          body: JSON.stringify({ mime_type: mimeType, data: b64 }),
-        });
-        fields = backendRes?.fields || {};
       }
 
-      // 4. Auto-fill form fields from extracted data
+      if (editingEmpId) {
+        loadAll();
+      }
+
+      // 3. Auto-fill form fields from all extracted documents
       setNewEmp((prev) => {
         const attrs = { ...(prev.attributes || {}) };
-        if (fields.birth_date) attrs.birth_date = fields.birth_date;
-        if (fields.nationality) attrs.nationality = fields.nationality;
-        if (fields.street) attrs.street = fields.street;
-        if (fields.postal_code) attrs.postal_code = fields.postal_code;
-        if (fields.city) attrs.city = fields.city;
-        if (fields.steuer_id) attrs.steuer_id = fields.steuer_id;
-        if (fields.company_name) attrs.company_name = fields.company_name;
-        if (fields.ust_id) attrs.ust_id = fields.ust_id;
-        if (fields.iban) attrs.iban = fields.iban;
+        if (mergedFields.birth_date) attrs.geburtsdatum = mergedFields.birth_date;
+        if (mergedFields.nationality) attrs.staatsangehoerigkeit = mergedFields.nationality;
+        if (mergedFields.gender) attrs.geschlecht = mergedFields.gender;
+        if (mergedFields.street) attrs.strasse = mergedFields.street;
+        if (mergedFields.postal_code) attrs.plz = mergedFields.postal_code;
+        if (mergedFields.city) attrs.ort = mergedFields.city;
+        if (mergedFields.steuer_id) attrs.steuer_id = mergedFields.steuer_id;
+        if (mergedFields.document_type) attrs.ausweistyp = mergedFields.document_type;
+        if (mergedFields.document_number) attrs.ausweisnummer = mergedFields.document_number;
+        if (mergedFields.document_valid_until) attrs.ausweis_gueltig_bis = mergedFields.document_valid_until;
+        if (mergedFields.company_name) attrs.company_name = mergedFields.company_name;
+        if (mergedFields.ust_id) attrs.ust_id = mergedFields.ust_id;
+        if (mergedFields.iban) attrs.iban = mergedFields.iban;
+
         return {
           ...prev,
-          first_name: fields.first_name || prev.first_name,
-          last_name: fields.last_name || prev.last_name,
+          first_name: mergedFields.first_name || prev.first_name,
+          last_name: mergedFields.last_name || prev.last_name,
           attributes: attrs,
+          documents: [
+            ...(prev.documents || []),
+            ...uploadedDocsList.map(doc => ({
+              id: doc.document_id,
+              title: doc.name,
+              category: docCategory || 'Personalausweis / Reisepass',
+              url: doc.download_url,
+              created_at: new Date().toISOString(),
+            })),
+          ],
         };
       });
 
-      setAiDocResult({ fields, fileName: file.name, uploadedDoc });
+      setAiDocResult({
+        fields: mergedFields,
+        fileName: files.map(f => f.name).join(', '),
+        count: files.length,
+      });
     } catch (err) {
-      setAiDocError(err.message || 'AI read failed');
+      setAiDocError(err.message || 'Fehler beim Hochladen oder Verarbeiten der Dokumente');
     } finally {
       setAiDocReading(false);
     }
@@ -1366,8 +1396,9 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
       )}
 
       {/* Sub-navigation Tabs */}
-      <SubTabs base="/hr" active={tab} items={[
+      <SubTabs base="/hr" active={showAddEmp ? 'register' : tab} items={[
         { id: 'employees', label: 'Employees, Freelancers & Candidates', count: employees.length },
+        ...(showAddEmp ? [{ id: 'register', label: editingEmpId ? `Personalakte: ${newEmp.first_name} ${newEmp.last_name}` : 'Mitarbeiter erfassen (Vollbild)' }] : []),
         { id: 'timelogs', label: 'Working Hours & Smart Search', count: timeLogs.length },
         { id: 'leaves', label: 'Holiday (Urlaub)', count: leaves.length },
         { id: 'sickness', label: 'Sickness (AU)', count: sickness.length },
@@ -1375,45 +1406,54 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
       ]} />
 
       {/* =====================================================================
-          CLEAN, STATIC MODERN FORM: REGISTER / EDIT EMPLOYEE, FREELANCER, SUBUNTERNEHMER, CANDIDATE
+          CLEAN, STATIC MODERN FORM: REGISTER / EDIT EMPLOYEE (FULL-SCREEN PLATFORM TAB)
          ===================================================================== */}
       {showAddEmp && (
-        <div className="modal-overlay" onClick={() => setShowAddEmp(false)}>
-          <div
-            className="glass-panel"
-            style={{
-              width: '960px',
-              maxWidth: '96vw',
-              height: '740px',
-              maxHeight: '92vh',
-              display: 'flex',
-              flexDirection: 'column',
-              padding: 0,
-              overflow: 'hidden',
-              background: '#ffffff',
-              borderRadius: '16px',
-              border: '1px solid var(--border)',
-            }}
-            onClick={e => e.stopPropagation()}
-          >
-            {/* Fixed Static Header */}
-            <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--border)', background: '#f8fafc' }}>
-              <div className="flex-between" style={{ marginBottom: '12px' }}>
+        <div
+          className="glass-panel"
+          style={{
+            width: '100%',
+            minHeight: '82vh',
+            display: 'flex',
+            flexDirection: 'column',
+            padding: 0,
+            overflow: 'hidden',
+            background: '#ffffff',
+            borderRadius: '16px',
+            border: '1px solid var(--border)',
+            boxShadow: '0 4px 24px rgba(0,0,0,0.06)',
+            marginTop: '16px',
+            marginBottom: '32px',
+          }}
+        >
+          {/* Platform Integrated Full-Screen Header with Back Button */}
+          <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--border)', background: '#f8fafc' }}>
+            <div className="flex-between" style={{ marginBottom: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => setShowAddEmp(false)}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 700, padding: '7px 14px' }}
+                >
+                  <ArrowLeft size={16} /> Zurück zur Übersicht
+                </button>
                 <div>
-                  <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '1.12rem', margin: 0 }}>
-                    <Briefcase size={18} style={{ color: 'var(--accent)' }} />
+                  <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '1.18rem', margin: 0 }}>
+                    <Briefcase size={20} style={{ color: 'var(--accent)' }} />
                     {editingEmpId
                       ? `Personalakte / Master Card: ${newEmp.first_name} ${newEmp.last_name} (${newEmp.employee_number || ''})`
-                      : 'Register New Employee / Freelancer / Subunternehmer (German Arbeitsrecht)'}
+                      : 'Mitarbeiter, Freelancer & Subunternehmer erfassen (Vollbild-Formular)'}
                   </h3>
-                  <p style={{ fontSize: '0.76rem', color: 'var(--text-muted)', margin: '2px 0 0' }}>
-                    Static enterprise form • Select Employment Type below to adapt fields (Full-time, Freelancer with multi-contracts, Subunternehmer, or Candidate).
+                  <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: '2px 0 0' }}>
+                    Plattform-integriertes Vollbild-Formular • Wählen Sie unten den Beschäftigungstyp (Vollzeit, Freelancer, Subunternehmer oder IT-Kandidat).
                   </p>
                 </div>
-                <button type="button" className="btn-secondary btn-sm" onClick={() => setShowAddEmp(false)}>
-                  <X size={15} /> Close
-                </button>
               </div>
+              <button type="button" className="btn-secondary btn-sm" onClick={() => setShowAddEmp(false)}>
+                <X size={15} /> Schließen
+              </button>
+            </div>
 
               {/* Quick Employment Type Switcher Bar inside Form Header */}
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
@@ -2409,14 +2449,15 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                   Active Mode: <strong>{newEmp.employment_type}</strong> • Position: <strong>{newEmp.role}</strong> • Abteilung: <strong>{newEmp.department}</strong>
                 </div>
                 <div style={{ display: 'flex', gap: '10px' }}>
-                  <button type="button" className="btn-secondary" onClick={() => setShowAddEmp(false)}>Cancel</button>
+                  <button type="button" className="btn-secondary" onClick={() => setShowAddEmp(false)}>
+                    <ArrowLeft size={14} /> Zurück zur Übersicht
+                  </button>
                   <button type="submit" className="btn-primary">
                     <Check size={15} /> {editingEmpId ? 'Save Employee Master Card' : 'Create Account & Save Personalakte'}
                   </button>
                 </div>
               </div>
             </form>
-          </div>
         </div>
       )}
 
