@@ -5,7 +5,7 @@ import {
   Upload, Play, Pause, Square, LogOut, Users,
   MapPin, Wrench, MessageSquare, Lock, Edit3, Check, X,
   ChevronLeft, ChevronRight, ChevronDown, Globe, BarChart3, Plus, FolderOpen, Download, Trash2, User, KeyRound, Shield,
-  LayoutDashboard
+  LayoutDashboard, Package, Warehouse
 } from 'lucide-react';
 import { fetchWithToken, uploadMediaFile, resolveMediaUrl, formatEuro, formatDate, formatDateTime, formatDateRange } from '../core/api';
 import { TRANSLATIONS, TASK_STATUS_CONFIG, getStatusStyle } from '../core/i18n';
@@ -213,6 +213,18 @@ export const EmployeePortalPWA = ({ user, logout, onSwitchToManagement }) => {
       .catch(() => null);
   };
 
+  // ── Lager (Abholung von Lager) State ───────────────────────────────────────
+  const [lagersList, setLagersList] = useState([]);
+  const [materialsList, setMaterialsList] = useState([]);
+  const [stockList, setStockList] = useState([]);
+  const [myPickupsList, setMyPickupsList] = useState([]);
+  const [selectedLagerId, setSelectedLagerId] = useState('');
+  const [lagerPickupDate, setLagerPickupDate] = useState(() => toIsoDate(new Date()));
+  const [lagerPickupProject, setLagerPickupProject] = useState('NE4 - Lorch');
+  const [lagerPickupItems, setLagerPickupItems] = useState([{ material_id: '', quantity: 1, note: '' }]);
+  const [lagerSummaryNote, setLagerSummaryNote] = useState('');
+  const [lagerSubTab, setLagerSubTab] = useState('pickup');
+
   const loadPortalData = () => {
     Promise.all([
       fetchWithToken('/api/v1/assignments').catch(() => []),
@@ -225,10 +237,14 @@ export const EmployeePortalPWA = ({ user, logout, onSwitchToManagement }) => {
       fetchWithToken('/api/v1/fleet/vehicles').catch(() => []),
       fetchWithToken('/api/v1/fleet/equipment').catch(() => []),
       fetchWithToken('/api/v1/hr/employees').catch(() => []),
-    ]).then(([tsk, tms, tl, lv, sk, ps, prj, veh, eq, emps]) => {
+      fetchWithToken('/api/v1/inventory/lagers').catch(() => ({ static_lagers: [] })),
+      fetchWithToken('/api/v1/inventory/materials').catch(() => []),
+      fetchWithToken('/api/v1/inventory/stock').catch(() => []),
+      fetchWithToken('/api/v1/inventory/transactions').catch(() => []),
+    ]).then(([tsk, tms, tl, lv, sk, ps, prj, veh, eq, emps, lgs, mats, stk, txs]) => {
       setTasks(tsk);
       setTeams(tms);
-      setTimeLogs(tl);
+      setTimeLogs(Array.isArray(tl) ? tl : []);
       setLeaves(lv);
       setSickness(sk);
       setPayslips(ps);
@@ -236,6 +252,15 @@ export const EmployeePortalPWA = ({ user, logout, onSwitchToManagement }) => {
       setVehicles(veh);
       setEquipment(eq);
       setEmployees(emps);
+
+      const staticLgs = Array.isArray(lgs?.static_lagers) ? lgs.static_lagers : [];
+      setLagersList(staticLgs);
+      setMaterialsList(Array.isArray(mats) ? mats : []);
+      setStockList(Array.isArray(stk) ? stk : []);
+      setMyPickupsList(Array.isArray(txs) ? txs.filter(t => Number(t.quantity) < 0) : []);
+      if (staticLgs.length > 0 && !selectedLagerId) {
+        setSelectedLagerId(staticLgs[0].id);
+      }
 
       if (selectedTask) {
         const refreshed = tsk.find(x => x.id === selectedTask.id);
@@ -259,11 +284,51 @@ export const EmployeePortalPWA = ({ user, logout, onSwitchToManagement }) => {
       localStorage.setItem('bruenel_lang', user.preferred_language);
     }
     loadPortalData();
+    const interval = setInterval(() => loadPortalData(), 12000);
+    const onFocus = () => loadPortalData();
+    window.addEventListener('focus', onFocus);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', onFocus);
+    };
   }, []);
 
   useEffect(() => {
     loadBiSummary(biMonth);
   }, [biMonth]);
+
+  const getStockInLager = (matId, lid) => {
+    if (!matId || !lid) return 0;
+    const found = stockList.find(s => s.material_id === matId && s.lager_id === lid);
+    return Number(found?.current_stock || 0);
+  };
+
+  const handleSubmitLagerAbholung = async (e) => {
+    e.preventDefault();
+    const valid = lagerPickupItems.filter(i => i.material_id && Number(i.quantity) > 0);
+    if (!selectedLagerId || valid.length === 0) {
+      alert('Bitte Lager und mindestens einen Artikel mit Menge > 0 wählen.');
+      return;
+    }
+    try {
+      await fetchWithToken('/api/v1/inventory/abholung', {
+        method: 'POST',
+        body: JSON.stringify({
+          lager_id: selectedLagerId,
+          pickup_date: lagerPickupDate,
+          project_name: lagerPickupProject,
+          items: valid,
+          summary_note: lagerSummaryNote,
+        }),
+      });
+      setLagerPickupItems([{ material_id: '', quantity: 1, note: '' }]);
+      setLagerSummaryNote('');
+      loadPortalData();
+      alert('Abholung erfolgreich gebucht und Lagerbestand angepasst!');
+    } catch (err) {
+      alert(err.message);
+    }
+  };
 
   // Logged-in Employee's own HR Master Record (Read-Only in User Modal)
   const myEmployeeProfile = useMemo(() => {
@@ -713,7 +778,7 @@ export const EmployeePortalPWA = ({ user, logout, onSwitchToManagement }) => {
               sub: activeSession ? (isPaused ? t.tabCheckinPaused : t.tabCheckinActive) : t.tabCheckinOff,
             },
             { id: 'tasks', Icon: Calendar, label: t.tabTasks, sub: `${tasks.length} • ${todayRemainingCount} today` },
-            { id: 'teams', Icon: Users, label: t.tabTeams, sub: `${teams.length} Teams` },
+            { id: 'lager', Icon: Package, label: 'Lager', sub: `${myPickupsList.length} Abholungen` },
             { id: 'absence', Icon: HeartPulse, label: lang === 'de' ? 'Urlaub & AU' : 'Leave & Sick', sub: `${leaves.length + sickness.length} Einträge` },
             { id: 'payslips', Icon: FileText, label: t.tabPayslips, sub: `${payslips.length} Monate` },
             {
@@ -1524,95 +1589,170 @@ export const EmployeePortalPWA = ({ user, logout, onSwitchToManagement }) => {
         )}
 
         {/* =====================================================================
-            TAB 3: MEINE TEAMS (COMPACT VIEW)
+            TAB 3: LAGER & MATERIALENTNAHME (ABHOLUNG VON LAGER)
            ===================================================================== */}
-        {activeTab === 'teams' && (
-          <div className="neo-grid-2">
-            <div className="glass-panel">
-              <h3 style={{ fontSize: '0.88rem', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <Users size={15} /> {t.createTeamTitle}
-              </h3>
-              <form onSubmit={handleSaveTeam} style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                <input
-                  required
-                  placeholder={t.teamNamePlaceholder}
-                  value={teamForm.name}
-                  onChange={e => setTeamForm({ ...teamForm, name: e.target.value })}
-                />
-                <div>
-                  <label style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
-                    {t.selectTeamMembers}
-                  </label>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
-                    {employees.map(emp => {
-                      const on = teamForm.member_ids.includes(emp.id);
-                      return (
+        {activeTab === 'lager' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <div className="glass-panel" style={{ display: 'flex', gap: '6px', padding: '6px' }}>
+              <button
+                type="button"
+                onClick={() => setLagerSubTab('pickup')}
+                className={lagerSubTab === 'pickup' ? 'btn-primary' : 'btn-secondary'}
+                style={{ flex: 1, minHeight: '32px', fontSize: '0.74rem' }}
+              >
+                <Package size={13} /> Abholung von Lager erfassen
+              </button>
+              <button
+                type="button"
+                onClick={() => setLagerSubTab('history')}
+                className={lagerSubTab === 'history' ? 'btn-primary' : 'btn-secondary'}
+                style={{ flex: 1, minHeight: '32px', fontSize: '0.74rem' }}
+              >
+                <FileText size={13} /> Dokumentierte Abholungen ({myPickupsList.length})
+              </button>
+            </div>
+
+            {lagerSubTab === 'pickup' && (
+              <div className="neo-grid-2">
+                <div className="glass-panel">
+                  <h3 style={{ fontSize: '0.88rem', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Warehouse size={15} style={{ color: 'var(--accent)' }} /> Abholung von Lager
+                  </h3>
+                  <form onSubmit={handleSubmitLagerAbholung} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 140px', gap: '8px' }}>
+                      <div>
+                        <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)' }}>Lagerort *</label>
+                        <select value={selectedLagerId} onChange={e => setSelectedLagerId(e.target.value)} required>
+                          {lagersList.map(l => <option key={l.id} value={l.id}>{l.name} ({l.location})</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)' }}>Datum *</label>
+                        <DateInput value={lagerPickupDate} onChange={setLagerPickupDate} />
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="flex-between" style={{ marginBottom: '6px' }}>
+                        <label style={{ fontSize: '0.74rem', fontWeight: 700 }}>Artikel & Mengen *</label>
                         <button
-                          key={emp.id}
                           type="button"
-                          onClick={() => setTeamForm({ ...teamForm, member_ids: toggleArrayItem(teamForm.member_ids, emp.id) })}
-                          style={{
-                            padding: '4px 9px',
-                            fontSize: '0.68rem',
-                            fontWeight: 700,
-                            borderRadius: '999px',
-                            border: 'none',
-                            cursor: 'pointer',
-                            background: on ? 'var(--accent)' : '#e6e9ef',
-                            color: on ? '#ffffff' : '#2b2f38',
-                            boxShadow: on ? 'inset 2px 2px 4px rgba(0,0,0,0.2)' : '2px 2px 5px #c5c9d2, -2px -2px 5px #ffffff',
-                          }}
+                          className="btn-secondary btn-sm"
+                          onClick={() => setLagerPickupItems(prev => [...prev, { material_id: '', quantity: 1, note: '' }])}
                         >
-                          {emp.full_name}
+                          <Plus size={12} /> + Artikel
                         </button>
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        {lagerPickupItems.map((it, idx) => {
+                          const avail = it.material_id ? getStockInLager(it.material_id, selectedLagerId) : null;
+                          return (
+                            <div key={idx} style={{ padding: '8px', borderRadius: '8px', background: 'rgba(255,255,255,0.6)', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px auto', gap: '6px', alignItems: 'center' }}>
+                                <select
+                                  value={it.material_id}
+                                  onChange={e => setLagerPickupItems(prev => prev.map((row, i) => i === idx ? { ...row, material_id: e.target.value } : row))}
+                                  required
+                                >
+                                  <option value="">— Artikel wählen —</option>
+                                  {materialsList.map(m => (
+                                    <option key={m.id} value={m.id}>{m.name} ({m.sku}) · Bestand: {getStockInLager(m.id, selectedLagerId)} {m.unit}</option>
+                                  ))}
+                                </select>
+                                <input
+                                  type="number"
+                                  min="1"
+                                  value={it.quantity}
+                                  onChange={e => setLagerPickupItems(prev => prev.map((row, i) => i === idx ? { ...row, quantity: Math.max(1, parseInt(e.target.value || '1', 10)) } : row))}
+                                  required
+                                />
+                                {lagerPickupItems.length > 1 && (
+                                  <button type="button" className="btn-secondary btn-sm" onClick={() => setLagerPickupItems(prev => prev.filter((_, i) => i !== idx))}>
+                                    <Trash2 size={13} />
+                                  </button>
+                                )}
+                              </div>
+                              {avail !== null && (
+                                <div style={{ fontSize: '0.7rem', color: '#059669', fontWeight: 700 }}>
+                                  Bestand vorher: {avail} → Bestand nach Abholung: {avail - Number(it.quantity || 0)}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <textarea
+                      placeholder="Zusammenfassung / Baustelle / Verwendungszweck…"
+                      value={lagerSummaryNote}
+                      onChange={e => setLagerSummaryNote(e.target.value)}
+                    />
+
+                    <div style={{ padding: '10px', borderRadius: '10px', background: 'rgba(249,115,22,0.08)', border: '1px solid rgba(249,115,22,0.25)', fontSize: '0.74rem' }}>
+                      <strong style={{ color: 'var(--accent)', display: 'block', marginBottom: '4px' }}>Zusammenfassung der Abholung:</strong>
+                      Datum: {lagerPickupDate} · Lager: {lagersList.find(l => l.id === selectedLagerId)?.name || '—'}
+                      <br />
+                      Positionen: {lagerPickupItems.filter(i => i.material_id).map(i => {
+                        const m = materialsList.find(x => x.id === i.material_id);
+                        return `${i.quantity}× ${m?.name || ''}`;
+                      }).join(', ') || '—'}
+                    </div>
+
+                    <button type="submit" className="btn-primary">
+                      <Check size={14} /> Abholung von Lager bestätigen & buchen
+                    </button>
+                  </form>
+                </div>
+
+                <div className="glass-panel">
+                  <h3 style={{ fontSize: '0.88rem', marginBottom: '8px' }}>Aktueller Lagerbestand ({materialsList.length})</h3>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    {materialsList.map(m => {
+                      const st = getStockInLager(m.id, selectedLagerId);
+                      return (
+                        <div key={m.id} className="flex-between" style={{ padding: '8px 10px', borderRadius: '8px', background: 'rgba(255,255,255,0.6)', border: '1px solid var(--border)' }}>
+                          <div>
+                            <div style={{ fontWeight: 700, fontSize: '0.8rem' }}>{m.name}</div>
+                            <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>SKU: {m.sku}</div>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <strong style={{ color: st <= 0 ? '#dc2626' : '#059669' }}>{st} {m.unit}</strong>
+                            <button
+                              type="button"
+                              className="btn-secondary btn-sm"
+                              onClick={() => setLagerPickupItems(prev => prev.length === 1 && !prev[0].material_id ? [{ material_id: m.id, quantity: 1, note: '' }] : [...prev, { material_id: m.id, quantity: 1, note: '' }])}
+                            >
+                              + Entnehmen
+                            </button>
+                          </div>
+                        </div>
                       );
                     })}
                   </div>
                 </div>
-                <textarea
-                  placeholder="Team notes..."
-                  value={teamForm.notes}
-                  onChange={e => setTeamForm({ ...teamForm, notes: e.target.value })}
-                />
-                <button type="submit" className="btn-primary">
-                  <Plus size={14} /> {t.saveTeamBtn}
-                </button>
-              </form>
-            </div>
-
-            <div className="glass-panel">
-              <h3 style={{ fontSize: '0.88rem', marginBottom: '8px' }}>{t.tabTeams} ({teams.length})</h3>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '7px' }}>
-                {teams.map(tm => (
-                  <div
-                    key={tm.id}
-                    style={{
-                      padding: '9px 11px',
-                      borderRadius: '10px',
-                      background: 'rgba(255,255,255,0.5)',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '4px',
-                    }}
-                  >
-                    <div className="flex-between">
-                      <strong style={{ fontSize: '0.8rem' }}>{tm.name}</strong>
-                      <button
-                        type="button"
-                        className="btn-secondary"
-                        style={{ padding: '3px 8px', minHeight: '24px', fontSize: '0.68rem' }}
-                        onClick={() => setTeamForm({ id: tm.id, name: tm.name, member_ids: tm.member_ids || [], notes: tm.notes || '' })}
-                      >
-                        <Edit3 size={11} />
-                      </button>
-                    </div>
-                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                      Lead: {tm.leader_name} • {(tm.members || []).map(m => m.name).join(', ')}
-                    </div>
-                  </div>
-                ))}
               </div>
-            </div>
+            )}
+
+            {lagerSubTab === 'history' && (
+              <div className="glass-panel">
+                <h3 style={{ fontSize: '0.88rem', marginBottom: '8px' }}>Dokumentierte Abholungen ({myPickupsList.length})</h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {myPickupsList.map(tx => (
+                    <div key={tx.id} className="flex-between" style={{ padding: '10px', borderRadius: '8px', background: 'rgba(255,255,255,0.6)', border: '1px solid var(--border)' }}>
+                      <div>
+                        <strong style={{ fontSize: '0.82rem' }}>{tx.material_name}</strong>
+                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                          Lager: {tx.source_lager_name} · {tx.timestamp ? formatDateTime(tx.timestamp) : ''}
+                        </div>
+                        {tx.note && <div style={{ fontSize: '0.72rem', color: 'var(--accent)' }}>{tx.note}</div>}
+                      </div>
+                      <strong style={{ color: '#dc2626' }}>{tx.quantity} {tx.unit || ''}</strong>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -2293,7 +2433,7 @@ export const EmployeePortalPWA = ({ user, logout, onSwitchToManagement }) => {
           {[
             { id: 'checkin', Icon: Clock, label: lang === 'de' ? 'Zeiten' : 'Hours' },
             { id: 'tasks', Icon: Calendar, label: lang === 'de' ? 'Aufgaben' : 'Tasks' },
-            { id: 'teams', Icon: Users, label: 'Teams' },
+            { id: 'lager', Icon: Package, label: 'Lager' },
             { id: 'absence', Icon: HeartPulse, label: lang === 'de' ? 'Urlaub/AU' : 'Leave' },
             { id: 'payslips', Icon: FileText, label: lang === 'de' ? 'Lohn' : 'Pay' },
             { id: 'sales', Icon: ShoppingBag, label: 'Upsell', disabled: true },

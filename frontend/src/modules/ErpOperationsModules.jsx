@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { DateInput, TimeInput } from '../components/DateTimeInputs';
 import {
   Package, Truck, Wrench, Calendar as CalendarIcon, Receipt, ShoppingBag,
-  Plus, ArrowRightLeft, AlertTriangle, Download, Check, X, FileText, Video, MessageSquare, Upload
+  Plus, ArrowRightLeft, AlertTriangle, Download, Check, X, FileText, Video, MessageSquare, Upload,
+  Warehouse, Edit3, Trash2, RefreshCw, Search, ChevronDown, ChevronRight, BarChart3
 } from 'lucide-react';
 import { fetchWithToken, uploadMediaFile, resolveMediaUrl, API_URL, getToken, formatEuro, formatDate, formatDateTime, formatDateRange } from '../core/api';
 import { TASK_STATUS_CONFIG } from '../core/i18n';
@@ -11,19 +12,67 @@ import { PageHead, SubTabs, useQuickAction, Empty } from '../components/ui';
 import { BarChart } from './LegacyModules';
 
 // ==============================================================================
-// MODULE 3: INVENTORY & EVENT-SOURCED MATERIAL LEDGER (BUCHEN & SCHWUND)
+// MODULE 3: INVENTORY, WAREHOUSES & EVENT-SOURCED MATERIAL LEDGER
 // ==============================================================================
+
+const MATERIAL_CATEGORIES = [
+  'Cabling / LWL & Glasfaser',
+  'Pipes / Speedpipe & Mikrorohre',
+  'Splicing / Muffen & Kassetten',
+  'Cabinets / NVt, APL & Gf-TA',
+  'Kabelkanäle & Schutzrohre',
+  'Tiefbau & Befestigungsmaterial',
+  'Mess- & Montagezubehör',
+  'Werkzeug & Verbrauchsmaterial',
+  'Cabling',
+  'Sonstiges',
+];
+
+const MATERIAL_UNITS = [
+  'Stück',
+  'Pack',
+  'm',
+  'Rolle',
+  'Box',
+  'Trommel',
+  'Satz',
+  'Palette',
+  'kg',
+  'pcs',
+];
+
+const WAREHOUSE_TYPES = [
+  'Zentrallager',
+  'Regional- / Außenlager',
+  'Baucontainer / Baustellenlager',
+  'Kabeltrommelplatz',
+  'Zwischenlager',
+];
 
 export const InventoryLedgerModule = () => {
   const { section } = useParams();
   const sec = section || 'stock';
   const [stock, setStock] = useState([]);
   const [stockQ, setStockQ] = useState('');
+  const [stockLagerFilter, setStockLagerFilter] = useState('all');
+  const [stockCatFilter, setStockCatFilter] = useState('all');
+  const [catalogQ, setCatalogQ] = useState('');
+  const [ledgerQ, setLedgerQ] = useState('');
+  const [ledgerTypeFilter, setLedgerTypeFilter] = useState('all');
+
   const [transactions, setTransactions] = useState([]);
   const [materials, setMaterials] = useState([]);
   const [lagers, setLagers] = useState({ static_lagers: [], vehicle_lagers: [] });
+  const [employees, setEmployees] = useState([]);
+
+  // Modals
   const [showBuchen, setShowBuchen] = useState(false);
   const [showAddMat, setShowAddMat] = useState(false);
+  const [editingMatId, setEditingMatId] = useState(null);
+  const [showLagerModal, setShowLagerModal] = useState(false);
+  const [editingLagerId, setEditingLagerId] = useState(null);
+  const [showFillModal, setShowFillModal] = useState(false);
+  const [expandedLagerId, setExpandedLagerId] = useState(null);
 
   const [buchenData, setBuchenData] = useState({
     material_id: '',
@@ -31,43 +80,108 @@ export const InventoryLedgerModule = () => {
     source_lager_id: '',
     target_lager_type: 'Vehicle',
     target_lager_id: '',
-    transaction_type: 'CheckOut',
+    transaction_type: 'Return',
     quantity: 10,
     note: '',
   });
-  const [newMat, setNewMat] = useState({ name: '', sku: '', category: 'Cabling', unit: 'pcs', min_stock_threshold: 10, unit_cost: 0 });
+
+  const emptyMatForm = {
+    name: '',
+    sku: '',
+    category: 'Kabelkanäle & Schutzrohre',
+    unit: 'Stück',
+    min_stock_threshold: 10,
+    unit_cost: 0,
+    manufacturer: '',
+    supplier: '',
+    ean_barcode: '',
+    shelf_location: '',
+    package_size: '',
+    description: '',
+    initial_lager_id: '',
+    initial_stock: 0,
+  };
+  const [newMat, setNewMat] = useState(emptyMatForm);
+
+  const emptyLagerForm = {
+    name: '',
+    code: '',
+    type: 'Zentrallager',
+    street: '',
+    postal_code: '',
+    city: '',
+    location: '',
+    manager_id: '',
+    phone: '',
+    capacity: '',
+    notes: '',
+    status: 'Active',
+  };
+  const [lagerForm, setLagerForm] = useState(emptyLagerForm);
+
+  const [fillForm, setFillForm] = useState({
+    lager_id: '',
+    general_note: 'Wareneingang / Lagerbefüllung',
+    items: [{ material_id: '', quantity: 20, mode: 'add', note: '' }],
+  });
 
   const loadAll = () => {
     Promise.all([
-      fetchWithToken('/api/v1/inventory/stock'),
-      fetchWithToken('/api/v1/inventory/transactions'),
-      fetchWithToken('/api/v1/inventory/materials'),
-      fetchWithToken('/api/v1/inventory/lagers'),
-    ]).then(([st, txs, mats, lgs]) => {
-      setStock(st);
-      setTransactions(txs);
-      setMaterials(mats);
-      setLagers(lgs);
-      if (mats.length > 0 && !buchenData.material_id) {
-        setBuchenData(b => ({
-          ...b,
-          material_id: mats[0].id,
-          source_lager_id: lgs.static_lagers[0]?.id || '',
-          target_lager_id: lgs.vehicle_lagers[0]?.id || '',
-        }));
+      fetchWithToken('/api/v1/inventory/stock').catch(() => []),
+      fetchWithToken('/api/v1/inventory/transactions').catch(() => []),
+      fetchWithToken('/api/v1/inventory/materials').catch(() => []),
+      fetchWithToken('/api/v1/inventory/lagers').catch(() => ({ static_lagers: [], vehicle_lagers: [] })),
+      fetchWithToken('/api/v1/hr/employees').catch(() => []),
+    ]).then(([st, txs, mats, lgs, emps]) => {
+      const safeStock = Array.isArray(st) ? st : [];
+      const safeTxs = Array.isArray(txs) ? txs : [];
+      const safeMats = Array.isArray(mats) ? mats : [];
+      const safeLgs = lgs && Array.isArray(lgs.static_lagers) ? lgs : { static_lagers: [], vehicle_lagers: [] };
+      const safeEmps = Array.isArray(emps) ? emps : [];
+
+      setStock(safeStock);
+      setTransactions(safeTxs);
+      setMaterials(safeMats);
+      setLagers(safeLgs);
+      setEmployees(safeEmps);
+
+      const firstLagerId = safeLgs.static_lagers[0]?.id || '';
+      const firstMatId = safeMats[0]?.id || '';
+
+      setBuchenData(b => ({
+        ...b,
+        material_id: b.material_id || firstMatId,
+        source_lager_id: b.source_lager_id || firstLagerId,
+        target_lager_id: b.target_lager_id || safeLgs.vehicle_lagers[0]?.id || '',
+      }));
+      setNewMat(m => ({ ...m, initial_lager_id: m.initial_lager_id || firstLagerId }));
+      setFillForm(f => ({
+        ...f,
+        lager_id: f.lager_id || firstLagerId,
+        items: f.items.map((it, idx) => (idx === 0 && !it.material_id ? { ...it, material_id: firstMatId } : it)),
+      }));
+      if (!expandedLagerId && firstLagerId) {
+        setExpandedLagerId(firstLagerId);
       }
     }).catch(console.error);
   };
 
   useEffect(() => { loadAll(); }, []);
   useQuickAction('buchen', () => setShowBuchen(true));
-  const lowCount = stock.filter((s) => s.low_stock_alert).length;
 
+  const lowCount = stock.filter((s) => s.low_stock_alert).length;
+  const totalUnitsAll = stock.reduce((sum, s) => sum + Math.max(0, Number(s.current_stock || 0)), 0);
+  const totalValueAll = stock.reduce(
+    (sum, s) => sum + Math.max(0, Number(s.current_stock || 0)) * Number(s.unit_cost || 0),
+    0
+  );
+
+  // ── Buchen / Quick Stock Adjustment ────────────────────────────────────────
   const handleBuchen = async (e) => {
     e.preventDefault();
     try {
-      const payload = { ...buchenData };
-      if (payload.transaction_type !== 'CheckOut') {
+      const payload = { ...buchenData, quantity: Number(buchenData.quantity || 0) };
+      if (!['CheckOut', 'Transfer'].includes(payload.transaction_type)) {
         payload.target_lager_id = null;
         payload.target_lager_type = null;
       }
@@ -82,14 +196,221 @@ export const InventoryLedgerModule = () => {
     }
   };
 
-  const handleAddMaterial = async (e) => {
+  const openQuickBuchen = (matId, lagerId, lagerType = 'StaticLager', txType = 'Return', defaultQty = 10) => {
+    setBuchenData({
+      material_id: matId || materials[0]?.id || '',
+      source_lager_type: lagerType,
+      source_lager_id: lagerId || lagers.static_lagers[0]?.id || '',
+      target_lager_type: 'Vehicle',
+      target_lager_id: lagers.vehicle_lagers[0]?.id || '',
+      transaction_type: txType,
+      quantity: defaultQty,
+      note: txType === 'Return' ? 'Wareneingang / Nachbestückung' : txType === 'InventorySet' ? 'Inventur-Bestandskorrektur' : '',
+    });
+    setShowBuchen(true);
+  };
+
+  // ── Material Create / Edit / Delete ────────────────────────────────────────
+  const openCreateMatModal = (preselectLagerId = '') => {
+    setEditingMatId(null);
+    setNewMat({
+      ...emptyMatForm,
+      sku: `MAT-${Math.floor(1000 + Math.random() * 9000)}`,
+      initial_lager_id: preselectLagerId || lagers.static_lagers[0]?.id || '',
+      initial_stock: 25,
+    });
+    setShowAddMat(true);
+  };
+
+  const openEditMatModal = (m) => {
+    setEditingMatId(m.id);
+    setNewMat({
+      name: m.name || '',
+      sku: m.sku || '',
+      category: m.category || 'Cabling / LWL & Glasfaser',
+      unit: m.unit || 'Stück',
+      min_stock_threshold: m.min_stock_threshold ?? 10,
+      unit_cost: m.unit_cost ?? 0,
+      manufacturer: m.manufacturer || m.attributes?.manufacturer || '',
+      supplier: m.supplier || m.attributes?.supplier || '',
+      ean_barcode: m.ean_barcode || m.attributes?.ean_barcode || '',
+      shelf_location: m.shelf_location || m.attributes?.shelf_location || '',
+      package_size: m.package_size || m.attributes?.package_size || '',
+      description: m.description || m.attributes?.description || '',
+      initial_lager_id: lagers.static_lagers[0]?.id || '',
+      initial_stock: 0,
+    });
+    setShowAddMat(true);
+  };
+
+  const handleSaveMaterial = async (e) => {
     e.preventDefault();
     try {
-      await fetchWithToken('/api/v1/inventory/materials', {
-        method: 'POST',
-        body: JSON.stringify(newMat),
-      });
+      const payload = {
+        ...newMat,
+        min_stock_threshold: Number(newMat.min_stock_threshold || 0),
+        unit_cost: Number(newMat.unit_cost || 0),
+        initial_stock: Number(newMat.initial_stock || 0),
+      };
+      if (editingMatId) {
+        await fetchWithToken(`/api/v1/inventory/materials/${editingMatId}`, {
+          method: 'PUT',
+          body: JSON.stringify(payload),
+        });
+      } else {
+        await fetchWithToken('/api/v1/inventory/materials', {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        });
+      }
       setShowAddMat(false);
+      setEditingMatId(null);
+      loadAll();
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  const handleDeleteMaterial = async (mat) => {
+    if (!window.confirm(`Artikel "${mat.name} (${mat.sku})" wirklich unwiderruflich löschen?`)) return;
+    try {
+      await fetchWithToken(`/api/v1/inventory/materials/${mat.id}`, { method: 'DELETE' });
+      loadAll();
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  // ── Warehouse (Lager) Create / Edit / Delete ───────────────────────────────
+  const openCreateLagerModal = () => {
+    setEditingLagerId(null);
+    setLagerForm({
+      ...emptyLagerForm,
+      code: `WH-${Math.floor(10 + Math.random() * 89)}`,
+    });
+    setShowLagerModal(true);
+  };
+
+  const openEditLagerModal = (lg) => {
+    setEditingLagerId(lg.id);
+    setLagerForm({
+      name: lg.name || '',
+      code: lg.code || lg.attributes?.code || '',
+      type: lg.type || lg.attributes?.type || 'Zentrallager',
+      street: lg.street || lg.attributes?.street || '',
+      postal_code: lg.postal_code || lg.attributes?.postal_code || '',
+      city: lg.city || lg.attributes?.city || '',
+      location: lg.location || '',
+      manager_id: lg.manager_id || '',
+      phone: lg.phone || lg.attributes?.phone || '',
+      capacity: lg.capacity || lg.attributes?.capacity || '',
+      notes: lg.notes || lg.attributes?.notes || '',
+      status: lg.status || lg.attributes?.status || 'Active',
+    });
+    setShowLagerModal(true);
+  };
+
+  const handleSaveLager = async (e) => {
+    e.preventDefault();
+    try {
+      const computedLocation =
+        lagerForm.location.trim() ||
+        [lagerForm.street, [lagerForm.postal_code, lagerForm.city].filter(Boolean).join(' ')].filter(Boolean).join(', ') ||
+        'Deutschland';
+      const payload = {
+        ...lagerForm,
+        location: computedLocation,
+        manager_id: lagerForm.manager_id || null,
+      };
+      if (editingLagerId) {
+        await fetchWithToken(`/api/v1/inventory/lagers/${editingLagerId}`, {
+          method: 'PUT',
+          body: JSON.stringify(payload),
+        });
+      } else {
+        await fetchWithToken('/api/v1/inventory/lagers', {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        });
+      }
+      setShowLagerModal(false);
+      setEditingLagerId(null);
+      loadAll();
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  const handleDeleteLager = async (lg) => {
+    if (!window.confirm(`Lager "${lg.name}" inklusive Bestandsbuchungen wirklich löschen?`)) return;
+    try {
+      await fetchWithToken(`/api/v1/inventory/lagers/${lg.id}`, { method: 'DELETE' });
+      loadAll();
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  // ── Fill Warehouse with Multiple Items Modal ───────────────────────────────
+  const openFillLagerModal = (lagerId = '') => {
+    const targetLid = lagerId || lagers.static_lagers[0]?.id || '';
+    setFillForm({
+      lager_id: targetLid,
+      general_note: `Wareneingang / Lagerbefüllung (${new Date().toLocaleDateString('de-DE')})`,
+      items: [{ material_id: materials[0]?.id || '', quantity: 25, mode: 'add', note: '' }],
+    });
+    setShowFillModal(true);
+  };
+
+  const addFillRow = () => {
+    setFillForm(prev => ({
+      ...prev,
+      items: [...prev.items, { material_id: materials[0]?.id || '', quantity: 10, mode: 'add', note: '' }],
+    }));
+  };
+
+  const updateFillRow = (idx, field, val) => {
+    setFillForm(prev => ({
+      ...prev,
+      items: prev.items.map((row, i) => (i === idx ? { ...row, [field]: val } : row)),
+    }));
+  };
+
+  const removeFillRow = (idx) => {
+    setFillForm(prev => ({
+      ...prev,
+      items: prev.items.length > 1 ? prev.items.filter((_, i) => i !== idx) : prev.items,
+    }));
+  };
+
+  const handleFillLagerSubmit = async (e) => {
+    e.preventDefault();
+    if (!fillForm.lager_id) {
+      alert('Bitte wählen Sie ein Ziel-Lager aus.');
+      return;
+    }
+    try {
+      await fetchWithToken(`/api/v1/inventory/lagers/${fillForm.lager_id}/fill`, {
+        method: 'POST',
+        body: JSON.stringify({
+          general_note: fillForm.general_note,
+          items: fillForm.items.map(it => ({
+            ...it,
+            quantity: Number(it.quantity || 0),
+          })),
+        }),
+      });
+      setShowFillModal(false);
+      loadAll();
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  const handleDeleteTransaction = async (txId) => {
+    if (!window.confirm('Diese Buchung stornieren / löschen? Der Lagerbestand wird entsprechend zurückgerechnet.')) return;
+    try {
+      await fetchWithToken(`/api/v1/inventory/transactions/${txId}`, { method: 'DELETE' });
       loadAll();
     } catch (err) {
       alert(err.message);
@@ -97,196 +418,1146 @@ export const InventoryLedgerModule = () => {
   };
 
   const sourceOptions = buchenData.source_lager_type === 'StaticLager' ? lagers.static_lagers : lagers.vehicle_lagers;
+  const targetOptions = buchenData.target_lager_type === 'StaticLager' ? lagers.static_lagers : lagers.vehicle_lagers;
+
+  const filteredStock = stock.filter((s) => {
+    const matchText = `${s.material_name} ${s.sku} ${s.lager_name} ${s.category || ''} ${s.shelf_location || ''}`
+      .toLowerCase()
+      .includes(stockQ.toLowerCase());
+    const matchLager = stockLagerFilter === 'all' || s.lager_id === stockLagerFilter;
+    const matchCat = stockCatFilter === 'all' || s.category === stockCatFilter;
+    return matchText && matchLager && matchCat;
+  });
+
+  const filteredCatalog = materials.filter((m) =>
+    `${m.name} ${m.sku} ${m.category || ''} ${m.manufacturer || ''} ${m.supplier || ''} ${m.shelf_location || ''}`
+      .toLowerCase()
+      .includes(catalogQ.toLowerCase())
+  );
+
+  const filteredTransactions = transactions.filter((t) => {
+    const matchText = `${t.material_name} ${t.employee_name} ${t.source_lager_name} ${t.note || ''}`
+      .toLowerCase()
+      .includes(ledgerQ.toLowerCase());
+    const matchType = ledgerTypeFilter === 'all' || t.transaction_type === ledgerTypeFilter;
+    return matchText && matchType;
+  });
 
   return (
     <div>
-      <PageHead title="Inventory & Material Ledger" desc="Stock is aggregated from the event-sourced ledger across static warehouses and mobile vehicle lagers.">
-        <button className="btn-secondary" onClick={() => setShowAddMat(true)}><Plus size={16} /> New SKU</button>
-        <button className="btn-primary" onClick={() => setShowBuchen(true)}><ArrowRightLeft size={16} /> Buchen / Schwund</button>
+      <PageHead
+        title="Inventory, Warehouses & Material Management"
+        desc="Vollständige Lager-, Artikel- (SKU) und Bestandsverwaltung inkl. Echtzeit-Synchronisation mit den Timenet Mitarbeiter-Abholungen."
+      >
+        <button className="btn-secondary" onClick={openCreateLagerModal}>
+          <Warehouse size={15} /> + Neues Lager
+        </button>
+        <button className="btn-secondary" onClick={() => openCreateMatModal()}>
+          <Plus size={15} /> + Neuer Artikel (SKU)
+        </button>
+        <button className="btn-secondary" onClick={() => openFillLagerModal()}>
+          <Package size={15} /> Lager befüllen (Wareneingang)
+        </button>
+        <button className="btn-primary" onClick={() => setShowBuchen(true)}>
+          <ArrowRightLeft size={15} /> Material Buchen / Schwund
+        </button>
       </PageHead>
+
+      {/* Top KPI Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', marginBottom: '16px' }}>
+        <div className="glass-panel kpi" style={{ padding: '14px' }}>
+          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 700 }}>LAGERORTE & FAHRZEUGE</div>
+          <div style={{ fontSize: '1.75rem', fontWeight: 800, color: 'var(--accent)', margin: '4px 0' }}>
+            {lagers.static_lagers.length} <span style={{ fontSize: '0.9rem', color: 'var(--text-muted)', fontWeight: 600 }}>Lager</span>
+          </div>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+            + {lagers.vehicle_lagers.length} Mobile Fahrzeuglager
+          </div>
+        </div>
+
+        <div className="glass-panel kpi" style={{ padding: '14px' }}>
+          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 700 }}>ARTIKELKATALOG (SKUs)</div>
+          <div style={{ fontSize: '1.75rem', fontWeight: 800, color: '#2563eb', margin: '4px 0' }}>
+            {materials.length}
+          </div>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+            Registrierte Materialien & Bauteile
+          </div>
+        </div>
+
+        <div className="glass-panel kpi" style={{ padding: '14px' }}>
+          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 700 }}>GESAMTBESTAND & WERT</div>
+          <div style={{ fontSize: '1.75rem', fontWeight: 800, color: '#059669', margin: '4px 0' }}>
+            {totalUnitsAll} <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>Einheiten</span>
+          </div>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+            Lagerwert: {formatEuro(totalValueAll)}
+          </div>
+        </div>
+
+        <div className="glass-panel kpi" style={{ padding: '14px' }}>
+          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 700 }}>MINDESTBESTAND & BUCHUNGEN</div>
+          <div style={{ fontSize: '1.75rem', fontWeight: 800, color: lowCount > 0 ? '#dc2626' : '#059669', margin: '4px 0' }}>
+            {lowCount} <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>Warnungen</span>
+          </div>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+            {transactions.length} dokumentierte Lagerbewegungen
+          </div>
+        </div>
+      </div>
+
       <SubTabs base="/inventory" active={sec} items={[
-        { id: 'stock', label: 'Stock Balances', count: stock.length },
-        { id: 'ledger', label: 'Ledger', count: transactions.length },
-        { id: 'catalog', label: 'Material Catalog', count: materials.length },
-        { id: 'lagers', label: 'Warehouses & Vehicles' },
+        { id: 'stock', label: 'Stock Balances (Lagerbestand)', count: stock.length },
+        { id: 'lagers', label: 'Warehouses & Vehicle Lagers', count: lagers.static_lagers.length },
+        { id: 'catalog', label: 'Material Catalog (SKUs)', count: materials.length },
+        { id: 'ledger', label: 'Transaction Ledger & Abholungen', count: transactions.length },
       ]} />
+
       {lowCount > 0 && sec === 'stock' && (
-        <div className="glass-panel" style={{ borderColor: '#f5d9a6', background: '#fff9ef', padding: 12, display: 'flex', gap: 8, alignItems: 'center', color: 'var(--warning)' }}>
-          <AlertTriangle size={16} /> {lowCount} SKU balance(s) below minimum threshold.
+        <div className="glass-panel" style={{ borderColor: '#f5d9a6', background: '#fff9ef', padding: 12, marginBottom: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: 'var(--warning)' }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <AlertTriangle size={16} />
+            <span><strong>{lowCount} Artikel</strong> liegen unter dem definierten Mindestbestand.</span>
+          </div>
+          <button className="btn-secondary btn-sm" onClick={() => openFillLagerModal()}>
+            Jetzt Lager nachfüllen
+          </button>
         </div>
       )}
 
-      {/* Buchen Modal */}
+      {/* =====================================================================
+          MODAL 1: MATERIAL BUCHEN / UMLAGERUNG / BESTANDSKORREKTUR / SCHWUND
+         ===================================================================== */}
       {showBuchen && (
         <div className="modal-overlay">
-          <div className="glass-panel" style={{ width: '480px' }}>
-            <h3 style={{ marginBottom: '14px' }}>Material Buchen (Transfer / Consume / Schwund)</h3>
+          <div className="glass-panel" style={{ width: '540px', maxWidth: '95vw' }}>
+            <div className="flex-between" style={{ marginBottom: '14px' }}>
+              <h3>Material Buchen (Wareneingang / Umlagerung / Entnahme / Inventur)</h3>
+              <button type="button" className="btn-secondary btn-sm" onClick={() => setShowBuchen(false)}><X size={14} /></button>
+            </div>
             <form onSubmit={handleBuchen} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <label style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Transaction Type</label>
-              <select value={buchenData.transaction_type} onChange={e => setBuchenData({...buchenData, transaction_type: e.target.value})}>
-                <option value="CheckOut">CheckOut (Transfer Static Lager → Vehicle)</option>
-                <option value="Return">Return / Restock (+Stock into Lager/Vehicle)</option>
-                <option value="Consume">Consume on Project Site (-Stock)</option>
-                <option value="Schwund">Schwund / Wastage Reconciliation (-Stock, Mandatory Note)</option>
-              </select>
+              <div>
+                <label style={{ fontSize: '0.76rem', fontWeight: 600, color: 'var(--text-muted)' }}>Buchungsart (Transaction Type) *</label>
+                <select value={buchenData.transaction_type} onChange={e => setBuchenData({ ...buchenData, transaction_type: e.target.value })}>
+                  <option value="Return">Wareneingang / Auffüllung (+ Bestand ins Lager buchen)</option>
+                  <option value="InventorySet">Inventur / Bestand exakt festlegen (= Zielbestand setzen)</option>
+                  <option value="CheckOut">Abholung / Umlagerung (Lager → Fahrzeug oder Baustelle)</option>
+                  <option value="Consume">Materialverbrauch auf Projekt / Baustelle (- Bestand)</option>
+                  <option value="Schwund">Schwund / Verlust / Bruch (- Bestand mit Pflichtbegründung)</option>
+                </select>
+              </div>
 
-              <label style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Material SKU</label>
-              <select value={buchenData.material_id} onChange={e => setBuchenData({...buchenData, material_id: e.target.value})}>
-                {materials.map(m => <option key={m.id} value={m.id}>{m.name} ({m.sku})</option>)}
-              </select>
+              <div>
+                <label style={{ fontSize: '0.76rem', fontWeight: 600, color: 'var(--text-muted)' }}>Artikel / Material (SKU) *</label>
+                <select value={buchenData.material_id} onChange={e => setBuchenData({ ...buchenData, material_id: e.target.value })} required>
+                  <option value="">— Artikel wählen —</option>
+                  {materials.map(m => (
+                    <option key={m.id} value={m.id}>{m.name} ({m.sku}) · Einheit: {m.unit} · Gesamtbestand: {m.total_stock ?? 0}</option>
+                  ))}
+                </select>
+              </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                 <div>
-                  <label style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Source Lager Type</label>
+                  <label style={{ fontSize: '0.76rem', fontWeight: 600, color: 'var(--text-muted)' }}>Lagertyp</label>
                   <select
                     value={buchenData.source_lager_type}
                     onChange={e => {
                       const t = e.target.value;
                       const list = t === 'StaticLager' ? lagers.static_lagers : lagers.vehicle_lagers;
-                      setBuchenData({...buchenData, source_lager_type: t, source_lager_id: list[0]?.id || ''});
+                      setBuchenData({ ...buchenData, source_lager_type: t, source_lager_id: list[0]?.id || '' });
                     }}
                   >
-                    <option value="StaticLager">Static Warehouse</option>
-                    <option value="Vehicle">Mobile Vehicle Lager</option>
+                    <option value="StaticLager">Standort-Lager (Warehouse)</option>
+                    <option value="Vehicle">Mobiles Fahrzeuglager</option>
                   </select>
                 </div>
                 <div>
-                  <label style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Source Lager</label>
-                  <select value={buchenData.source_lager_id} onChange={e => setBuchenData({...buchenData, source_lager_id: e.target.value})}>
+                  <label style={{ fontSize: '0.76rem', fontWeight: 600, color: 'var(--text-muted)' }}>Gewähltes Lager *</label>
+                  <select value={buchenData.source_lager_id} onChange={e => setBuchenData({ ...buchenData, source_lager_id: e.target.value })} required>
                     {sourceOptions.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
                   </select>
                 </div>
               </div>
 
-              {buchenData.transaction_type === 'CheckOut' && (
-                <div>
-                  <label style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Target Mobile Vehicle Lager</label>
-                  <select value={buchenData.target_lager_id} onChange={e => setBuchenData({...buchenData, target_lager_id: e.target.value})}>
-                    <option value="">None (Direct Site CheckOut)</option>
-                    {lagers.vehicle_lagers.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-                  </select>
+              {['CheckOut', 'Transfer'].includes(buchenData.transaction_type) && (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                  <div>
+                    <label style={{ fontSize: '0.76rem', fontWeight: 600, color: 'var(--text-muted)' }}>Ziel-Lagertyp (optional bei Umlagerung)</label>
+                    <select
+                      value={buchenData.target_lager_type}
+                      onChange={e => {
+                        const t = e.target.value;
+                        const list = t === 'StaticLager' ? lagers.static_lagers : lagers.vehicle_lagers;
+                        setBuchenData({ ...buchenData, target_lager_type: t, target_lager_id: list[0]?.id || '' });
+                      }}
+                    >
+                      <option value="Vehicle">Mobiles Fahrzeuglager</option>
+                      <option value="StaticLager">Anderes Standort-Lager</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '0.76rem', fontWeight: 600, color: 'var(--text-muted)' }}>Ziel-Lager / Fahrzeug</label>
+                    <select value={buchenData.target_lager_id} onChange={e => setBuchenData({ ...buchenData, target_lager_id: e.target.value })}>
+                      <option value="">Direktentnahme (Kein Ziel-Lager)</option>
+                      {targetOptions.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+                    </select>
+                  </div>
                 </div>
               )}
 
-              <input type="number" min="1" placeholder="Quantity" required value={buchenData.quantity} onChange={e => setBuchenData({...buchenData, quantity: parseInt(e.target.value)})} />
-              <textarea
-                placeholder={buchenData.transaction_type === 'Schwund' ? 'MANDATORY: Justification for Schwund variance...' : 'Optional transaction note...'}
-                required={buchenData.transaction_type === 'Schwund'}
-                value={buchenData.note}
-                onChange={e => setBuchenData({...buchenData, note: e.target.value})}
-              />
-              <div style={{ display: 'flex', gap: '10px' }}>
-                <button type="button" className="btn-secondary" style={{flex: 1}} onClick={() => setShowBuchen(false)}>Cancel</button>
-                <button type="submit" className="btn-primary" style={{flex: 1}}>Execute Buchen</button>
+              <div>
+                <label style={{ fontSize: '0.76rem', fontWeight: 600, color: 'var(--text-muted)' }}>
+                  {buchenData.transaction_type === 'InventorySet' ? 'Neuer exakter Soll-Bestand *' : 'Menge (Anzahl Einheiten) *'}
+                </label>
+                <input
+                  type="number"
+                  min={buchenData.transaction_type === 'InventorySet' ? '0' : '1'}
+                  required
+                  value={buchenData.quantity}
+                  onChange={e => setBuchenData({ ...buchenData, quantity: parseInt(e.target.value || '0', 10) })}
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: '0.76rem', fontWeight: 600, color: 'var(--text-muted)' }}>
+                  Buchungsnotiz / Lieferschein / Projekt {buchenData.transaction_type === 'Schwund' ? '(Pflichtfeld *)' : ''}
+                </label>
+                <textarea
+                  placeholder={buchenData.transaction_type === 'Schwund' ? 'PFLICHTANGABE: Grund für Schwund / Bruch / Differenz…' : 'z.B. Lieferschein-Nr., Projekt, Baustelle…'}
+                  required={buchenData.transaction_type === 'Schwund'}
+                  value={buchenData.note}
+                  onChange={e => setBuchenData({ ...buchenData, note: e.target.value })}
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', marginTop: '4px' }}>
+                <button type="button" className="btn-secondary" style={{ flex: 1 }} onClick={() => setShowBuchen(false)}>Abbrechen</button>
+                <button type="submit" className="btn-primary" style={{ flex: 1 }}>Buchung ausführen</button>
               </div>
             </form>
           </div>
         </div>
       )}
 
+      {/* =====================================================================
+          MODAL 2: COMPLETE & PRECISE ADD / EDIT MATERIAL (SKU) MODAL
+         ===================================================================== */}
       {showAddMat && (
         <div className="modal-overlay">
-          <div className="glass-panel" style={{ width: '420px' }}>
-            <h3 style={{ marginBottom: '14px' }}>Register Material SKU</h3>
-            <form onSubmit={handleAddMaterial} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <input placeholder="Material Name" required value={newMat.name} onChange={e => setNewMat({...newMat, name: e.target.value})} />
-              <input placeholder="SKU Code (e.g. MAT-FIB-100)" required value={newMat.sku} onChange={e => setNewMat({...newMat, sku: e.target.value})} />
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                <input placeholder="Unit (pcs, m, roll)" value={newMat.unit} onChange={e => setNewMat({...newMat, unit: e.target.value})} />
-                <input type="number" placeholder="Min Stock Alert" value={newMat.min_stock_threshold} onChange={e => setNewMat({...newMat, min_stock_threshold: parseInt(e.target.value)})} />
+          <div className="glass-panel" style={{ width: '680px', maxWidth: '96vw', maxHeight: '90vh', overflowY: 'auto' }}>
+            <div className="flex-between" style={{ marginBottom: '14px' }}>
+              <h3>{editingMatId ? 'Artikel / Material (SKU) bearbeiten' : 'Neuen Artikel / Material (SKU) präzise anlegen'}</h3>
+              <button type="button" className="btn-secondary btn-sm" onClick={() => setShowAddMat(false)}><X size={14} /></button>
+            </div>
+
+            <form onSubmit={handleSaveMaterial} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '10px' }}>
+                <div>
+                  <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Artikelbezeichnung / Materialname *</label>
+                  <input
+                    placeholder="z.B. Kabelkanal 20x20 Metall / LWL Erdkabel A-DQ(ZN)B2Y 24E"
+                    required
+                    value={newMat.name}
+                    onChange={e => setNewMat({ ...newMat, name: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>SKU / Artikelnummer *</label>
+                  <input
+                    placeholder="z.B. MAT-LWL-024"
+                    required
+                    value={newMat.sku}
+                    onChange={e => setNewMat({ ...newMat, sku: e.target.value })}
+                  />
+                </div>
               </div>
-              <div style={{ display: 'flex', gap: '10px' }}>
-                <button type="button" className="btn-secondary" style={{flex: 1}} onClick={() => setShowAddMat(false)}>Cancel</button>
-                <button type="submit" className="btn-primary" style={{flex: 1}}>Save SKU</button>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
+                <div>
+                  <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Kategorie *</label>
+                  <select value={newMat.category} onChange={e => setNewMat({ ...newMat, category: e.target.value })}>
+                    {MATERIAL_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Mengeneinheit (Unit) *</label>
+                  <select value={newMat.unit} onChange={e => setNewMat({ ...newMat, unit: e.target.value })}>
+                    {MATERIAL_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Gebindegröße / VPE</label>
+                  <input
+                    placeholder="z.B. 1 Pack = 25m / 100 Stk."
+                    value={newMat.package_size}
+                    onChange={e => setNewMat({ ...newMat, package_size: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
+                <div>
+                  <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Einkaufspreis / Stückkosten (€)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder="0.00"
+                    value={newMat.unit_cost}
+                    onChange={e => setNewMat({ ...newMat, unit_cost: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Mindestbestand (Warn-Schwelle)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    placeholder="10"
+                    value={newMat.min_stock_threshold}
+                    onChange={e => setNewMat({ ...newMat, min_stock_threshold: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Lagerplatz / Regal / Fach</label>
+                  <input
+                    placeholder="z.B. Halle 1 · Regal B4 · Fach 2"
+                    value={newMat.shelf_location}
+                    onChange={e => setNewMat({ ...newMat, shelf_location: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
+                <div>
+                  <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Hersteller / Marke</label>
+                  <input
+                    placeholder="z.B. Corning / Gabocom / 3M"
+                    value={newMat.manufacturer}
+                    onChange={e => setNewMat({ ...newMat, manufacturer: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Lieferant / Großhändler</label>
+                  <input
+                    placeholder="z.B. Sonepar / Kellner & Kunz"
+                    value={newMat.supplier}
+                    onChange={e => setNewMat({ ...newMat, supplier: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>EAN / Barcode / Serien-Nr.</label>
+                  <input
+                    placeholder="z.B. 4012345678901"
+                    value={newMat.ean_barcode}
+                    onChange={e => setNewMat({ ...newMat, ean_barcode: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Technische Beschreibung & Spezifikation</label>
+                <textarea
+                  rows={2}
+                  placeholder="Technische Details, Normen, Abmessungen, Einsatzbereich…"
+                  value={newMat.description}
+                  onChange={e => setNewMat({ ...newMat, description: e.target.value })}
+                />
+              </div>
+
+              {!editingMatId && (
+                <div style={{ padding: '12px', borderRadius: '10px', background: 'var(--surface-2)', border: '1px solid var(--border)' }}>
+                  <div style={{ fontWeight: 700, fontSize: '0.8rem', marginBottom: '8px', color: 'var(--accent)' }}>
+                    Direkte Lager-Erstbefüllung (Anfangsbestand sofort einbuchen)
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '10px' }}>
+                    <div>
+                      <label style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>Ziel-Lager für Anfangsbestand</label>
+                      <select
+                        value={newMat.initial_lager_id}
+                        onChange={e => setNewMat({ ...newMat, initial_lager_id: e.target.value })}
+                      >
+                        <option value="">— Kein Anfangsbestand —</option>
+                        {lagers.static_lagers.map(l => (
+                          <option key={l.id} value={l.id}>{l.name} ({l.location})</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>Anfangsbestand ({newMat.unit})</label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={newMat.initial_stock}
+                        onChange={e => setNewMat({ ...newMat, initial_stock: parseInt(e.target.value || '0', 10) })}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: '10px', marginTop: '4px' }}>
+                <button type="button" className="btn-secondary" style={{ flex: 1 }} onClick={() => setShowAddMat(false)}>Abbrechen</button>
+                <button type="submit" className="btn-primary" style={{ flex: 1 }}>
+                  {editingMatId ? 'Änderungen speichern' : 'Artikel anlegen & Bestand buchen'}
+                </button>
               </div>
             </form>
           </div>
         </div>
       )}
 
+      {/* =====================================================================
+          MODAL 3: COMPLETE & PRECISE ADD / EDIT WAREHOUSE (LAGER) MODAL
+         ===================================================================== */}
+      {showLagerModal && (
+        <div className="modal-overlay">
+          <div className="glass-panel" style={{ width: '620px', maxWidth: '96vw', maxHeight: '90vh', overflowY: 'auto' }}>
+            <div className="flex-between" style={{ marginBottom: '14px' }}>
+              <h3>{editingLagerId ? 'Lagerort (Warehouse) bearbeiten' : 'Neues Lager (Warehouse) anlegen'}</h3>
+              <button type="button" className="btn-secondary btn-sm" onClick={() => setShowLagerModal(false)}><X size={14} /></button>
+            </div>
+
+            <form onSubmit={handleSaveLager} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '10px' }}>
+                <div>
+                  <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Lagername / Bezeichnung *</label>
+                  <input
+                    placeholder="z.B. Hauptlager Lorch / Baustellenlager Darmstadt Süd"
+                    required
+                    value={lagerForm.name}
+                    onChange={e => setLagerForm({ ...lagerForm, name: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Lager-Code *</label>
+                  <input
+                    placeholder="z.B. WH-MAIN-01"
+                    required
+                    value={lagerForm.code}
+                    onChange={e => setLagerForm({ ...lagerForm, code: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
+                <div>
+                  <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Lagertyp</label>
+                  <select value={lagerForm.type} onChange={e => setLagerForm({ ...lagerForm, type: e.target.value })}>
+                    {WAREHOUSE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Verantwortlicher Lagerleiter</label>
+                  <select value={lagerForm.manager_id} onChange={e => setLagerForm({ ...lagerForm, manager_id: e.target.value })}>
+                    <option value="">— Nicht zugewiesen —</option>
+                    {employees.map(emp => (
+                      <option key={emp.id} value={emp.id}>{emp.full_name || `${emp.first_name} ${emp.last_name}`} ({emp.role})</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Status</label>
+                  <select value={lagerForm.status} onChange={e => setLagerForm({ ...lagerForm, status: e.target.value })}>
+                    <option value="Active">Aktiv (Freigegeben)</option>
+                    <option value="Maintenance">Inventur / Gesperrt</option>
+                    <option value="Closed">Inaktiv</option>
+                  </select>
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1.5fr', gap: '10px' }}>
+                <div>
+                  <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Straße & Hausnummer</label>
+                  <input
+                    placeholder="z.B. Rheingaustraße 42"
+                    value={lagerForm.street}
+                    onChange={e => setLagerForm({ ...lagerForm, street: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>PLZ</label>
+                  <input
+                    placeholder="z.B. 65391"
+                    value={lagerForm.postal_code}
+                    onChange={e => setLagerForm({ ...lagerForm, postal_code: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Stadt / Region</label>
+                  <input
+                    placeholder="z.B. Lorch / Hessen"
+                    value={lagerForm.city}
+                    onChange={e => setLagerForm({ ...lagerForm, city: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '10px' }}>
+                <div>
+                  <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Standort-Anzeige / Adresse *</label>
+                  <input
+                    placeholder="z.B. Rheingaustraße 42, 65391 Lorch / Hessen"
+                    value={lagerForm.location}
+                    onChange={e => setLagerForm({ ...lagerForm, location: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Telefon / Kontakt vor Ort</label>
+                  <input
+                    placeholder="z.B. +49 6726 80790"
+                    value={lagerForm.phone}
+                    onChange={e => setLagerForm({ ...lagerForm, phone: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Kapazität & Ausstattung</label>
+                <input
+                  placeholder="z.B. 450 m² Freifläche & Hochregallager, Gabelstapler vorhanden"
+                  value={lagerForm.capacity}
+                  onChange={e => setLagerForm({ ...lagerForm, capacity: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Zufahrts- & Öffnungshinweise / Notizen</label>
+                <textarea
+                  rows={2}
+                  placeholder="z.B. Tor 2 Zahlencode, Ausgabe Mo-Fr 06:30–17:00 Uhr…"
+                  value={lagerForm.notes}
+                  onChange={e => setLagerForm({ ...lagerForm, notes: e.target.value })}
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', marginTop: '4px' }}>
+                <button type="button" className="btn-secondary" style={{ flex: 1 }} onClick={() => setShowLagerModal(false)}>Abbrechen</button>
+                <button type="submit" className="btn-primary" style={{ flex: 1 }}>
+                  {editingLagerId ? 'Lager aktualisieren' : 'Lager speichern'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* =====================================================================
+          MODAL 4: FILL WAREHOUSE WITH ITEMS (LAGER BEFÜLLEN / WARENEINGANG)
+         ===================================================================== */}
+      {showFillModal && (
+        <div className="modal-overlay">
+          <div className="glass-panel" style={{ width: '680px', maxWidth: '96vw', maxHeight: '90vh', overflowY: 'auto' }}>
+            <div className="flex-between" style={{ marginBottom: '14px' }}>
+              <h3>Lager mit Artikeln befüllen (Wareneingang & Bestandsaufnahme)</h3>
+              <button type="button" className="btn-secondary btn-sm" onClick={() => setShowFillModal(false)}><X size={14} /></button>
+            </div>
+
+            <form onSubmit={handleFillLagerSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                <div>
+                  <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Ziel-Lager auswählen *</label>
+                  <select
+                    value={fillForm.lager_id}
+                    onChange={e => setFillForm({ ...fillForm, lager_id: e.target.value })}
+                    required
+                  >
+                    <option value="">— Lager wählen —</option>
+                    {lagers.static_lagers.map(l => (
+                      <option key={l.id} value={l.id}>{l.name} ({l.location})</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Lieferschein / Buchungsreferenz</label>
+                  <input
+                    value={fillForm.general_note}
+                    onChange={e => setFillForm({ ...fillForm, general_note: e.target.value })}
+                    placeholder="z.B. Wareneingang Lieferschein #LS-2026-11"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <div className="flex-between" style={{ marginBottom: '8px' }}>
+                  <label style={{ fontSize: '0.78rem', fontWeight: 700 }}>Artikel & Mengen zur Befüllung</label>
+                  <button type="button" className="btn-secondary btn-sm" onClick={addFillRow}>
+                    <Plus size={14} /> + Weitere Position hinzufügen
+                  </button>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {fillForm.items.map((row, idx) => (
+                    <div key={idx} style={{ display: 'grid', gridTemplateColumns: '2fr 1.2fr 100px 1.2fr auto', gap: '8px', alignItems: 'center', padding: '8px', borderRadius: '8px', background: 'var(--surface-2)', border: '1px solid var(--border)' }}>
+                      <select
+                        value={row.material_id}
+                        onChange={e => updateFillRow(idx, 'material_id', e.target.value)}
+                        required
+                      >
+                        <option value="">— Artikel wählen —</option>
+                        {materials.map(m => (
+                          <option key={m.id} value={m.id}>{m.name} ({m.sku}) [{m.unit}]</option>
+                        ))}
+                      </select>
+
+                      <select
+                        value={row.mode}
+                        onChange={e => updateFillRow(idx, 'mode', e.target.value)}
+                      >
+                        <option value="add">+ Menge addieren (Zugang)</option>
+                        <option value="set">= Exakten Bestand setzen</option>
+                      </select>
+
+                      <input
+                        type="number"
+                        min="0"
+                        required
+                        value={row.quantity}
+                        onChange={e => updateFillRow(idx, 'quantity', parseInt(e.target.value || '0', 10))}
+                        placeholder="Menge"
+                      />
+
+                      <input
+                        placeholder="Positionsnotiz…"
+                        value={row.note}
+                        onChange={e => updateFillRow(idx, 'note', e.target.value)}
+                      />
+
+                      <button
+                        type="button"
+                        className="btn-secondary btn-sm"
+                        onClick={() => removeFillRow(idx)}
+                        style={{ color: '#dc2626' }}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}>
+                <button type="button" className="btn-secondary" style={{ flex: 1 }} onClick={() => setShowFillModal(false)}>Abbrechen</button>
+                <button type="submit" className="btn-primary" style={{ flex: 1 }}>Lager jetzt befüllen & Bestände aktualisieren</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* =====================================================================
+          TAB VIEWS
+         ===================================================================== */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 16 }}>
-        {sec === 'catalog' && (
+        {/* ── TAB 1: STOCK BALANCES ── */}
+        {sec === 'stock' && (
           <div className="glass-panel">
-            <table>
-              <thead><tr style={{ textAlign: 'left', color: 'var(--text-muted)' }}><th style={{ padding: 10 }}>SKU</th><th style={{ padding: 10 }}>Name</th><th style={{ padding: 10 }}>Category</th><th style={{ padding: 10 }}>Unit</th><th style={{ padding: 10 }}>Min. stock</th><th style={{ padding: 10 }}>Unit cost</th></tr></thead>
-              <tbody>{materials.map((m) => (
-                <tr key={m.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                  <td style={{ padding: 10, fontFamily: 'monospace' }}>{m.sku}</td><td style={{ padding: 10, fontWeight: 600 }}>{m.name}</td>
-                  <td style={{ padding: 10 }}><span className="badge">{m.category}</span></td><td style={{ padding: 10 }}>{m.unit}</td>
-                  <td style={{ padding: 10 }}>{m.min_stock_threshold}</td><td style={{ padding: 10 }}>{formatEuro(m.unit_cost)}</td>
-                </tr>))}</tbody>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14, alignItems: 'center' }}>
+              <input
+                style={{ flex: 2, minWidth: '220px' }}
+                placeholder="Suche nach Artikelname, SKU, Lagerort oder Regalplatz…"
+                value={stockQ}
+                onChange={(e) => setStockQ(e.target.value)}
+              />
+              <select
+                style={{ flex: 1, minWidth: '180px' }}
+                value={stockLagerFilter}
+                onChange={e => setStockLagerFilter(e.target.value)}
+              >
+                <option value="all">Alle Lagerorte ({lagers.static_lagers.length})</option>
+                {lagers.static_lagers.map(l => (
+                  <option key={l.id} value={l.id}>{l.name}</option>
+                ))}
+                {lagers.vehicle_lagers.map(v => (
+                  <option key={v.id} value={v.id}>Fahrzeug: {v.name}</option>
+                ))}
+              </select>
+              <select
+                style={{ flex: 1, minWidth: '180px' }}
+                value={stockCatFilter}
+                onChange={e => setStockCatFilter(e.target.value)}
+              >
+                <option value="all">Alle Kategorien</option>
+                {MATERIAL_CATEGORIES.map(c => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+              <button className="btn-secondary btn-sm" onClick={loadAll} title="Aktualisieren">
+                <RefreshCw size={14} />
+              </button>
+            </div>
+
+            <table style={{ width: '100%', textAlign: 'left', borderCollapse: 'collapse', fontSize: '0.84rem' }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--border)', color: 'var(--text-muted)' }}>
+                  <th style={{ padding: '10px 8px' }}>SKU & Artikel</th>
+                  <th style={{ padding: '10px 8px' }}>Kategorie</th>
+                  <th style={{ padding: '10px 8px' }}>Lagerort & Regalplatz</th>
+                  <th style={{ padding: '10px 8px' }}>Aktueller Bestand</th>
+                  <th style={{ padding: '10px 8px' }}>Min. Bestand</th>
+                  <th style={{ padding: '10px 8px' }}>Stückpreis / Wert</th>
+                  <th style={{ padding: '10px 8px', textAlign: 'right' }}>Aktionen</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredStock.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                      Keine Bestandsdaten gefunden. Legen Sie einen Artikel an oder befüllen Sie ein Lager.
+                    </td>
+                  </tr>
+                ) : (
+                  filteredStock.map((s, idx) => (
+                    <tr key={`${s.material_id}-${s.lager_id}-${idx}`} style={{ borderBottom: '1px solid var(--border)' }}>
+                      <td style={{ padding: '10px 8px' }}>
+                        <div style={{ fontWeight: 700 }}>{s.material_name}</div>
+                        <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
+                          SKU: {s.sku} {s.manufacturer ? `· ${s.manufacturer}` : ''}
+                        </div>
+                      </td>
+                      <td style={{ padding: '10px 8px' }}>
+                        <span className="badge">{s.category}</span>
+                      </td>
+                      <td style={{ padding: '10px 8px' }}>
+                        <div style={{ fontWeight: 600 }}>
+                          <span className="badge" style={{ marginRight: '6px' }}>
+                            {s.lager_type === 'StaticLager' ? 'Lager' : 'Fahrzeug'}
+                          </span>
+                          {s.lager_name}
+                        </div>
+                        {s.shelf_location && (
+                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                            Platz: {s.shelf_location}
+                          </div>
+                        )}
+                      </td>
+                      <td style={{ padding: '10px 8px' }}>
+                        <span style={{
+                          fontWeight: 800,
+                          fontSize: '0.95rem',
+                          color: s.current_stock <= 0 ? '#dc2626' : s.low_stock_alert ? '#d97706' : '#059669',
+                        }}>
+                          {s.current_stock} {s.unit}
+                        </span>
+                        {s.low_stock_alert && (
+                          <span className="badge" style={{ marginLeft: 6, background: '#fef2f2', color: '#dc2626', borderColor: '#fecaca' }}>
+                            Niedrig
+                          </span>
+                        )}
+                      </td>
+                      <td style={{ padding: '10px 8px', color: 'var(--text-muted)' }}>
+                        {s.min_stock_threshold} {s.unit}
+                      </td>
+                      <td style={{ padding: '10px 8px' }}>
+                        <div>{formatEuro(s.unit_cost)} / {s.unit}</div>
+                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                          Gesamt: {formatEuro(s.stock_value)}
+                        </div>
+                      </td>
+                      <td style={{ padding: '10px 8px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        <div style={{ display: 'inline-flex', gap: '6px' }}>
+                          <button
+                            className="btn-secondary btn-sm"
+                            onClick={() => openQuickBuchen(s.material_id, s.lager_id, s.lager_type, 'Return', 20)}
+                            title="Bestand auffüllen (+ Wareneingang)"
+                          >
+                            + Auffüllen
+                          </button>
+                          <button
+                            className="btn-secondary btn-sm"
+                            onClick={() => openQuickBuchen(s.material_id, s.lager_id, s.lager_type, 'InventorySet', Math.max(0, s.current_stock))}
+                            title="Exakten Bestand setzen (Inventur)"
+                          >
+                            Bestand setzen
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
             </table>
           </div>
         )}
+
+        {/* ── TAB 2: WAREHOUSES & VEHICLE LAGERS ── */}
         {sec === 'lagers' && (
-          <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             <div className="glass-panel">
-              <h3 style={{ marginBottom: 12 }}>Static warehouses</h3>
-              {lagers.static_lagers.length === 0 ? <Empty>No warehouses.</Empty> : lagers.static_lagers.map((l) => (
-                <div key={l.id} className="flex-between" style={{ padding: '12px 0', borderBottom: '1px solid var(--border)' }}>
-                  <div><strong>{l.name}</strong><div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{l.location}</div></div>
-                  <span className="badge">{l.manager_name}</span>
-                </div>))}
+              <div className="flex-between" style={{ marginBottom: '14px' }}>
+                <div>
+                  <h3 style={{ marginBottom: '2px' }}>Standort-Lager & Zentrallager ({lagers.static_lagers.length})</h3>
+                  <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                    Verwalten Sie alle Lagerstandorte, verantwortliche Lagerleiter und befüllen Sie jedes Lager direkt mit Artikeln.
+                  </p>
+                </div>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button className="btn-secondary" onClick={() => openFillLagerModal()}>
+                    <Package size={15} /> Lager mit Artikeln befüllen
+                  </button>
+                  <button className="btn-primary" onClick={openCreateLagerModal}>
+                    <Plus size={15} /> + Neues Lager anlegen
+                  </button>
+                </div>
+              </div>
+
+              {lagers.static_lagers.length === 0 ? (
+                <Empty>Noch keine Lagerorte angelegt.</Empty>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  {lagers.static_lagers.map((l) => {
+                    const isExpanded = expandedLagerId === l.id;
+                    const itemsList = Array.isArray(l.items) ? l.items : [];
+                    return (
+                      <div
+                        key={l.id}
+                        style={{
+                          borderRadius: '12px',
+                          border: '1px solid var(--border)',
+                          background: 'var(--surface)',
+                          overflow: 'hidden',
+                        }}
+                      >
+                        {/* Warehouse Header Card */}
+                        <div style={{ padding: '14px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', flexWrap: 'wrap', background: 'var(--surface-2)' }}>
+                          <div style={{ flex: 1, minWidth: '260px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                              <strong style={{ fontSize: '1rem' }}>{l.name}</strong>
+                              <span className="badge" style={{ fontFamily: 'monospace' }}>{l.code || 'WH'}</span>
+                              <span className="badge">{l.type || 'Zentrallager'}</span>
+                              <span className="badge" style={{ background: l.status === 'Active' ? '#ecfdf5' : '#fef3c7', color: l.status === 'Active' ? '#059669' : '#d97706' }}>
+                                {l.status === 'Active' ? 'Aktiv' : l.status}
+                              </span>
+                            </div>
+                            <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                              Standort: <strong>{l.location}</strong>
+                              {l.phone ? ` · Tel: ${l.phone}` : ''}
+                              {l.manager_name ? ` · Lagerleiter: ${l.manager_name}` : ''}
+                            </div>
+                            {(l.capacity || l.notes) && (
+                              <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                                {l.capacity && <span>Kapazität: {l.capacity} </span>}
+                                {l.notes && <span>· Hinweis: {l.notes}</span>}
+                              </div>
+                            )}
+                          </div>
+
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
+                            <div style={{ textAlign: 'right' }}>
+                              <div style={{ fontWeight: 800, fontSize: '0.95rem', color: '#059669' }}>
+                                {l.total_skus || 0} Artikel · {l.total_units || 0} Einheiten
+                              </div>
+                              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                Warenwert: {formatEuro(l.total_value || 0)}
+                              </div>
+                            </div>
+
+                            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                              <button
+                                className="btn-primary btn-sm"
+                                onClick={() => openFillLagerModal(l.id)}
+                              >
+                                <Plus size={13} /> Artikel einbuchen / befüllen
+                              </button>
+                              <button
+                                className="btn-secondary btn-sm"
+                                onClick={() => openCreateMatModal(l.id)}
+                              >
+                                + Neuer Artikel
+                              </button>
+                              <button
+                                className="btn-secondary btn-sm"
+                                onClick={() => openEditLagerModal(l)}
+                                title="Lager bearbeiten"
+                              >
+                                <Edit3 size={13} />
+                              </button>
+                              <button
+                                className="btn-secondary btn-sm"
+                                onClick={() => handleDeleteLager(l)}
+                                style={{ color: '#dc2626' }}
+                                title="Lager löschen"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                              <button
+                                className="btn-secondary btn-sm"
+                                onClick={() => setExpandedLagerId(isExpanded ? null : l.id)}
+                              >
+                                {isExpanded ? 'Bestand ausblenden' : `Bestand anzeigen (${itemsList.length})`}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Warehouse Items Table */}
+                        {isExpanded && (
+                          <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border)' }}>
+                            {itemsList.length === 0 ? (
+                              <div style={{ padding: '14px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.82rem' }}>
+                                Dieses Lager enthält aktuell noch keine gebuchten Artikel. Klicken Sie auf <strong>«Artikel einbuchen / befüllen»</strong>, um Bestände hinzuzufügen.
+                              </div>
+                            ) : (
+                              <table style={{ width: '100%', textAlign: 'left', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
+                                <thead>
+                                  <tr style={{ borderBottom: '1px solid var(--border)', color: 'var(--text-muted)' }}>
+                                    <th style={{ padding: '6px 8px' }}>SKU</th>
+                                    <th style={{ padding: '6px 8px' }}>Artikelname</th>
+                                    <th style={{ padding: '6px 8px' }}>Kategorie</th>
+                                    <th style={{ padding: '6px 8px' }}>Bestand im Lager</th>
+                                    <th style={{ padding: '6px 8px' }}>Wert</th>
+                                    <th style={{ padding: '6px 8px', textAlign: 'right' }}>Schnellbuchung</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {itemsList.map((it) => (
+                                    <tr key={it.material_id} style={{ borderBottom: '1px solid var(--border)' }}>
+                                      <td style={{ padding: '8px', fontFamily: 'monospace' }}>{it.sku}</td>
+                                      <td style={{ padding: '8px', fontWeight: 600 }}>{it.material_name}</td>
+                                      <td style={{ padding: '8px' }}><span className="badge">{it.category}</span></td>
+                                      <td style={{ padding: '8px', fontWeight: 700, color: it.current_stock <= 0 ? '#dc2626' : '#059669' }}>
+                                        {it.current_stock} {it.unit}
+                                      </td>
+                                      <td style={{ padding: '8px' }}>{formatEuro(it.stock_value)}</td>
+                                      <td style={{ padding: '8px', textAlign: 'right' }}>
+                                        <div style={{ display: 'inline-flex', gap: '6px' }}>
+                                          <button
+                                            className="btn-secondary btn-sm"
+                                            onClick={() => openQuickBuchen(it.material_id, l.id, 'StaticLager', 'Return', 10)}
+                                          >
+                                            + Zubuchen
+                                          </button>
+                                          <button
+                                            className="btn-secondary btn-sm"
+                                            onClick={() => openQuickBuchen(it.material_id, l.id, 'StaticLager', 'InventorySet', Math.max(0, it.current_stock))}
+                                          >
+                                            Soll setzen
+                                          </button>
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
+
+            {/* Mobile Vehicle Lagers */}
             <div className="glass-panel">
-              <h3 style={{ marginBottom: 12 }}>Mobile vehicle lagers</h3>
-              {lagers.vehicle_lagers.map((v) => (
-                <div key={v.id} className="flex-between" style={{ padding: '12px 0', borderBottom: '1px solid var(--border)' }}>
-                  <strong style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}><Truck size={14} /> {v.plate_number}</strong><span style={{ color: 'var(--text-muted)', fontSize: 13 }}>{v.model}</span>
-                </div>))}
+              <h3 style={{ marginBottom: 12 }}>Mobile Fahrzeuglager ({lagers.vehicle_lagers.length})</h3>
+              {lagers.vehicle_lagers.length === 0 ? (
+                <Empty>Keine aktiven Fahrzeuge registriert.</Empty>
+              ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '12px' }}>
+                  {lagers.vehicle_lagers.map((v) => (
+                    <div key={v.id} style={{ padding: '12px', borderRadius: '10px', border: '1px solid var(--border)', background: 'var(--surface-2)' }}>
+                      <div className="flex-between" style={{ marginBottom: '6px' }}>
+                        <strong style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                          <Truck size={15} /> {v.plate_number}
+                        </strong>
+                        <span className="badge">{v.model}</span>
+                      </div>
+                      <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '8px' }}>
+                        Bestand auf Fahrzeug: <strong>{v.total_skus || 0} Artikel ({v.total_units || 0} Einheiten)</strong>
+                      </div>
+                      {Array.isArray(v.items) && v.items.filter(i => i.current_stock > 0).length > 0 && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '0.76rem', paddingTop: '6px', borderTop: '1px solid var(--border)' }}>
+                          {v.items.filter(i => i.current_stock > 0).map(it => (
+                            <div key={it.material_id} className="flex-between">
+                              <span>{it.material_name}</span>
+                              <strong>{it.current_stock} {it.unit}</strong>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}
-        <div className="glass-panel" style={{ display: sec === 'stock' ? undefined : 'none' }}>
-<div className="toolbar" style={{ marginBottom: 12 }}><input placeholder="Search material or SKU…" value={stockQ} onChange={(e) => setStockQ(e.target.value)} /></div>
-<h3 style={{ marginBottom: '14px', fontSize: '1rem' }}>Aggregated Stock Balances (Static & Vehicles)</h3>
-          <table style={{ width: '100%', textAlign: 'left', borderCollapse: 'collapse', fontSize: '0.84rem' }}>
-            <thead>
-              <tr style={{ borderBottom: '1px solid var(--border)', color: 'var(--text-muted)' }}>
-                <th style={{ padding: '8px' }}>Material / SKU</th>
-                <th style={{ padding: '8px' }}>Lager / Vehicle</th>
-                <th style={{ padding: '8px' }}>Current Stock</th>
-              </tr>
-            </thead>
-            <tbody>
-              {stock.filter((s) => `${s.material_name} ${s.sku}`.toLowerCase().includes(stockQ.toLowerCase())).map((s, idx) => (
-                <tr key={idx} style={{ borderBottom: '1px solid var(--border)' }}>
-                  <td style={{ padding: '10px 8px' }}>
-                    <div style={{ fontWeight: 600 }}>{s.material_name}</div>
-                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{s.sku}</div>
-                  </td>
-                  <td style={{ padding: '10px 8px' }}>
-                    <span className="badge" style={{ marginRight: '6px' }}>{s.lager_type}</span>
-                    {s.lager_name}
-                  </td>
-                  <td style={{ padding: '10px 8px', fontWeight: 700, color: s.low_stock_alert ? '#dc2626' : '#059669' }}>
-                    {s.current_stock} {s.unit} {s.low_stock_alert && '(Low)'}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
 
-        <div className="glass-panel" style={{ display: sec === 'ledger' ? undefined : 'none' }}>
-<h3 style={{ marginBottom: '14px', fontSize: '1rem' }}>Event-Sourced Ledger (`material_transactions`)</h3>
-          <div style={{ maxHeight: '640px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            {transactions.map(t => (
-              <div key={t.id} style={{ padding: '10px', borderRadius: '8px', background: 'var(--surface-2)', border: '1px solid var(--border)', fontSize: '0.8rem' }}>
-                <div className="flex-between">
-                  <strong>{t.material_name}</strong>
-                  <span style={{ fontWeight: 700, color: t.quantity >= 0 ? '#059669' : '#dc2626' }}>
-                    {t.quantity > 0 ? `+${t.quantity}` : t.quantity} ({t.transaction_type})
-                  </span>
-                </div>
-                <div style={{ color: 'var(--text-muted)', fontSize: '0.75rem', marginTop: '4px' }}>
-                  {t.source_lager_type}: {t.source_lager_name} • By: {t.employee_name}
-                </div>
-                {t.note && <div style={{ fontSize: '0.75rem', marginTop: '4px', color: 'var(--accent)' }}>Note: {t.note}</div>}
-              </div>
-            ))}
+        {/* ── TAB 3: MATERIAL CATALOG (SKUs) ── */}
+        {sec === 'catalog' && (
+          <div className="glass-panel">
+            <div className="flex-between" style={{ marginBottom: '14px', gap: '10px', flexWrap: 'wrap' }}>
+              <input
+                style={{ flex: 1, minWidth: '240px' }}
+                placeholder="Suche im Artikelkatalog nach SKU, Name, Kategorie, Hersteller, Lieferant…"
+                value={catalogQ}
+                onChange={e => setCatalogQ(e.target.value)}
+              />
+              <button className="btn-primary" onClick={() => openCreateMatModal()}>
+                <Plus size={15} /> + Neuen Artikel (SKU) anlegen
+              </button>
+            </div>
+
+            <table style={{ width: '100%', textAlign: 'left', borderCollapse: 'collapse', fontSize: '0.84rem' }}>
+              <thead>
+                <tr style={{ textAlign: 'left', color: 'var(--text-muted)', borderBottom: '1px solid var(--border)' }}>
+                  <th style={{ padding: 10 }}>SKU & Barcode</th>
+                  <th style={{ padding: 10 }}>Artikelbezeichnung & Details</th>
+                  <th style={{ padding: 10 }}>Kategorie</th>
+                  <th style={{ padding: 10 }}>Hersteller / Lieferant</th>
+                  <th style={{ padding: 10 }}>Einheit & VPE</th>
+                  <th style={{ padding: 10 }}>Min. / Preis</th>
+                  <th style={{ padding: 10 }}>Gesamtbestand</th>
+                  <th style={{ padding: 10, textAlign: 'right' }}>Verwaltung</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredCatalog.map((m) => (
+                  <tr key={m.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                    <td style={{ padding: 10, fontFamily: 'monospace' }}>
+                      <div style={{ fontWeight: 700 }}>{m.sku}</div>
+                      {m.ean_barcode && <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>EAN: {m.ean_barcode}</div>}
+                    </td>
+                    <td style={{ padding: 10 }}>
+                      <div style={{ fontWeight: 700 }}>{m.name}</div>
+                      {m.description && <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>{m.description}</div>}
+                      {m.shelf_location && <div style={{ fontSize: '0.72rem', color: 'var(--accent)' }}>Lagerplatz: {m.shelf_location}</div>}
+                    </td>
+                    <td style={{ padding: 10 }}><span className="badge">{m.category}</span></td>
+                    <td style={{ padding: 10, fontSize: '0.78rem' }}>
+                      <div>{m.manufacturer || '—'}</div>
+                      {m.supplier && <div style={{ color: 'var(--text-muted)' }}>Lief.: {m.supplier}</div>}
+                    </td>
+                    <td style={{ padding: 10 }}>
+                      <div style={{ fontWeight: 600 }}>{m.unit}</div>
+                      {m.package_size && <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{m.package_size}</div>}
+                    </td>
+                    <td style={{ padding: 10 }}>
+                      <div>{formatEuro(m.unit_cost)}</div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Min: {m.min_stock_threshold}</div>
+                    </td>
+                    <td style={{ padding: 10 }}>
+                      <div style={{ fontWeight: 800, color: (m.total_stock || 0) <= 0 ? '#dc2626' : '#059669' }}>
+                        {m.total_stock ?? 0} {m.unit}
+                      </div>
+                      {Array.isArray(m.stock_by_lager) && m.stock_by_lager.map((b, i) => (
+                        <div key={i} style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                          {b.lager_name}: {b.quantity}
+                        </div>
+                      ))}
+                    </td>
+                    <td style={{ padding: 10, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      <div style={{ display: 'inline-flex', gap: '6px' }}>
+                        <button
+                          className="btn-secondary btn-sm"
+                          onClick={() => openQuickBuchen(m.id, lagers.static_lagers[0]?.id || '', 'StaticLager', 'Return', 20)}
+                          title="Bestand in Lager einbuchen"
+                        >
+                          + Bestand
+                        </button>
+                        <button
+                          className="btn-secondary btn-sm"
+                          onClick={() => openEditMatModal(m)}
+                          title="Artikel bearbeiten"
+                        >
+                          <Edit3 size={13} />
+                        </button>
+                        <button
+                          className="btn-secondary btn-sm"
+                          onClick={() => handleDeleteMaterial(m)}
+                          style={{ color: '#dc2626' }}
+                          title="Artikel löschen"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-        </div>
+        )}
+
+        {/* ── TAB 4: TRANSACTION LEDGER & ABHOLUNGEN ── */}
+        {sec === 'ledger' && (
+          <div className="glass-panel">
+            <div className="flex-between" style={{ marginBottom: '14px', gap: '10px', flexWrap: 'wrap' }}>
+              <div>
+                <h3 style={{ fontSize: '1rem' }}>Lagerbuchungen & Mitarbeiter-Abholungen (`material_transactions`)</h3>
+                <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                  Alle Wareneingänge, Umlagerungen und Timenet-Abholungen der Mitarbeiter mit Datum, Menge und Verwendungszweck.
+                </p>
+              </div>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                <input
+                  placeholder="Suche nach Mitarbeiter, Artikel, Lager, Notiz…"
+                  value={ledgerQ}
+                  onChange={e => setLedgerQ(e.target.value)}
+                  style={{ minWidth: '240px' }}
+                />
+                <select value={ledgerTypeFilter} onChange={e => setLedgerTypeFilter(e.target.value)}>
+                  <option value="all">Alle Buchungsarten</option>
+                  <option value="CheckOut">Abholung / Entnahme (CheckOut)</option>
+                  <option value="Return">Wareneingang / Auffüllung (Return)</option>
+                  <option value="Consume">Verbrauch (Consume)</option>
+                  <option value="Schwund">Schwund / Verlust</option>
+                </select>
+              </div>
+            </div>
+
+            <div style={{ maxHeight: '640px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {filteredTransactions.length === 0 ? (
+                <Empty>Keine Buchungen gefunden.</Empty>
+              ) : (
+                filteredTransactions.map(t => (
+                  <div key={t.id} style={{ padding: '12px', borderRadius: '10px', background: 'var(--surface-2)', border: '1px solid var(--border)', fontSize: '0.82rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                        <strong style={{ fontSize: '0.88rem' }}>{t.material_name}</strong>
+                        <span className="badge">{t.transaction_type === 'CheckOut' ? 'Abholung / Entnahme' : t.transaction_type === 'Return' ? 'Wareneingang / Zugang' : t.transaction_type}</span>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                          {t.timestamp ? formatDateTime(t.timestamp) : ''}
+                        </span>
+                      </div>
+                      <div style={{ color: 'var(--text-muted)', fontSize: '0.78rem', marginTop: '4px' }}>
+                        Lager: <strong>{t.source_lager_name}</strong> ({t.source_lager_type}) · Gebucht von: <strong>{t.employee_name}</strong>
+                      </div>
+                      {t.note && (
+                        <div style={{ fontSize: '0.78rem', marginTop: '4px', color: 'var(--accent)', fontWeight: 500 }}>
+                          Dokumentation: {t.note}
+                        </div>
+                      )}
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <span style={{
+                        fontWeight: 800,
+                        fontSize: '0.95rem',
+                        padding: '4px 10px',
+                        borderRadius: '8px',
+                        background: t.quantity >= 0 ? 'rgba(5,150,105,0.1)' : 'rgba(220,38,38,0.1)',
+                        color: t.quantity >= 0 ? '#059669' : '#dc2626',
+                      }}>
+                        {t.quantity > 0 ? `+${t.quantity}` : t.quantity} {t.unit || ''}
+                      </span>
+                      <button
+                        className="btn-secondary btn-sm"
+                        onClick={() => handleDeleteTransaction(t.id)}
+                        style={{ color: '#dc2626' }}
+                        title="Buchung stornieren / löschen"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -256,15 +256,34 @@ class LagerCreate(BaseModel):
     name: str
     location: str
     manager_id: Optional[str] = None
+    code: Optional[str] = None
+    type: Optional[str] = "Zentrallager"
+    street: Optional[str] = None
+    postal_code: Optional[str] = None
+    city: Optional[str] = None
+    phone: Optional[str] = None
+    capacity: Optional[str] = None
+    notes: Optional[str] = None
+    status: Optional[str] = "Active"
+    attributes: Optional[dict] = None
 
 
 class MaterialCreate(BaseModel):
     name: str
     sku: str
     category: str = "Cabling"
-    unit: str = "pcs"
+    unit: str = "Stück"
     min_stock_threshold: int = 10
     unit_cost: float = 0.0
+    manufacturer: Optional[str] = None
+    supplier: Optional[str] = None
+    ean_barcode: Optional[str] = None
+    shelf_location: Optional[str] = None
+    package_size: Optional[str] = None
+    description: Optional[str] = None
+    initial_lager_id: Optional[str] = None
+    initial_stock: Optional[int] = 0
+    attributes: Optional[dict] = None
 
 
 class MaterialBuchenRequest(BaseModel):
@@ -273,7 +292,7 @@ class MaterialBuchenRequest(BaseModel):
     source_lager_id: str
     target_lager_type: Optional[str] = None
     target_lager_id: Optional[str] = None
-    transaction_type: str   # CheckOut, Return, Consume, Schwund
+    transaction_type: str   # CheckOut, Return, Restock, Consume, Schwund, InventorySet
     quantity: int
     project_id: Optional[str] = None
     object_id: Optional[str] = None
