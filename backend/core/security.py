@@ -180,11 +180,22 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     except JWTError:
         raise credentials_exception
 
-    user = db.query(models.User).filter(models.User.email == email).first()
+    user = db.query(models.User).filter(models.User.email.ilike(email.strip())).first()
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
-    ensure_employee_linked(db, user)
+    emp = ensure_employee_linked(db, user)
+    if emp is not None and emp.is_active is False:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Ihr Konto wurde deaktiviert. Bitte wenden Sie sich an die Geschäftsführung.",
+        )
+    if getattr(user, "can_access_portal", True) is False and getattr(user, "can_access_app", False) is False:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Ihr Konto wurde deaktiviert. Bitte wenden Sie sich an die Geschäftsführung.",
+        )
+
     apply_rls_context(db, user)
     return user
 

@@ -93,14 +93,66 @@ def login_for_access_token(
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(database.get_db),
 ):
-    user = db.query(models.User).filter(models.User.email == form_data.username).first()
-    if not user or not verify_password(form_data.password, user.hashed_password):
+    clean_email = (form_data.username or "").strip()
+    raw_password = form_data.password or ""
+    user = db.query(models.User).filter(models.User.email.ilike(clean_email)).first()
+
+    # Check linked employee for OTP or deactivation
+    emp = None
+    if user and user.employee_id:
+        emp = db.query(models.Employee).filter(models.Employee.id == user.employee_id).first()
+    if not emp and clean_email:
+        emp = db.query(models.Employee).filter(models.Employee.email.ilike(clean_email)).first()
+
+    if emp is not None and emp.is_active is False:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Ihr Konto wurde deaktiviert. Bitte wenden Sie sich an die Geschäftsführung.",
+        )
+    if user and getattr(user, "can_access_portal", True) is False and getattr(user, "can_access_app", False) is False:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Ihr Konto wurde deaktiviert. Bitte wenden Sie sich an die Geschäftsführung.",
+        )
+
+    password_ok = False
+    if user and verify_password(raw_password, user.hashed_password):
+        password_ok = True
+    elif emp and isinstance(emp.attributes, dict):
+        saved_otp = (emp.attributes.get("last_generated_otp") or "").strip()
+        if saved_otp and raw_password.strip() == saved_otp:
+            password_ok = True
+            if not user:
+                role_tier = emp.role_tier or 5
+                user = models.User(
+                    email=emp.email or clean_email,
+                    hashed_password=get_password_hash(saved_otp),
+                    role=models.RoleEnum.FIELD_EMPLOYEE if role_tier == 5 else models.RoleEnum.MITARBEITER,
+                    role_tier=role_tier,
+                    employee_id=emp.id,
+                    can_access_app=(role_tier <= 3),
+                    can_access_portal=True,
+                    must_change_password=True,
+                )
+                db.add(user)
+                db.commit()
+                db.refresh(user)
+            else:
+                user.must_change_password = True
+                db.commit()
+
+    if not user or not password_ok:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    ensure_employee_linked(db, user)
+    emp = ensure_employee_linked(db, user)
+    if emp is not None and emp.is_active is False:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Ihr Konto wurde deaktiviert. Bitte wenden Sie sich an die Geschäftsführung.",
+        )
     tier = get_effective_tier(user)
     token_payload = {
         "sub": user.email,
@@ -143,11 +195,21 @@ def refresh_access_token(
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
 
-    user = db.query(models.User).filter(models.User.email == email).first()
+    user = db.query(models.User).filter(models.User.email.ilike(email.strip())).first()
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
 
-    ensure_employee_linked(db, user)
+    emp = ensure_employee_linked(db, user)
+    if emp is not None and emp.is_active is False:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Ihr Konto wurde deaktiviert. Bitte wenden Sie sich an die Geschäftsführung.",
+        )
+    if getattr(user, "can_access_portal", True) is False and getattr(user, "can_access_app", False) is False:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Ihr Konto wurde deaktiviert. Bitte wenden Sie sich an die Geschäftsführung.",
+        )
     tier = get_effective_tier(user)
     new_access = create_access_token(
         data={

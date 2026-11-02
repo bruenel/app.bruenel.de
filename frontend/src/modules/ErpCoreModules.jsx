@@ -399,8 +399,8 @@ export const HRManagementModule = ({ user }) => {
   });
 
   const [newSlip, setNewSlip] = useState({
-    employee_id: '', period_month: 10, period_year: 2026,
-    gross_salary: 3600, net_salary: 2450, commission_bonus: 0, hours_worked: 168, notes: ''
+    employee_id: '', period_month: new Date().getMonth() + 1, period_year: new Date().getFullYear(),
+    gross_salary: 0, net_salary: 0, commission_bonus: 0, hours_worked: 0, notes: ''
   });
   const [slipFile, setSlipFile] = useState(null);
   const [uploadingSlip, setUploadingSlip] = useState(false);
@@ -1036,6 +1036,7 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
             annual_leave_days: Number(newEmp.annual_leave_days || 0),
             is_active: newEmp.is_active,
             assigned_project_id: mergedAttrs.assigned_project_id,
+            one_time_password: newEmp.one_time_password || undefined,
             attributes: mergedAttrs,
           }),
         });
@@ -1044,7 +1045,7 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
         const existingEmp = cleanEmail ? employees.find(emp => (emp.email || '').trim().toLowerCase() === cleanEmail) : null;
         if (existingEmp) {
           const proceed = window.confirm(
-            `Ein Mitarbeiter mit der E-Mail "${newEmp.email}" existiert bereits (${existingEmp.full_name}, ${existingEmp.employee_number || ''}).\n\nMöchten Sie stattdessen die bestehende Personalakte dieses Mitarbeiters mit den eingegebenen Daten aktualisieren?`
+            `Ein Mitarbeiter mit der E-Mail "${newEmp.email}" existiert bereits (${existingEmp.full_name}).\n\nMöchten Sie stattdessen die bestehende Personalakte dieses Mitarbeiters mit den eingegebenen Daten aktualisieren?`
           );
           if (!proceed) return;
           await fetchWithToken(`/api/v1/hr/employees/${existingEmp.id}`, {
@@ -1213,6 +1214,14 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
 
   const handleIssuePayslip = async (e) => {
     e.preventDefault();
+    if (!newSlip.employee_id) {
+      alert('Bitte wählen Sie einen Mitarbeiter aus.');
+      return;
+    }
+    if (!slipFile) {
+      alert('Bitte laden Sie die persönliche Lohnabrechnung (PDF / Bild) für diesen Mitarbeiter hoch.');
+      return;
+    }
     setUploadingSlip(true);
     try {
       let docId = null;
@@ -1221,7 +1230,7 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
           file: slipFile,
           referenceType: 'Lohnabrechnung',
           referenceId: newSlip.employee_id,
-          title: `Lohnabrechnung ${newSlip.period_month}/${newSlip.period_year}`,
+          title: `Lohnabrechnung ${String(newSlip.period_month).padStart(2, '0')}/${newSlip.period_year}`,
         });
         docId = up.document_id;
       }
@@ -1236,6 +1245,16 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
       alert(err.message);
     }
     setUploadingSlip(false);
+  };
+
+  const handleDeletePayslip = async (slipId) => {
+    if (!window.confirm('Möchten Sie diese Lohnabrechnung wirklich löschen?')) return;
+    try {
+      await fetchWithToken(`/api/v1/hr/payslips/${slipId}`, { method: 'DELETE' });
+      loadAll();
+    } catch (err) {
+      alert(err.message);
+    }
   };
 
   const totalBasePayrollSum = biSummary?.total_base_payroll ?? employees.reduce((acc, e) => acc + (e.base_salary || 0), 0);
@@ -1384,7 +1403,7 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                   }}
                   title="Click to inspect employee weekly working hours"
                 >
-                  <strong>{al.employee_name}</strong> ({al.employee_number}) in <strong>{al.week_key}</strong>: {al.worked_hours}h / {al.weekly_limit}h Limit (<strong>+{al.exceeded_by}h Überstunden</strong>)
+                  <strong>{al.employee_name}</strong> in <strong>{al.week_key}</strong>: {al.worked_hours}h / {al.weekly_limit}h Limit (<strong>+{al.exceeded_by}h Überstunden</strong>)
                 </button>
               ))}
             </div>
@@ -1442,7 +1461,7 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                   <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '1.18rem', margin: 0 }}>
                     <Briefcase size={20} style={{ color: 'var(--accent)' }} />
                     {editingEmpId
-                      ? `Personalakte / Master Card: ${newEmp.first_name} ${newEmp.last_name} (${newEmp.employee_number || ''})`
+                      ? `Personalakte / Master Card: ${newEmp.first_name} ${newEmp.last_name}`
                       : 'Mitarbeiter, Freelancer & Subunternehmer erfassen (Vollbild-Formular)'}
                   </h3>
                   <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: '2px 0 0' }}>
@@ -2467,10 +2486,11 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
           <div className="glass-panel" style={{ width: '480px' }}>
             <h3 style={{ marginBottom: '16px' }}>Issue Monthly Salary Document (Lohnabrechnung)</h3>
             <form onSubmit={handleIssuePayslip} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Employee</label>
-              <select value={newSlip.employee_id} onChange={e => setNewSlip({...newSlip, employee_id: e.target.value})}>
+              <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Mitarbeiter (Persönliche Zuordnung) *</label>
+              <select required value={newSlip.employee_id} onChange={e => setNewSlip({...newSlip, employee_id: e.target.value})}>
+                <option value="">— Bitte Mitarbeiter wählen —</option>
                 {employees.map(emp => (
-                  <option key={emp.id} value={emp.id}>{emp.full_name} ({emp.employee_number})</option>
+                  <option key={emp.id} value={emp.id}>{emp.full_name}</option>
                 ))}
               </select>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
@@ -2498,8 +2518,8 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                 </div>
               </div>
               <div>
-                <label style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Attach Payslip PDF / Document</label>
-                <input type="file" accept=".pdf,.png,.jpg,.txt" onChange={e => setSlipFile(e.target.files[0])} />
+                <label style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 700 }}>Lohnabrechnung Datei hochladen (PDF / Bild) * — Nur für diesen Mitarbeiter sichtbar</label>
+                <input type="file" required accept=".pdf,.png,.jpg,.jpeg,.txt" onChange={e => setSlipFile(e.target.files[0])} />
               </div>
               <input placeholder="Notes (e.g. Includes October Field Sales Provision)" value={newSlip.notes} onChange={e => setNewSlip({...newSlip, notes: e.target.value})} />
               <div style={{ display: 'flex', gap: '10px' }}>
@@ -2574,7 +2594,6 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
             <button className="btn-secondary" style={{ marginLeft: 'auto' }} onClick={() => downloadCsv({
                 rows: filteredEmps,
                 columns: [
-                  { key: 'employee_number', label: 'Mitarbeiter-Nr.' },
                   { key: 'full_name', label: 'Vollständiger Name' },
                   { key: 'first_name', label: 'Vorname' },
                   { key: 'last_name', label: 'Nachname' },
@@ -2622,7 +2641,7 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
           <table style={{ width: '100%', textAlign: 'left', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border)', color: 'var(--text-muted)' }}>
-                <th style={{ padding: '10px 8px' }}>ID & Type</th>
+                <th style={{ padding: '10px 8px' }}>Type & Status</th>
                 <th style={{ padding: '10px 8px' }}>Name, Position & Abteilung</th>
                 <th style={{ padding: '10px 8px' }}>Assigned Project (Change)</th>
                 <th style={{ padding: '10px 8px' }}>Contract / Freelancer Multi-Contracts</th>
@@ -2642,22 +2661,32 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                   <tr
                     key={e.id}
                     onClick={() => openEditEmployeeModal(e)}
-                    style={{ borderBottom: '1px solid var(--border)', cursor: 'pointer' }}
+                    style={{ borderBottom: '1px solid var(--border)', cursor: 'pointer', opacity: e.is_active === false ? 0.68 : 1 }}
                     title="Click to open and edit full Personalakte / Employee Card"
                   >
                     <td style={{ padding: '10px 8px' }}>
-                      <div style={{ fontFamily: 'monospace', fontWeight: 700, color: 'var(--accent)' }}>{e.employee_number}</div>
-                      <span
-                        className="badge"
-                        style={{
-                          marginTop: 4,
-                          fontSize: '0.67rem',
-                          background: isCandidate ? '#eff6ff' : isSub ? '#fff7ed' : '#f0fdf4',
-                          color: isCandidate ? '#1d4ed8' : isSub ? '#c2410c' : '#15803d',
-                        }}
-                      >
-                        {e.employment_type}
-                      </span>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-start' }}>
+                        <span
+                          className="badge"
+                          style={{
+                            fontSize: '0.67rem',
+                            background: isCandidate ? '#eff6ff' : isSub ? '#fff7ed' : '#f0fdf4',
+                            color: isCandidate ? '#1d4ed8' : isSub ? '#c2410c' : '#15803d',
+                          }}
+                        >
+                          {e.employment_type}
+                        </span>
+                        <span
+                          className="badge"
+                          style={{
+                            fontSize: '0.65rem',
+                            background: e.is_active === false ? '#fef2f2' : '#ecfdf5',
+                            color: e.is_active === false ? '#dc2626' : '#059669',
+                          }}
+                        >
+                          {e.is_active === false ? '🔒 Deaktiviert' : '● Aktiv'}
+                        </span>
+                      </div>
                     </td>
                     <td style={{ padding: '10px 8px' }}>
                       <div style={{ fontWeight: 700 }}>{e.full_name}</div>
@@ -2756,8 +2785,8 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                             setNewSlip(prev => ({
                               ...prev,
                               employee_id: e.id,
-                              gross_salary: e.base_salary || 3600,
-                              net_salary: Math.round((e.base_salary || 3600) * 0.68),
+                              gross_salary: e.base_salary || 0,
+                              net_salary: e.base_salary ? Math.round(e.base_salary * 0.68) : 0,
                             }));
                             setShowAddSlip(true);
                           }}
@@ -2837,7 +2866,7 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                               color: active ? '#fff' : 'var(--text-main)',
                             }}
                           >
-                            {emp.full_name} ({emp.employee_number})
+                            {emp.full_name}
                           </button>
                         );
                       })
@@ -2860,7 +2889,7 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                   >
                     <option value="">All Employees</option>
                     {employees.map(emp => (
-                      <option key={emp.id} value={emp.id}>{emp.full_name} ({emp.employee_number})</option>
+                      <option key={emp.id} value={emp.id}>{emp.full_name}</option>
                     ))}
                   </select>
                 </div>
@@ -3103,7 +3132,7 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                           .map(eb => (
                             <tr key={eb.employee_id} style={{ borderBottom: '1px solid var(--border)', background: eb.weekly_exceeded ? 'rgba(254, 242, 242, 0.55)' : undefined }}>
                               <td style={{ padding: '8px', fontWeight: 600 }}>
-                                {eb.employee_name} <span style={{ color: 'var(--text-muted)', fontSize: '0.73rem' }}>({eb.employee_number})</span>
+                                {eb.employee_name}
                               </td>
                               <td style={{ padding: '8px', fontSize: '0.76rem' }}>
                                 {eb.employment_type} ({eb.monthly_contract_hours || 160}h/mo • {eb.weekly_hours_limit || 40}h/wk)
@@ -3448,6 +3477,15 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                           onChange={e => handleUploadPayslipFile(e, p)}
                         />
                       </label>
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        style={{ padding: '4px 8px', fontSize: '0.75rem', color: '#dc2626' }}
+                        onClick={() => handleDeletePayslip(p.id)}
+                        title="Lohnabrechnung löschen"
+                      >
+                        <Trash2 size={13} />
+                      </button>
                     </div>
                   </td>
                 </tr>

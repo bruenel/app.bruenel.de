@@ -42,11 +42,17 @@ def request_presigned_upload(
     doc_id = str(uuid.uuid4())
     storage_key = f"{reference_type.lower()}/{reference_id}/{doc_id}_{file_name}"
 
+    owner_emp_id = payload.get("employee_id")
+    if not owner_emp_id and reference_type in ("Lohnabrechnung", "Payslip", "Contract", "PersonalDokument", "Krankmeldung"):
+        owner_emp_id = str(reference_id) if (reference_id and str(reference_id) not in ("NEW_EMPLOYEE", "NEW_FREELANCER")) else current_user.employee_id
+    if not owner_emp_id:
+        owner_emp_id = current_user.employee_id
+
     doc = models.DocumentRecord(
         id=doc_id,
         reference_type=reference_type,
         reference_id=str(reference_id),
-        employee_id=current_user.employee_id,
+        employee_id=owner_emp_id,
         title=title,
         file_name=file_name,
         mime_type=mime_type,
@@ -144,11 +150,17 @@ async def direct_multipart_upload(
     if total_bytes <= 30 * 1024 * 1024:
         meta_payload["base64_data"] = base64.b64encode(file_bytes_buf).decode("ascii")
 
+    owner_emp_id = employee_id
+    if not owner_emp_id and reference_type in ("Lohnabrechnung", "Payslip", "Contract", "PersonalDokument", "Krankmeldung"):
+        owner_emp_id = str(ref_id) if (ref_id and str(ref_id) not in ("NEW_EMPLOYEE", "NEW_FREELANCER")) else current_user.employee_id
+    if not owner_emp_id:
+        owner_emp_id = current_user.employee_id
+
     doc = models.DocumentRecord(
         id=doc_id,
         reference_type=reference_type,
         reference_id=str(ref_id),
-        employee_id=employee_id or current_user.employee_id,
+        employee_id=owner_emp_id,
         title=title or safe_name,
         file_name=safe_name,
         mime_type=mime_type,

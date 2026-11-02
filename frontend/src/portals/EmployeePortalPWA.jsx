@@ -232,7 +232,7 @@ export const EmployeePortalPWA = ({ user, logout, onSwitchToManagement }) => {
       fetchWithToken('/api/v1/hr/time-logs').catch(() => []),
       fetchWithToken('/api/v1/hr/leave-requests').catch(() => []),
       fetchWithToken('/api/v1/hr/sickness').catch(() => []),
-      fetchWithToken('/api/v1/hr/payslips').catch(() => []),
+      fetchWithToken(`/api/v1/hr/payslips${user?.employee_id ? `?employee_id=${user.employee_id}` : ''}`).catch(() => []),
       fetchWithToken('/api/v1/projects').catch(() => []),
       fetchWithToken('/api/v1/fleet/vehicles').catch(() => []),
       fetchWithToken('/api/v1/fleet/equipment').catch(() => []),
@@ -1881,8 +1881,12 @@ export const EmployeePortalPWA = ({ user, logout, onSwitchToManagement }) => {
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               {[...MONTH_LIST_DE].reverse().map(mObj => {
+                const myEmpId = user?.employee_id || myEmployeeProfile?.id;
                 const slip = payslips.find(
-                  p => Number(p.period_year) === Number(payslipYear) && Number(p.period_month) === mObj.num
+                  p =>
+                    (!myEmpId || p.employee_id === myEmpId) &&
+                    Number(p.period_year) === Number(payslipYear) &&
+                    Number(p.period_month) === mObj.num
                 );
                 const isUploaded = Boolean(slip && slip.document_url);
                 const isOpen = expandedPayslipMonth === mObj.num;
@@ -1964,7 +1968,7 @@ export const EmployeePortalPWA = ({ user, logout, onSwitchToManagement }) => {
                                 {lang === 'de' ? 'Bruttogehalt' : 'Gross Salary'}
                               </div>
                               <strong>
-                                {slip ? formatEuro(slip.gross_salary) : (myEmployeeProfile?.base_salary ? formatEuro(myEmployeeProfile.base_salary) : '—')}
+                                {slip ? formatEuro(slip.gross_salary) : '—'}
                               </strong>
                             </div>
                             <div style={{ padding: '6px 8px', borderRadius: '8px', background: 'rgba(255,255,255,0.5)' }}>
@@ -2231,7 +2235,7 @@ export const EmployeePortalPWA = ({ user, logout, onSwitchToManagement }) => {
                       {myEmployeeProfile?.full_name || user?.email}
                     </h3>
                     <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>
-                      {myEmployeeProfile?.employee_number || 'BRN-USER'} • {myEmployeeProfile?.role || user?.role}
+                      {myEmployeeProfile?.role || user?.role}
                     </div>
                   </div>
                 </div>
@@ -2290,10 +2294,6 @@ export const EmployeePortalPWA = ({ user, logout, onSwitchToManagement }) => {
                   <div>
                     <span style={{ fontSize: '0.62rem', color: 'var(--text-muted)', display: 'block' }}>Name</span>
                     <strong>{myEmployeeProfile?.full_name || '—'}</strong>
-                  </div>
-                  <div>
-                    <span style={{ fontSize: '0.62rem', color: 'var(--text-muted)', display: 'block' }}>Personal-Nr.</span>
-                    <strong>{myEmployeeProfile?.employee_number || '—'}</strong>
                   </div>
                   <div>
                     <span style={{ fontSize: '0.62rem', color: 'var(--text-muted)', display: 'block' }}>E-Mail</span>

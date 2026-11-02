@@ -128,7 +128,7 @@ def create_employee(
         if existing_emp:
             raise HTTPException(
                 status_code=400,
-                detail=f"Ein Mitarbeiter mit der E-Mail '{clean_email}' existiert bereits ({existing_emp.first_name} {existing_emp.last_name}, {existing_emp.employee_number}). Bitte öffnen Sie dessen Personalakte zur Bearbeitung.",
+                detail=f"Ein Mitarbeiter mit der E-Mail '{clean_email}' existiert bereits ({existing_emp.first_name} {existing_emp.last_name}). Bitte öffnen Sie dessen Personalakte zur Bearbeitung.",
             )
 
     emp_num = payload.employee_number or f"BRN-{1000 + db.query(models.Employee).count() + 1}"
@@ -236,7 +236,7 @@ def update_employee(
         if existing_other:
             raise HTTPException(
                 status_code=400,
-                detail=f"Die E-Mail '{clean_email}' wird bereits von einem anderen Mitarbeiter verwendet ({existing_other.first_name} {existing_other.last_name}, {existing_other.employee_number}).",
+                detail=f"Die E-Mail '{clean_email}' wird bereits von einem anderen Mitarbeiter verwendet ({existing_other.first_name} {existing_other.last_name}).",
             )
 
     old_vals = serialize_employee(emp, db=None, include_sensitive=True)
@@ -259,19 +259,33 @@ def update_employee(
         merged_attrs["assigned_project_id"] = payload["assigned_project_id"]
         emp.attributes = merged_attrs
 
-    # Sync linked User email/tier if changed, or create User if converted from Candidate to Employee/Freelancer/Subunternehmer
+    custom_otp_in_payload = (payload.get("one_time_password") or "").strip()
+
+    # Sync linked User email/tier/active/password if changed, or create User if converted from Candidate to Employee/Freelancer/Subunternehmer
     u = db.query(models.User).filter(models.User.employee_id == emp.id).first()
     if not u and emp.email:
-        u = db.query(models.User).filter(models.User.email == emp.email).first()
+        u = db.query(models.User).filter(models.User.email.ilike(emp.email.strip())).first()
     if u:
         u.employee_id = emp.id
         if emp.email and u.email != emp.email:
             u.email = emp.email
         if emp.role_tier:
             u.role_tier = emp.role_tier
-            u.can_access_app = (emp.role_tier <= 3)
+        if emp.is_active is False:
+            u.can_access_portal = False
+            u.can_access_app = False
+        else:
+            u.can_access_portal = True
+            u.can_access_app = ((emp.role_tier or 5) <= 3)
+        if custom_otp_in_payload and custom_otp_in_payload != (old_vals.get("attributes") or {}).get("last_generated_otp"):
+            u.hashed_password = get_password_hash(custom_otp_in_payload)
+            u.must_change_password = True
+            merged_attrs = dict(emp.attributes or {})
+            merged_attrs["last_generated_otp"] = custom_otp_in_payload
+            merged_attrs["must_change_password"] = True
+            emp.attributes = merged_attrs
     elif emp.email and emp.employment_type and emp.employment_type != "Candidate":
-        otp_plain = _generate_otp_code(8)
+        otp_plain = custom_otp_in_payload or _generate_otp_code(8)
         merged_attrs = dict(emp.attributes or {})
         merged_attrs["last_generated_otp"] = otp_plain
         merged_attrs["must_change_password"] = True
@@ -282,8 +296,8 @@ def update_employee(
             role=models.RoleEnum.FIELD_EMPLOYEE if (emp.role_tier or 5) == 5 else models.RoleEnum.MITARBEITER,
             role_tier=emp.role_tier or 5,
             employee_id=emp.id,
-            can_access_app=((emp.role_tier or 5) <= 3),
-            can_access_portal=True,
+            can_access_app=(emp.is_active is not False and (emp.role_tier or 5) <= 3),
+            can_access_portal=(emp.is_active is not False),
             must_change_password=True,
         )
         db.add(new_u)
@@ -1533,11 +1547,14 @@ def list_payslips(
     current_user: models.User = Depends(get_current_user),
 ):
     tier = get_effective_tier(current_user)
-    emp_map = {e.id: f"{e.first_name} {e.last_name} ({e.employee_number})" for e in db.query(models.Employee).all()}
+    emp_map = {e.id: f"{e.first_name} {e.last_name}" for e in db.query(models.Employee).all()}
     query = db.query(models.Payslip)
 
-    # Strict RLS: Tier 1, 2, 3 (Management & HR) can view all employees' payslips; others only their own
+    # Strict RLS: Tier 1, 2, 3 (Management & HR) can view all employees' payslips when in admin view;
+    # if employee_id is specified or user is non-management, strictly filter to that single employee.
     if tier not in (1, 2, 3):
+        if not current_user.employee_id:
+            return []
         query = query.filter(models.Payslip.employee_id == current_user.employee_id)
     elif employee_id:
         query = query.filter(models.Payslip.employee_id == employee_id)
@@ -1585,6 +1602,16 @@ def create_payslip(
     if tier not in (1, 2, 3):
         raise HTTPException(status_code=403, detail="Only Management, Project Managers, or HR & Finance Admin can issue payslips.")
 
+    if not payload.employee_id:
+        raise HTTPException(status_code=400, detail="Bitte wählen Sie einen Mitarbeiter aus.")
+
+    # Ensure linked document strictly belongs to this employee_id
+    if payload.document_id:
+        doc = db.query(models.DocumentRecord).filter(models.DocumentRecord.id == payload.document_id).first()
+        if doc:
+            doc.employee_id = payload.employee_id
+            doc.reference_id = payload.employee_id
+
     slip = models.Payslip(
         id=str(uuid.uuid4()),
         employee_id=payload.employee_id,
@@ -1625,6 +1652,37 @@ def update_payslip_document(
         if field in payload and payload[field] is not None:
             setattr(slip, field, payload[field])
 
+    if slip.document_id:
+        doc = db.query(models.DocumentRecord).filter(models.DocumentRecord.id == slip.document_id).first()
+        if doc:
+            doc.employee_id = slip.employee_id
+            doc.reference_id = slip.employee_id
+
     db.commit()
     db.refresh(slip)
     return {"id": slip.id, "document_id": slip.document_id, "status": slip.status, "message": "Lohnabrechnung updated."}
+
+
+@router.delete("/payslips/{payslip_id}")
+def delete_payslip(
+    payslip_id: str,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    tier = get_effective_tier(current_user)
+    if tier not in (1, 2, 3):
+        raise HTTPException(status_code=403, detail="Only Management or HR can delete Lohnabrechnungen.")
+
+    slip = db.query(models.Payslip).filter(models.Payslip.id == payslip_id).first()
+    if not slip:
+        raise HTTPException(status_code=404, detail="Payslip not found")
+
+    doc_id = slip.document_id
+    db.delete(slip)
+    if doc_id:
+        doc = db.query(models.DocumentRecord).filter(models.DocumentRecord.id == doc_id).first()
+        if doc:
+            db.delete(doc)
+    db.commit()
+    log_audit(db, "payslips", "DELETE", payslip_id, current_user.email, None, None)
+    return {"status": "deleted", "id": payslip_id}

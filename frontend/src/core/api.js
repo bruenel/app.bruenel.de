@@ -60,7 +60,13 @@ export const fetchWithToken = async (url, options = {}) => {
   }
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.detail || `Request failed (${res.status})`);
+    const msg = err.detail || `Request failed (${res.status})`;
+    if (res.status === 401 || (res.status === 403 && String(msg).toLowerCase().includes('deaktiviert'))) {
+      localStorage.removeItem('token');
+      sessionStorage.removeItem('token');
+      window.dispatchEvent(new CustomEvent('bruenel-account-deactivated', { detail: msg }));
+    }
+    throw new Error(msg);
   }
   return res.json();
 };
@@ -153,6 +159,13 @@ export const useAuth = () => {
     } else {
       setLoading(false);
     }
+    const onDeactivated = () => {
+      localStorage.removeItem('token');
+      sessionStorage.removeItem('token');
+      setUser(null);
+    };
+    window.addEventListener('bruenel-account-deactivated', onDeactivated);
+    return () => window.removeEventListener('bruenel-account-deactivated', onDeactivated);
   }, []);
 
   const login = async (email, password, rememberMe = true) => {

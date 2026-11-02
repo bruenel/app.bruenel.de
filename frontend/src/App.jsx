@@ -132,7 +132,7 @@ export const NAV = [
 ];
 
 const QUICK_ACTIONS = [
-  { label: 'Arbeitszeiten erfassen', icon: Clock, href: 'https://www.bruenel.de/employee', mod: null },
+  { label: 'Arbeitszeiten erfassen', icon: Clock, href: 'https://www.bruenel.de/timenet', mod: null },
   { label: 'New Employee', icon: UserPlus, to: '/hr/employees', action: 'add-employee', mod: 'mod_hr' },
   { label: 'Assign Task', icon: ClipboardList, to: '/projects/tasks', action: 'add-task', mod: 'mod_projects' },
   { label: 'New Building Object', icon: Building2, to: '/projects/objects', action: 'add-object', mod: 'mod_projects' },
@@ -411,7 +411,7 @@ const ManagementLayout = ({ user, logout, onSwitchToPortal, children }) => {
 
         <div className="sidebar-foot">
           <a
-            href="https://www.bruenel.de/employee"
+            href="https://www.bruenel.de/timenet"
             target="_blank"
             rel="noopener noreferrer"
             className="nav-item"
@@ -438,11 +438,11 @@ const ManagementLayout = ({ user, logout, onSwitchToPortal, children }) => {
 
           <div className="topbar-actions" ref={menuRef}>
             <a
-              href="https://www.bruenel.de/employee"
+              href="https://www.bruenel.de/timenet"
               target="_blank"
               rel="noopener noreferrer"
               className="btn-secondary"
-              title="Zur Arbeitszeiterfassung (bruenel.de/employee) weiterleiten"
+              title="Zur Arbeitszeiterfassung (bruenel.de/timenet) weiterleiten"
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
