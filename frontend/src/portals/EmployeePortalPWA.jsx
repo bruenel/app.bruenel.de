@@ -72,6 +72,15 @@ export const EmployeePortalPWA = ({ user, logout, onSwitchToManagement }) => {
   const [payslipYear, setPayslipYear] = useState(() => String(new Date().getFullYear()));
   const [expandedPayslipMonth, setExpandedPayslipMonth] = useState(() => new Date().getMonth() + 1);
 
+  // Documents (Dokumente) Multi-Upload, Sort & Filter State
+  const [empDocCategory, setEmpDocCategory] = useState('Krankmeldung (AU)');
+  const [empDocDate, setEmpDocDate] = useState(() => toIsoDate(new Date()));
+  const [empDocCustomTitle, setEmpDocCustomTitle] = useState('');
+  const [empDocUploading, setEmpDocUploading] = useState(false);
+  const [empDocFilterKind, setEmpDocFilterKind] = useState('ALL');
+  const [empDocSortBy, setEmpDocSortBy] = useState('date_desc');
+  const [empDocSearch, setEmpDocSearch] = useState('');
+
   // Touch Swipe Refs for Calendar Left/Right Sliding
   const touchStartXRef = useRef(null);
   const weekStripRef = useRef(null);
@@ -673,6 +682,45 @@ export const EmployeePortalPWA = ({ user, logout, onSwitchToManagement }) => {
   const todayRemainingCount = todayTasks.filter(tsk => tsk.task_status !== 'Completed').length;
 
   const empAttrs = myEmployeeProfile?.attributes || {};
+  const myDocuments = useMemo(() => {
+    return (myEmployeeProfile?.documents || []).map(doc => ({
+      ...doc,
+      effectiveKind: doc.category || doc.reference_type || 'Sonstiges',
+      effectiveDate: doc.doc_date || (doc.created_at ? String(doc.created_at).slice(0, 10) : ''),
+    }));
+  }, [myEmployeeProfile]);
+
+  const handleEmployeeUploadDocs = async (e) => {
+    const files = Array.from(e.target?.files || []);
+    const targetEmpId = user?.employee_id || myEmployeeProfile?.id;
+    if (!files.length || !targetEmpId) return;
+    setEmpDocUploading(true);
+    try {
+      for (const file of files) {
+        const title = empDocCustomTitle.trim()
+          ? `${empDocCategory}: ${empDocCustomTitle.trim()} (${file.name})`
+          : `${empDocCategory}: ${file.name}`;
+        await uploadMediaFile({
+          file,
+          referenceType: empDocCategory,
+          referenceId: targetEmpId,
+          employeeId: targetEmpId,
+          title,
+          metadata: {
+            category: empDocCategory,
+            doc_date: empDocDate,
+            uploaded_by: 'Mitarbeiter',
+          },
+        });
+      }
+      setEmpDocCustomTitle('');
+      if (e.target) e.target.value = '';
+      loadPortalData();
+    } catch (err) {
+      alert(err.message);
+    }
+    setEmpDocUploading(false);
+  };
 
   return (
     <div className="neo">
@@ -780,14 +828,8 @@ export const EmployeePortalPWA = ({ user, logout, onSwitchToManagement }) => {
             { id: 'tasks', Icon: Calendar, label: t.tabTasks, sub: `${tasks.length} • ${todayRemainingCount} today` },
             { id: 'lager', Icon: Package, label: 'Lager', sub: `${myPickupsList.length} Abholungen` },
             { id: 'absence', Icon: HeartPulse, label: lang === 'de' ? 'Urlaub & AU' : 'Leave & Sick', sub: `${leaves.length + sickness.length} Einträge` },
+            { id: 'documents', Icon: FolderOpen, label: lang === 'de' ? 'Dokumente' : 'Documents', sub: `${myDocuments.length} Dateien` },
             { id: 'payslips', Icon: FileText, label: t.tabPayslips, sub: `${payslips.length} Monate` },
-            {
-              id: 'sales',
-              Icon: ShoppingBag,
-              label: 'Upsell',
-              sub: lang === 'de' ? 'Derzeit inaktiv' : 'Currently inactive',
-              disabled: true,
-            },
           ].map(tab => {
             const IconComp = tab.Icon;
             return (
@@ -1852,7 +1894,150 @@ export const EmployeePortalPWA = ({ user, logout, onSwitchToManagement }) => {
         )}
 
         {/* =====================================================================
-            TAB 5: LOHNABRECHNUNG BY MONTH (SLIDE-OPEN ACCORDION + GREYED OUT WHEN NOT UPLOADED)
+            TAB 5: DOKUMENTE (MITARBEITER UPLOAD + SORTIEREN & FILTERN + NUR ANSICHT OHNE LÖSCHEN)
+           ===================================================================== */}
+        {activeTab === 'documents' && (() => {
+          const uniqueKinds = Array.from(new Set(myDocuments.map(d => d.effectiveKind)));
+          const filteredMyDocs = myDocuments
+            .filter(d => empDocFilterKind === 'ALL' || d.effectiveKind === empDocFilterKind)
+            .filter(d => {
+              if (!empDocSearch.trim()) return true;
+              const qStr = empDocSearch.toLowerCase();
+              return (
+                (d.title || '').toLowerCase().includes(qStr) ||
+                (d.file_name || '').toLowerCase().includes(qStr) ||
+                (d.effectiveKind || '').toLowerCase().includes(qStr) ||
+                (d.effectiveDate || '').toLowerCase().includes(qStr)
+              );
+            })
+            .sort((a, b) => {
+              if (empDocSortBy === 'date_asc') return (a.effectiveDate || '').localeCompare(b.effectiveDate || '');
+              if (empDocSortBy === 'kind_asc') return (a.effectiveKind || '').localeCompare(b.effectiveKind || '');
+              if (empDocSortBy === 'title_asc') return (a.title || '').localeCompare(b.title || '');
+              return (b.effectiveDate || '').localeCompare(a.effectiveDate || '');
+            });
+
+          return (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div className="glass-panel">
+                <h3 style={{ fontSize: '0.88rem', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Upload size={15} style={{ color: 'var(--accent)' }} /> Eigene Dokumente hochladen (Mehrfach-Upload)
+                </h3>
+                <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: '10px' }}>
+                  Laden Sie hier Ihre Dokumente hoch (z.B. Krankmeldung, Zertifikate, Nachweise). Hochgeladene und vom Management freigegebene Dokumente können jederzeit eingesehen und heruntergeladen, jedoch nicht gelöscht werden.
+                </p>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '8px', alignItems: 'end' }}>
+                  <div>
+                    <label style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-muted)' }}>Dokumentenart</label>
+                    <select value={empDocCategory} onChange={e => setEmpDocCategory(e.target.value)}>
+                      <option value="Krankmeldung (AU)">🏥 Krankmeldung (AU)</option>
+                      <option value="Personalausweis / Reisepass">🪪 Personalausweis / Reisepass</option>
+                      <option value="Arbeitsvertrag / Werkvertrag">📄 Arbeitsvertrag / Werkvertrag</option>
+                      <option value="Führerschein / Zertifikat">🚗 Führerschein / Zertifikat</option>
+                      <option value="Krankenkassenkarte / SV-Ausweis">🏥 Krankenkassenkarte / SV-Ausweis</option>
+                      <option value="Sonstiges">📎 Sonstiges</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-muted)' }}>Datum</label>
+                    <DateInput value={empDocDate} onChange={e => setEmpDocDate(e.target.value)} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-muted)' }}>Bezeichnung (Optional)</label>
+                    <input
+                      placeholder="z.B. Nachweis / Bescheinigung"
+                      value={empDocCustomTitle}
+                      onChange={e => setEmpDocCustomTitle(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-muted)' }}>
+                      Dateien auswählen {empDocUploading ? '• Lädt hoch...' : ''}
+                    </label>
+                    <input
+                      type="file"
+                      multiple
+                      accept=".pdf,image/*,.doc,.docx"
+                      disabled={empDocUploading}
+                      onChange={handleEmployeeUploadDocs}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="glass-panel">
+                <div className="flex-between" style={{ flexWrap: 'wrap', gap: '8px', marginBottom: '10px' }}>
+                  <h3 style={{ fontSize: '0.88rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <FolderOpen size={15} style={{ color: 'var(--accent)' }} /> Meine Dokumente ({filteredMyDocs.length})
+                  </h3>
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    <input
+                      placeholder="Dokument suchen..."
+                      value={empDocSearch}
+                      onChange={e => setEmpDocSearch(e.target.value)}
+                      style={{ width: '160px', fontSize: '0.75rem' }}
+                    />
+                    <select value={empDocFilterKind} onChange={e => setEmpDocFilterKind(e.target.value)} style={{ width: 'auto', fontSize: '0.75rem' }}>
+                      <option value="ALL">Alle Arten ({myDocuments.length})</option>
+                      {uniqueKinds.map(k => (
+                        <option key={k} value={k}>{k}</option>
+                      ))}
+                    </select>
+                    <select value={empDocSortBy} onChange={e => setEmpDocSortBy(e.target.value)} style={{ width: 'auto', fontSize: '0.75rem' }}>
+                      <option value="date_desc">Datum (Neueste zuerst)</option>
+                      <option value="date_asc">Datum (Älteste zuerst)</option>
+                      <option value="kind_asc">Art (A–Z)</option>
+                      <option value="title_asc">Name (A–Z)</option>
+                    </select>
+                  </div>
+                </div>
+
+                {filteredMyDocs.length === 0 ? (
+                  <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.78rem' }}>
+                    Noch keine Dokumente hinterlegt.
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    {filteredMyDocs.map(doc => {
+                      const fileUrl = doc.url || doc.download_url || doc.file_url;
+                      return (
+                        <div key={doc.id} className="flex-between" style={{ padding: '10px 12px', borderRadius: '9px', background: 'rgba(255,255,255,0.65)', border: '1px solid var(--border)', gap: '10px', flexWrap: 'wrap' }}>
+                          <div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                              <strong style={{ fontSize: '0.8rem' }}>{doc.title}</strong>
+                              <span className="badge" style={{ fontSize: '0.64rem' }}>{doc.effectiveKind}</span>
+                              <span className="badge" style={{ fontSize: '0.62rem', background: doc.uploaded_by === 'Mitarbeiter' ? '#dbeafe' : '#f1f5f9', color: doc.uploaded_by === 'Mitarbeiter' ? '#1d4ed8' : '#475569' }}>
+                                {doc.uploaded_by === 'Mitarbeiter' ? 'Mein Upload' : 'Vom Management'}
+                              </span>
+                            </div>
+                            <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: '3px' }}>
+                              Datum: <strong>{formatDate(doc.effectiveDate)}</strong> {doc.file_name ? `• Datei: ${doc.file_name}` : ''}
+                            </div>
+                          </div>
+                          {fileUrl && (
+                            <a
+                              href={resolveMediaUrl(fileUrl)}
+                              target="_blank"
+                              rel="noreferrer"
+                              download={doc.file_name || true}
+                              className="btn-primary btn-sm"
+                              style={{ textDecoration: 'none', fontSize: '0.72rem' }}
+                            >
+                              <Download size={12} /> Ansehen / Download
+                            </a>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* =====================================================================
+            TAB 6: LOHNABRECHNUNG BY MONTH (SLIDE-OPEN ACCORDION + AUS DOKUMENTEN SYNCHRONISIERT)
            ===================================================================== */}
         {activeTab === 'payslips' && (
           <div className="glass-panel">
@@ -1882,12 +2067,26 @@ export const EmployeePortalPWA = ({ user, logout, onSwitchToManagement }) => {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               {[...MONTH_LIST_DE].reverse().map(mObj => {
                 const myEmpId = user?.employee_id || myEmployeeProfile?.id;
+                const matchingSlipDoc = myDocuments.find(d => {
+                  const isSlipKind = (d.effectiveKind || '').toLowerCase().includes('lohnabrechnung') || d.reference_type === 'Lohnabrechnung';
+                  if (!isSlipKind) return false;
+                  const dt = d.effectiveDate ? new Date(d.effectiveDate) : null;
+                  return dt && dt.getFullYear() === Number(payslipYear) && (dt.getMonth() + 1) === mObj.num;
+                });
                 const slip = payslips.find(
                   p =>
                     (!myEmpId || p.employee_id === myEmpId) &&
                     Number(p.period_year) === Number(payslipYear) &&
                     Number(p.period_month) === mObj.num
-                );
+                ) || (matchingSlipDoc ? {
+                  period_month: mObj.num,
+                  period_year: Number(payslipYear),
+                  gross_salary: myEmployeeProfile?.base_salary || 0,
+                  net_salary: myEmployeeProfile?.base_salary ? Math.round(myEmployeeProfile.base_salary * 0.68) : 0,
+                  commission_bonus: 0,
+                  total_payout: myEmployeeProfile?.base_salary ? Math.round(myEmployeeProfile.base_salary * 0.68) : 0,
+                  document_url: matchingSlipDoc.url || matchingSlipDoc.download_url || matchingSlipDoc.file_url,
+                } : null);
                 const isUploaded = Boolean(slip && slip.document_url);
                 const isOpen = expandedPayslipMonth === mObj.num;
                 const monthTitle = `${String(mObj.num).padStart(2, '0')} · ${lang === 'de' ? mObj.labelDe : mObj.labelEn} ${payslipYear}`;
@@ -2435,8 +2634,8 @@ export const EmployeePortalPWA = ({ user, logout, onSwitchToManagement }) => {
             { id: 'tasks', Icon: Calendar, label: lang === 'de' ? 'Aufgaben' : 'Tasks' },
             { id: 'lager', Icon: Package, label: 'Lager' },
             { id: 'absence', Icon: HeartPulse, label: lang === 'de' ? 'Urlaub/AU' : 'Leave' },
+            { id: 'documents', Icon: FolderOpen, label: lang === 'de' ? 'Dokumente' : 'Docs' },
             { id: 'payslips', Icon: FileText, label: lang === 'de' ? 'Lohn' : 'Pay' },
-            { id: 'sales', Icon: ShoppingBag, label: 'Upsell', disabled: true },
           ].map(item => {
             const IconComp = item.Icon;
             const isActive = activeTab === item.id || (item.id === 'absence' && (activeTab === 'leave' || activeTab === 'sick'));

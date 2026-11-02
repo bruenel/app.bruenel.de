@@ -23,6 +23,68 @@ from core.audit import log_audit
 router = APIRouter()
 
 
+from datetime import datetime
+
+
+def _sync_payslip_for_document(db: Session, doc: models.DocumentRecord):
+    """
+    Whenever a document has reference_type == 'Lohnabrechnung' (or category starts with 'Lohnabrechnung'),
+    automatically ensure a corresponding Payslip row exists for that employee so it shows in the
+    employee's Payslip (Lohnabrechnung) tab. If changed away from Lohnabrechnung, remove the Payslip row.
+    """
+    meta = dict(doc.metadata_json or {})
+    cat = str(meta.get("category") or doc.reference_type or "")
+    is_payslip = doc.reference_type in ("Lohnabrechnung", "Payslip") or "lohnabrechnung" in cat.lower()
+    target_emp_id = doc.employee_id or (doc.reference_id if doc.reference_id not in ("NEW_EMPLOYEE", "NEW_FREELANCER") else None)
+
+    existing_slip = db.query(models.Payslip).filter(models.Payslip.document_id == doc.id).first()
+
+    if not is_payslip or not target_emp_id:
+        if existing_slip:
+            db.delete(existing_slip)
+            db.commit()
+        return
+
+    # Determine month & year from metadata doc_date or period_month/period_year or created_at
+    now = datetime.utcnow()
+    p_month = int(meta.get("period_month") or 0)
+    p_year = int(meta.get("period_year") or 0)
+    doc_date_str = str(meta.get("doc_date") or "")
+    if (not p_month or not p_year) and len(doc_date_str) >= 7:
+        try:
+            parts = doc_date_str.split("-")
+            p_year = int(parts[0])
+            p_month = int(parts[1])
+        except Exception:
+            pass
+    if not p_month:
+        p_month = doc.created_at.month if doc.created_at else now.month
+    if not p_year:
+        p_year = doc.created_at.year if doc.created_at else now.year
+
+    if existing_slip:
+        existing_slip.employee_id = target_emp_id
+        existing_slip.period_month = p_month
+        existing_slip.period_year = p_year
+        db.commit()
+    else:
+        slip = models.Payslip(
+            id=str(uuid.uuid4()),
+            employee_id=target_emp_id,
+            period_month=p_month,
+            period_year=p_year,
+            gross_salary=float(meta.get("gross_salary") or 0.0),
+            net_salary=float(meta.get("net_salary") or 0.0),
+            commission_bonus=float(meta.get("commission_bonus") or 0.0),
+            hours_worked=float(meta.get("hours_worked") or 0.0),
+            document_id=doc.id,
+            status="Issued",
+            notes=doc.title,
+        )
+        db.add(slip)
+        db.commit()
+
+
 @router.post("/presign")
 def request_presigned_upload(
     payload: dict,
@@ -32,6 +94,7 @@ def request_presigned_upload(
     """
     Request a Pre-Signed URL to upload large videos, site photos, receipts, or PDFs directly.
     """
+    tier = get_effective_tier(current_user)
     reference_type = payload.get("reference_type", "ObjectMedia")
     reference_id = payload.get("reference_id") or (current_user.employee_id or str(uuid.uuid4()))
     file_name = payload.get("file_name", "upload.bin").replace(" ", "_")
@@ -43,15 +106,28 @@ def request_presigned_upload(
     storage_key = f"{reference_type.lower()}/{reference_id}/{doc_id}_{file_name}"
 
     owner_emp_id = payload.get("employee_id")
-    if not owner_emp_id and reference_type in ("Lohnabrechnung", "Payslip", "Contract", "PersonalDokument", "Krankmeldung"):
+    if not owner_emp_id and reference_type not in ("ObjectMedia", "ProjectMedia", "Vault", "Expense"):
         owner_emp_id = str(reference_id) if (reference_id and str(reference_id) not in ("NEW_EMPLOYEE", "NEW_FREELANCER")) else current_user.employee_id
     if not owner_emp_id:
         owner_emp_id = current_user.employee_id
 
+    incoming_meta = dict(payload.get("metadata") or {})
+    if "doc_date" not in incoming_meta or not incoming_meta["doc_date"]:
+        incoming_meta["doc_date"] = datetime.utcnow().strftime("%Y-%m-%d")
+    if "category" not in incoming_meta or not incoming_meta["category"]:
+        incoming_meta["category"] = reference_type
+    if "uploaded_by" not in incoming_meta:
+        incoming_meta["uploaded_by"] = "Management" if tier <= 3 else "Mitarbeiter"
+    incoming_meta["uploader_email"] = current_user.email
+
+    # Normalize reference_type if category is Lohnabrechnung
+    if "lohnabrechnung" in str(incoming_meta.get("category", "")).lower():
+        reference_type = "Lohnabrechnung"
+
     doc = models.DocumentRecord(
         id=doc_id,
         reference_type=reference_type,
-        reference_id=str(reference_id),
+        reference_id=str(owner_emp_id or reference_id),
         employee_id=owner_emp_id,
         title=title,
         file_name=file_name,
@@ -61,17 +137,22 @@ def request_presigned_upload(
         storage_key=storage_key,
         drive_file_id=f"s3://{storage_key}",
         status="Pending_Upload",
-        metadata_json=payload.get("metadata", {}),
+        metadata_json=incoming_meta,
     )
     db.add(doc)
     db.commit()
     db.refresh(doc)
+
+    _sync_payslip_for_document(db, doc)
 
     presign_info = create_presigned_upload(storage_key, mime_type)
     return {
         "document_id": doc.id,
         "reference_type": doc.reference_type,
         "reference_id": doc.reference_id,
+        "doc_date": incoming_meta.get("doc_date"),
+        "category": incoming_meta.get("category"),
+        "uploaded_by": incoming_meta.get("uploaded_by"),
         "storage_key": storage_key,
         **presign_info,
     }
@@ -263,8 +344,10 @@ def list_media_documents(
         query = query.filter(models.DocumentRecord.employee_id == current_user.employee_id)
 
     docs = query.order_by(models.DocumentRecord.created_at.desc()).all()
-    return [
-        {
+    out = []
+    for d in docs:
+        meta = dict(d.metadata_json or {})
+        out.append({
             "id": d.id,
             "title": d.title,
             "file_name": d.file_name,
@@ -273,12 +356,15 @@ def list_media_documents(
             "reference_type": d.reference_type,
             "reference_id": d.reference_id,
             "employee_id": d.employee_id,
+            "category": meta.get("category") or d.reference_type,
+            "doc_date": meta.get("doc_date") or (d.created_at.strftime("%Y-%m-%d") if d.created_at else None),
+            "uploaded_by": meta.get("uploaded_by") or "Management",
             "status": d.status,
             "url": create_presigned_download(d.storage_key),
+            "download_url": create_presigned_download(d.storage_key),
             "created_at": d.created_at.isoformat() if d.created_at else None,
-        }
-        for d in docs
-    ]
+        })
+    return out
 
 
 @router.delete("/{document_id}")
@@ -289,25 +375,28 @@ def delete_media_document(
 ):
     """
     Delete a document record and its underlying physical storage file.
-    Only Tier 1-3 (Management / HR / PM) can delete arbitrary documents,
-    Tier 4-5 can only delete their own uploaded documents.
+    Only Tier 1-3 (Management / HR / PM) can delete documents.
+    Mitarbeiter (Tier 4-5) can view and upload documents, but cannot delete them.
     """
     tier = get_effective_tier(current_user)
+    if tier > 3:
+        raise HTTPException(
+            status_code=403,
+            detail="Mitarbeiter können keine Dokumente löschen. Nur Administratoren und Manager haben Löschberechtigung.",
+        )
+
     doc = db.query(models.DocumentRecord).filter(models.DocumentRecord.id == document_id).first()
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
-
-    if tier > 3 and doc.employee_id != current_user.employee_id:
-        raise HTTPException(status_code=403, detail="Not authorized to delete this document")
 
     # Remove physical file from S3 / R2 or local storage
     if doc.storage_key:
         delete_storage_file(doc.storage_key)
 
-    # Detach from referenced records if linked
-    db.query(models.Payslip).filter(models.Payslip.document_id == doc.id).update({"document_id": None})
+    # Remove any linked Payslip record so it is also removed from the employee's Payslip tab
+    db.query(models.Payslip).filter(models.Payslip.document_id == doc.id).delete()
     db.query(models.Expense).filter(models.Expense.document_id == doc.id).update({"document_id": None})
-    db.query(models.SickLeaveRecord).filter(models.SickLeaveRecord.au_document_id == doc.id).update({"au_document_id": None})
+    db.query(models.SicknessRecord).filter(models.SicknessRecord.au_document_id == doc.id).update({"au_document_id": None})
 
     doc_info = {"title": doc.title, "file_name": doc.file_name, "reference_type": doc.reference_type, "reference_id": doc.reference_id}
 
@@ -326,7 +415,7 @@ def update_media_document(
     current_user: models.User = Depends(get_current_user),
 ):
     """
-    Update document metadata (title, custom label, or category).
+    Update document metadata (title, custom label, category/kind, or document date).
     """
     tier = get_effective_tier(current_user)
     doc = db.query(models.DocumentRecord).filter(models.DocumentRecord.id == document_id).first()
@@ -336,18 +425,36 @@ def update_media_document(
     if tier > 3 and doc.employee_id != current_user.employee_id:
         raise HTTPException(status_code=403, detail="Not authorized to edit this document")
 
+    meta = dict(doc.metadata_json or {})
     if "title" in payload and payload["title"]:
         doc.title = str(payload["title"]).strip()
     if "reference_type" in payload and payload["reference_type"]:
         doc.reference_type = str(payload["reference_type"]).strip()
+        meta["category"] = doc.reference_type
+    if "category" in payload and payload["category"]:
+        cat_val = str(payload["category"]).strip()
+        meta["category"] = cat_val
+        if "lohnabrechnung" in cat_val.lower():
+            doc.reference_type = "Lohnabrechnung"
+        else:
+            doc.reference_type = cat_val
+    if "doc_date" in payload and payload["doc_date"]:
+        meta["doc_date"] = str(payload["doc_date"]).strip()
 
+    doc.metadata_json = meta
     db.commit()
     db.refresh(doc)
+
+    _sync_payslip_for_document(db, doc)
+
     download_link = create_presigned_download(doc.storage_key)
     return {
         "id": doc.id,
         "title": doc.title,
         "reference_type": doc.reference_type,
+        "category": meta.get("category") or doc.reference_type,
+        "doc_date": meta.get("doc_date") or (doc.created_at.strftime("%Y-%m-%d") if doc.created_at else None),
+        "uploaded_by": meta.get("uploaded_by") or "Management",
         "file_name": doc.file_name,
         "file_size": doc.file_size or 0,
         "mime_type": doc.mime_type,

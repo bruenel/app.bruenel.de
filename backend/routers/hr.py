@@ -36,15 +36,26 @@ def serialize_employee(emp: models.Employee, db: Optional[Session] = None, inclu
     if db is not None and include_sensitive:
         doc_rows = (
             db.query(models.DocumentRecord)
-            .filter(models.DocumentRecord.reference_id == emp.id)
+            .filter(
+                (models.DocumentRecord.reference_id == emp.id)
+                | (models.DocumentRecord.employee_id == emp.id)
+            )
             .order_by(models.DocumentRecord.created_at.desc())
             .all()
         )
+        seen_doc_ids = set()
         for d in doc_rows:
+            if d.id in seen_doc_ids:
+                continue
+            seen_doc_ids.add(d.id)
+            meta = dict(d.metadata_json or {})
             download_link = create_presigned_download(d.storage_key)
             docs.append({
                 "id": d.id,
                 "reference_type": d.reference_type,
+                "category": meta.get("category") or d.reference_type,
+                "doc_date": meta.get("doc_date") or (d.created_at.strftime("%Y-%m-%d") if d.created_at else None),
+                "uploaded_by": meta.get("uploaded_by") or ("Mitarbeiter" if d.reference_type == "Krankmeldung" else "Management"),
                 "file_name": d.file_name,
                 "title": d.title or d.file_name,
                 "mime_type": d.mime_type,

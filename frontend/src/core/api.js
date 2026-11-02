@@ -81,7 +81,7 @@ export const resolveMediaUrl = (url) => {
  * Upload a photo, PDF, or large video using either Pre-Signed S3 PUT streaming
  * or direct multipart upload, returning the created DocumentRecord.
  */
-export const uploadMediaFile = async ({ file, referenceType = 'ObjectMedia', referenceId = null, title = null, onProgress = null }) => {
+export const uploadMediaFile = async ({ file, referenceType = 'ObjectMedia', referenceId = null, employeeId = null, title = null, metadata = {}, onProgress = null }) => {
   if (!file) throw new Error('No file selected');
 
   // Step 1: Request Pre-Signed PUT URL from /api/v1/media/presign
@@ -90,10 +90,12 @@ export const uploadMediaFile = async ({ file, referenceType = 'ObjectMedia', ref
     body: JSON.stringify({
       reference_type: referenceType,
       reference_id: referenceId,
+      employee_id: employeeId,
       file_name: file.name,
       title: title || file.name,
       mime_type: file.type || 'application/octet-stream',
       file_size: file.size || 0,
+      metadata: metadata || {},
     }),
   });
 

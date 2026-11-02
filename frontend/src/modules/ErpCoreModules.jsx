@@ -353,10 +353,23 @@ export const HRManagementModule = ({ user }) => {
   const [editingEmpId, setEditingEmpId] = useState(null);
   const [empCardTab, setEmpCardTab] = useState('personal'); // 'personal' | 'sos' | 'contract' | 'tax' | 'sub' | 'docs'
   const [contractFile, setContractFile] = useState(null);
-  const [docCategory, setDocCategory] = useState('Arbeitsvertrag / Werkvertrag');
+  const [pendingUploadFiles, setPendingUploadFiles] = useState([]);
+  const [docCategory, setDocCategory] = useState('Lohnabrechnung');
+  const [docUploadDate, setDocUploadDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [customDocLabel, setCustomDocLabel] = useState('');
   const [uploadingEmpDoc, setUploadingEmpDoc] = useState(false);
   const [otpBanner, setOtpBanner] = useState(null);
+
+  // Document Selection, Sorting & Filtering State (for Personalakte & HR Documents Tab)
+  const [selectedDocIds, setSelectedDocIds] = useState([]);
+  const [docSortBy, setDocSortBy] = useState('date_desc'); // 'date_desc' | 'date_asc' | 'kind_asc' | 'title_asc'
+  const [docFilterKind, setDocFilterKind] = useState('ALL');
+  const [docFilterSearch, setDocFilterSearch] = useState('');
+  const [docFilterEmpId, setDocFilterEmpId] = useState('ALL');
+  const [centralUploadEmpId, setCentralUploadEmpId] = useState('');
+  const [bulkTargetKind, setBulkTargetKind] = useState('');
+  const [editingDocCategory, setEditingDocCategory] = useState('');
+  const [editingDocDate, setEditingDocDate] = useState('');
 
   // Freelancer Multi-Contract Creator State
   const [newFc, setNewFc] = useState({
@@ -988,7 +1001,7 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
   };
 
   useQuickAction('add-employee', () => openCreateEmployeeModal());
-  useQuickAction('add-payslip', () => setShowAddSlip(true));
+  useQuickAction('add-payslip', () => setTab('documents'));
 
   const filteredEmps = employees.filter((e) => {
     const matchesType =
@@ -1092,15 +1105,46 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
         }
       }
 
-      if (contractFile && targetEmpId) {
+      if (pendingUploadFiles.length > 0 && targetEmpId) {
+        const isSlip = docCategory.toLowerCase().includes('lohnabrechnung');
+        const refType = isSlip ? 'Lohnabrechnung' : docCategory;
+        for (const f of pendingUploadFiles) {
+          const docLabel = customDocLabel.trim()
+            ? `${docCategory}: ${customDocLabel.trim()} (${f.name})`
+            : `${docCategory}: ${f.name}`;
+          await uploadMediaFile({
+            file: f,
+            referenceType: refType,
+            referenceId: targetEmpId,
+            employeeId: targetEmpId,
+            title: docLabel,
+            metadata: {
+              category: docCategory,
+              doc_date: docUploadDate,
+              uploaded_by: 'Management',
+            },
+          });
+        }
+        setPendingUploadFiles([]);
+        setContractFile(null);
+        setCustomDocLabel('');
+      } else if (contractFile && targetEmpId) {
+        const isSlip = docCategory.toLowerCase().includes('lohnabrechnung');
+        const refType = isSlip ? 'Lohnabrechnung' : docCategory;
         const docLabel = customDocLabel.trim()
           ? `${docCategory} — ${customDocLabel.trim()}`
           : `${docCategory} — ${newEmp.first_name} ${newEmp.last_name}`;
         await uploadMediaFile({
           file: contractFile,
-          referenceType: 'Contract',
+          referenceType: refType,
           referenceId: targetEmpId,
+          employeeId: targetEmpId,
           title: docLabel,
+          metadata: {
+            category: docCategory,
+            doc_date: docUploadDate,
+            uploaded_by: 'Management',
+          },
         });
         setContractFile(null);
         setCustomDocLabel('');
@@ -1113,22 +1157,36 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
     }
   };
 
-  const handleUploadEmpDocumentNow = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file || !editingEmpId) return;
+  const handleUploadEmpDocumentNow = async (e, overrideEmpId = null) => {
+    const files = Array.from(e.target?.files || []);
+    const targetEmpId = overrideEmpId || editingEmpId || centralUploadEmpId;
+    if (!files.length || !targetEmpId) {
+      if (!targetEmpId) alert('Bitte wählen Sie zuerst einen Mitarbeiter aus.');
+      return;
+    }
     setUploadingEmpDoc(true);
     try {
-      const labelTitle = customDocLabel.trim()
-        ? `${docCategory}: ${customDocLabel.trim()} (${file.name})`
-        : `${docCategory}: ${file.name}`;
-      await uploadMediaFile({
-        file,
-        referenceType: 'Contract',
-        referenceId: editingEmpId,
-        title: labelTitle,
-      });
+      const isSlip = docCategory.toLowerCase().includes('lohnabrechnung');
+      const refType = isSlip ? 'Lohnabrechnung' : docCategory;
+      for (const file of files) {
+        const labelTitle = customDocLabel.trim()
+          ? `${docCategory}: ${customDocLabel.trim()} (${file.name})`
+          : `${docCategory}: ${file.name}`;
+        await uploadMediaFile({
+          file,
+          referenceType: refType,
+          referenceId: targetEmpId,
+          employeeId: targetEmpId,
+          title: labelTitle,
+          metadata: {
+            category: docCategory,
+            doc_date: docUploadDate,
+            uploaded_by: 'Management',
+          },
+        });
+      }
       setCustomDocLabel('');
-      e.target.value = '';
+      if (e.target) e.target.value = '';
       loadAll();
     } catch (err) {
       alert(err.message);
@@ -1137,13 +1195,45 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
   };
 
   const handleDeleteEmpDocument = async (docId) => {
-    if (!window.confirm('Möchten Sie dieses Dokument wirklich unwiderruflich aus der Personalakte löschen?')) return;
+    if (!window.confirm('Möchten Sie dieses Dokument wirklich unwiderruflich löschen?')) return;
     try {
       await fetchWithToken(`/api/v1/media/${docId}`, { method: 'DELETE' });
       setNewEmp(prev => ({
         ...prev,
         documents: (prev.documents || []).filter(d => d.id !== docId),
       }));
+      setSelectedDocIds(prev => prev.filter(id => id !== docId));
+      loadAll();
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  const handleBulkDeleteDocs = async () => {
+    if (!selectedDocIds.length) return;
+    if (!window.confirm(`Möchten Sie die ${selectedDocIds.length} ausgewählten Dokumente wirklich unwiderruflich löschen?`)) return;
+    try {
+      for (const docId of selectedDocIds) {
+        await fetchWithToken(`/api/v1/media/${docId}`, { method: 'DELETE' });
+      }
+      setSelectedDocIds([]);
+      loadAll();
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  const handleBulkChangeDocCategory = async (newKind) => {
+    if (!selectedDocIds.length || !newKind) return;
+    try {
+      for (const docId of selectedDocIds) {
+        await fetchWithToken(`/api/v1/media/${docId}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ category: newKind, reference_type: newKind.toLowerCase().includes('lohnabrechnung') ? 'Lohnabrechnung' : newKind }),
+        });
+      }
+      setSelectedDocIds([]);
+      setBulkTargetKind('');
       loadAll();
     } catch (err) {
       alert(err.message);
@@ -1153,14 +1243,17 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
   const handleSaveDocTitle = async (docId) => {
     if (!editingDocTitle.trim()) return;
     try {
+      const catToSave = editingDocCategory || undefined;
+      const dateToSave = editingDocDate || undefined;
       await fetchWithToken(`/api/v1/media/${docId}`, {
         method: 'PATCH',
-        body: JSON.stringify({ title: editingDocTitle.trim() }),
+        body: JSON.stringify({
+          title: editingDocTitle.trim(),
+          category: catToSave,
+          reference_type: catToSave && catToSave.toLowerCase().includes('lohnabrechnung') ? 'Lohnabrechnung' : catToSave,
+          doc_date: dateToSave,
+        }),
       });
-      setNewEmp(prev => ({
-        ...prev,
-        documents: (prev.documents || []).map(d => d.id === docId ? { ...d, title: editingDocTitle.trim() } : d),
-      }));
       setEditingDocId(null);
       loadAll();
     } catch (err) {
@@ -1291,7 +1384,7 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
             ))}
           </select>
         </div>
-        <button className="btn-secondary" onClick={() => setShowAddSlip(true)}><Upload size={16} /> Issue payslip</button>
+        <button className="btn-secondary" onClick={() => setTab('documents')}><Upload size={16} /> Dokumente & Lohnabrechnungen</button>
         <button className="btn-primary" onClick={openCreateEmployeeModal}><Plus size={16} /> Register Employee / Freelancer / Sub</button>
       </PageHead>
 
@@ -1421,7 +1514,7 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
         { id: 'timelogs', label: 'Working Hours & Smart Search', count: timeLogs.length },
         { id: 'leaves', label: 'Holiday (Urlaub)', count: leaves.length },
         { id: 'sickness', label: 'Sickness (AU)', count: sickness.length },
-        { id: 'payslips', label: 'Payslips (Lohnabrechnung)', count: payslips.length },
+        { id: 'documents', label: 'Documents (Dokumente & Lohnabrechnung)', count: employees.reduce((acc, e) => acc + ((e.documents || []).length), 0) },
       ]} />
 
       {/* =====================================================================
@@ -2133,7 +2226,7 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                   </div>
                 )}
 
-                {/* SECTION 6: DOKUMENTE — AI READER + UPLOAD + ARCHIVE (sorted by type) */}
+                {/* SECTION 6: DOKUMENTE — AI READER + MULTI-UPLOAD + ARCHIVE (sorted & filtered) */}
                 {empCardTab === 'docs' && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
 
@@ -2157,9 +2250,11 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                         <div style={{ flex: 1, minWidth: '180px' }}>
                           <label style={{ fontSize: '0.72rem' }}>Dokumenttyp für KI-Upload</label>
                           <select value={docCategory} onChange={e => setDocCategory(e.target.value)} style={{ fontSize: '0.82rem' }}>
+                            <option value="Lohnabrechnung">💰 Lohnabrechnung / Entgeltnachweis (Erscheint im Lohnabrechnung-Tab)</option>
                             <option value="Personalausweis / Reisepass">🪪 Personalausweis / Reisepass / Aufenthaltstitel</option>
                             <option value="Arbeitsvertrag / Werkvertrag">📄 Arbeitsvertrag / Werkvertrag</option>
                             <option value="Freelancer Projektvertrag">📑 Freelancer Projektvertrag</option>
+                            <option value="Krankmeldung (AU)">🏥 Krankmeldung (AU)</option>
                             <option value="Krankenkassenkarte / SV-Ausweis">🏥 Krankenkassenkarte / SV-Ausweis</option>
                             <option value="Freistellungsbescheinigung §48b EStG">📋 Freistellungsbescheinigung §48b EStG</option>
                             <option value="Gewerbeanmeldung / BG BAU">🏗️ Gewerbeanmeldung / BG BAU Nachweis</option>
@@ -2215,58 +2310,67 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                       )}
                     </div>
 
-                    {/* ── Divider: Manual Upload ─────────────────────────────────── */}
+                    {/* ── Divider: Manual Multi-Upload ───────────────────────────── */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                       <div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />
                       <span style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                        Manueller Upload
+                        Mehrfach-Upload & Lohnabrechnung-Freigabe
                       </span>
                       <div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />
                     </div>
 
-                    {/* ── Manual Document Upload ────────────────────────────────── */}
+                    {/* ── Manual Multi-Document Upload ──────────────────────────── */}
                     <div style={{ padding: '14px', borderRadius: '10px', background: 'var(--surface-2)', border: '1px solid var(--border)' }}>
-                      <h4 style={{ fontSize: '0.88rem', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <Upload size={14} /> Dokument manuell zur Personalakte hinzufügen
+                      <h4 style={{ fontSize: '0.88rem', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <Upload size={14} /> Dokumente oder Lohnabrechnung hochladen (Mehrfachauswahl möglich)
                       </h4>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 1.1fr 1.3fr', gap: '10px', alignItems: 'end' }}>
+                      <p style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginBottom: '12px' }}>
+                        Wählen Sie <strong>„Lohnabrechnung“</strong>, damit das Dokument automatisch im Lohnabrechnungs-Tab des Mitarbeiters angezeigt wird. Mitarbeiter können alle Dokumente einsehen, aber nichts löschen.
+                      </p>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.9fr 1fr 1.2fr', gap: '10px', alignItems: 'end' }}>
                         <div>
-                          <label>Dokumententyp (Kategorie)</label>
+                          <label>Dokumentenart (Kategorie)</label>
                           <select value={docCategory} onChange={e => setDocCategory(e.target.value)}>
-                            <option value="Personalausweis / Reisepass">Personalausweis / Reisepass / Aufenthaltstitel</option>
-                            <option value="Arbeitsvertrag / Werkvertrag">Arbeitsvertrag / Werkvertrag</option>
-                            <option value="Freelancer Projektvertrag">Freelancer Projektvertrag</option>
-                            <option value="Krankenkassenkarte / SV-Ausweis">Krankenkassenkarte / SV-Ausweis</option>
-                            <option value="Freistellungsbescheinigung §48b EStG">Freistellungsbescheinigung §48b EStG</option>
-                            <option value="Gewerbeanmeldung / BG BAU">Gewerbeanmeldung / BG BAU Nachweis</option>
-                            <option value="Führerschein / Zertifikat">Führerschein / Schulungszertifikat</option>
-                            <option value="Lebenslauf / CV">Lebenslauf / CV</option>
-                            <option value="Sonstiges">Sonstiges (Eigene Bezeichnung)</option>
+                            <option value="Lohnabrechnung">💰 Lohnabrechnung / Entgeltnachweis (Erscheint im Lohnabrechnung-Tab)</option>
+                            <option value="Personalausweis / Reisepass">🪪 Personalausweis / Reisepass / Aufenthaltstitel</option>
+                            <option value="Arbeitsvertrag / Werkvertrag">📄 Arbeitsvertrag / Werkvertrag</option>
+                            <option value="Freelancer Projektvertrag">📑 Freelancer Projektvertrag</option>
+                            <option value="Krankmeldung (AU)">🏥 Krankmeldung (AU)</option>
+                            <option value="Krankenkassenkarte / SV-Ausweis">🏥 Krankenkassenkarte / SV-Ausweis</option>
+                            <option value="Freistellungsbescheinigung §48b EStG">📋 Freistellungsbescheinigung §48b EStG</option>
+                            <option value="Gewerbeanmeldung / BG BAU">🏗️ Gewerbeanmeldung / BG BAU Nachweis</option>
+                            <option value="Führerschein / Zertifikat">🚗 Führerschein / Schulungszertifikat</option>
+                            <option value="Lebenslauf / CV">📝 Lebenslauf / CV</option>
+                            <option value="Sonstiges">📎 Sonstiges (Eigene Bezeichnung)</option>
                           </select>
                         </div>
                         <div>
-                          <label>Bezeichnung {docCategory === 'Sonstiges' ? '*' : '(Optional)'}</label>
+                          <label>Dokumentendatum</label>
+                          <DateInput value={docUploadDate} onChange={e => setDocUploadDate(e.target.value)} />
+                        </div>
+                        <div>
+                          <label>Bezeichnung (Optional)</label>
                           <input
-                            placeholder={docCategory === 'Sonstiges' ? 'Bezeichnung eingeben...' : 'z.B. Nachtrag Nr. 2 / Sicherheitsschein'}
+                            placeholder={docCategory === 'Lohnabrechnung' ? 'z.B. Lohnabrechnung 10/2026' : 'z.B. Nachtrag Nr. 2'}
                             value={customDocLabel}
                             onChange={e => setCustomDocLabel(e.target.value)}
                           />
                         </div>
                         <div>
                           <label>
-                            {editingEmpId ? 'Datei sofort hochladen' : 'Datei beim Speichern hinzufügen'}
+                            {editingEmpId ? 'Dateien sofort hochladen (Mehrfach)' : 'Dateien beim Speichern hinzufügen'}
                             {uploadingEmpDoc && <span style={{ color: 'var(--accent)', marginLeft: '6px', fontWeight: 600 }}>• Hochladen...</span>}
                           </label>
                           {editingEmpId ? (
-                            <input type="file" accept=".pdf,image/*,.doc,.docx" onChange={handleUploadEmpDocumentNow} disabled={uploadingEmpDoc} />
+                            <input type="file" multiple accept=".pdf,image/*,.doc,.docx" onChange={handleUploadEmpDocumentNow} disabled={uploadingEmpDoc} />
                           ) : (
                             <div>
-                              <input type="file" accept=".pdf,image/*,.doc,.docx" onChange={e => setContractFile(e.target.files?.[0] || null)} />
-                              {contractFile && (
+                              <input type="file" multiple accept=".pdf,image/*,.doc,.docx" onChange={e => setPendingUploadFiles(Array.from(e.target.files || []))} />
+                              {pendingUploadFiles.length > 0 && (
                                 <div style={{ marginTop: '6px', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--accent)' }}>
                                   <FileText size={13} />
-                                  <span>Ausgewählt: <strong>{contractFile.name}</strong></span>
-                                  <button type="button" className="btn-secondary btn-sm" style={{ padding: '1px 5px', fontSize: '0.7rem', color: '#dc2626' }} onClick={() => setContractFile(null)}>
+                                  <span><strong>{pendingUploadFiles.length} Datei(en)</strong> ausgewählt</span>
+                                  <button type="button" className="btn-secondary btn-sm" style={{ padding: '1px 5px', fontSize: '0.7rem', color: '#dc2626' }} onClick={() => setPendingUploadFiles([])}>
                                     <X size={11} /> Abbrechen
                                   </button>
                                 </div>
@@ -2288,7 +2392,7 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                       </div>
                     )}
 
-                    {/* ── Documents Archive sorted by type ─────────────────────── */}
+                    {/* ── Documents Archive with Multi-Select, Sort & Filter ────── */}
                     {editingEmpId && (
                       <div>
                         {(newEmp.documents || []).length === 0 ? (
@@ -2296,86 +2400,188 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                             Noch keine Dokumente in dieser Personalakte hinterlegt.
                           </div>
                         ) : (() => {
-                          const DOC_TYPE_ORDER = [
-                            'Personalausweis / Reisepass',
-                            'Arbeitsvertrag / Werkvertrag',
-                            'Freelancer Projektvertrag',
-                            'Krankenkassenkarte / SV-Ausweis',
-                            'Freistellungsbescheinigung §48b EStG',
-                            'Gewerbeanmeldung / BG BAU',
-                            'Führerschein / Zertifikat',
-                            'Lebenslauf / CV',
-                            'Sonstiges',
-                          ];
-                          const grouped = {};
-                          (newEmp.documents || []).forEach(doc => {
-                            const cat = doc.reference_type || doc.category || 'Sonstiges';
-                            if (!grouped[cat]) grouped[cat] = [];
-                            grouped[cat].push(doc);
-                          });
-                          const sortedCats = [
-                            ...DOC_TYPE_ORDER.filter(c => grouped[c]),
-                            ...Object.keys(grouped).filter(c => !DOC_TYPE_ORDER.includes(c)),
-                          ];
+                          const allEmpDocs = (newEmp.documents || []).map(doc => ({
+                            ...doc,
+                            effectiveKind: doc.category || doc.reference_type || 'Sonstiges',
+                            effectiveDate: doc.doc_date || (doc.created_at ? String(doc.created_at).slice(0, 10) : ''),
+                          }));
+                          const uniqueKinds = Array.from(new Set(allEmpDocs.map(d => d.effectiveKind)));
+                          const filteredEmpDocs = allEmpDocs
+                            .filter(d => docFilterKind === 'ALL' || d.effectiveKind === docFilterKind)
+                            .filter(d => {
+                              if (!docFilterSearch.trim()) return true;
+                              const qStr = docFilterSearch.toLowerCase();
+                              return (
+                                (d.title || '').toLowerCase().includes(qStr) ||
+                                (d.file_name || '').toLowerCase().includes(qStr) ||
+                                (d.effectiveKind || '').toLowerCase().includes(qStr) ||
+                                (d.effectiveDate || '').toLowerCase().includes(qStr)
+                              );
+                            })
+                            .sort((a, b) => {
+                              if (docSortBy === 'date_asc') return (a.effectiveDate || '').localeCompare(b.effectiveDate || '');
+                              if (docSortBy === 'kind_asc') return (a.effectiveKind || '').localeCompare(b.effectiveKind || '');
+                              if (docSortBy === 'title_asc') return (a.title || '').localeCompare(b.title || '');
+                              return (b.effectiveDate || '').localeCompare(a.effectiveDate || '');
+                            });
+                          const allVisibleSelected = filteredEmpDocs.length > 0 && filteredEmpDocs.every(d => selectedDocIds.includes(d.id));
+
                           return (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                              {sortedCats.map(cat => (
-                                <div key={cat}>
-                                  <div style={{ fontSize: '0.72rem', fontWeight: 800, color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px', padding: '4px 10px', background: 'rgba(255,107,0,0.07)', borderRadius: '6px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                                    <FileText size={11} /> {cat} <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>({grouped[cat].length})</span>
+                              {/* Filter, Sort & Bulk Action Toolbar */}
+                              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center', padding: '10px 12px', borderRadius: '10px', background: '#f8fafc', border: '1px solid var(--border)' }}>
+                                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer', margin: 0 }}>
+                                  <input
+                                    type="checkbox"
+                                    checked={allVisibleSelected}
+                                    onChange={(ev) => {
+                                      if (ev.target.checked) {
+                                        setSelectedDocIds(Array.from(new Set([...selectedDocIds, ...filteredEmpDocs.map(d => d.id)])));
+                                      } else {
+                                        const visibleSet = new Set(filteredEmpDocs.map(d => d.id));
+                                        setSelectedDocIds(selectedDocIds.filter(id => !visibleSet.has(id)));
+                                      }
+                                    }}
+                                  />
+                                  Alle auswählen ({selectedDocIds.length})
+                                </label>
+                                <input
+                                  placeholder="Dokument suchen..."
+                                  value={docFilterSearch}
+                                  onChange={e => setDocFilterSearch(e.target.value)}
+                                  style={{ width: '180px', fontSize: '0.8rem', padding: '5px 9px' }}
+                                />
+                                <select value={docFilterKind} onChange={e => setDocFilterKind(e.target.value)} style={{ width: 'auto', fontSize: '0.8rem', padding: '5px 9px' }}>
+                                  <option value="ALL">Alle Dokumentenarten ({allEmpDocs.length})</option>
+                                  {uniqueKinds.map(k => (
+                                    <option key={k} value={k}>{k}</option>
+                                  ))}
+                                </select>
+                                <select value={docSortBy} onChange={e => setDocSortBy(e.target.value)} style={{ width: 'auto', fontSize: '0.8rem', padding: '5px 9px' }}>
+                                  <option value="date_desc">Sortieren: Datum (Neueste zuerst)</option>
+                                  <option value="date_asc">Sortieren: Datum (Älteste zuerst)</option>
+                                  <option value="kind_asc">Sortieren: Dokumentenart (A–Z)</option>
+                                  <option value="title_asc">Sortieren: Bezeichnung (A–Z)</option>
+                                </select>
+                                {selectedDocIds.length > 0 && (
+                                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginLeft: 'auto' }}>
+                                    <select
+                                      value={bulkTargetKind}
+                                      onChange={e => {
+                                        setBulkTargetKind(e.target.value);
+                                        if (e.target.value) handleBulkChangeDocCategory(e.target.value);
+                                      }}
+                                      style={{ width: 'auto', fontSize: '0.78rem', padding: '4px 8px' }}
+                                    >
+                                      <option value="">Kategorie für {selectedDocIds.length} ändern...</option>
+                                      <option value="Lohnabrechnung">💰 Lohnabrechnung</option>
+                                      <option value="Arbeitsvertrag / Werkvertrag">📄 Arbeitsvertrag / Werkvertrag</option>
+                                      <option value="Personalausweis / Reisepass">🪪 Personalausweis / Reisepass</option>
+                                      <option value="Krankmeldung (AU)">🏥 Krankmeldung (AU)</option>
+                                      <option value="Führerschein / Zertifikat">🚗 Führerschein / Zertifikat</option>
+                                      <option value="Sonstiges">📎 Sonstiges</option>
+                                    </select>
+                                    <button type="button" className="btn-secondary btn-sm" style={{ color: '#dc2626' }} onClick={handleBulkDeleteDocs}>
+                                      <Trash2 size={13} /> Ausgewählte löschen ({selectedDocIds.length})
+                                    </button>
                                   </div>
-                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                    {grouped[cat].map(doc => {
-                                      const fileUrl = doc.url || doc.download_url || doc.file_url;
-                                      const isEditingThis = editingDocId === doc.id;
-                                      const ext = (doc.file_name || '').split('.').pop()?.toUpperCase() || 'FILE';
-                                      return (
-                                        <div key={doc.id} className="flex-between" style={{ padding: '10px 14px', borderRadius: '8px', background: 'var(--surface)', border: '1px solid var(--border)', fontSize: '0.8rem', gap: '12px' }}>
-                                          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', minWidth: 0, flex: 1 }}>
-                                            <div style={{ marginTop: '2px', padding: '6px', borderRadius: '6px', background: 'rgba(255,107,0,0.1)', color: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                              <FileText size={16} />
+                                )}
+                              </div>
+
+                              {/* Document Cards */}
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                {filteredEmpDocs.map(doc => {
+                                  const fileUrl = doc.url || doc.download_url || doc.file_url;
+                                  const isEditingThis = editingDocId === doc.id;
+                                  const ext = (doc.file_name || '').split('.').pop()?.toUpperCase() || 'FILE';
+                                  const isChecked = selectedDocIds.includes(doc.id);
+                                  const isPayslipDoc = (doc.effectiveKind || '').toLowerCase().includes('lohnabrechnung') || doc.reference_type === 'Lohnabrechnung';
+                                  return (
+                                    <div key={doc.id} className="flex-between" style={{ padding: '10px 14px', borderRadius: '8px', background: isChecked ? '#fff7ed' : 'var(--surface)', border: isChecked ? '1.5px solid var(--accent)' : '1px solid var(--border)', fontSize: '0.8rem', gap: '12px' }}>
+                                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', minWidth: 0, flex: 1 }}>
+                                        <input
+                                          type="checkbox"
+                                          checked={isChecked}
+                                          onChange={(ev) => {
+                                            if (ev.target.checked) setSelectedDocIds(prev => [...prev, doc.id]);
+                                            else setSelectedDocIds(prev => prev.filter(id => id !== doc.id));
+                                          }}
+                                          style={{ marginTop: '6px' }}
+                                        />
+                                        <div style={{ marginTop: '2px', padding: '6px', borderRadius: '6px', background: isPayslipDoc ? '#ecfdf5' : 'rgba(255,107,0,0.1)', color: isPayslipDoc ? '#059669' : 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                          <FileText size={16} />
+                                        </div>
+                                        <div style={{ minWidth: 0, flex: 1 }}>
+                                          {isEditingThis ? (
+                                            <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '6px' }}>
+                                              <input value={editingDocTitle} onChange={e => setEditingDocTitle(e.target.value)} style={{ fontSize: '0.82rem', padding: '4px 8px', flex: 1, minWidth: '160px' }} placeholder="Dokumenten-Bezeichnung" autoFocus />
+                                              <select value={editingDocCategory} onChange={e => setEditingDocCategory(e.target.value)} style={{ fontSize: '0.8rem', padding: '4px 8px', width: 'auto' }}>
+                                                <option value="Lohnabrechnung">💰 Lohnabrechnung</option>
+                                                <option value="Personalausweis / Reisepass">Personalausweis / Reisepass</option>
+                                                <option value="Arbeitsvertrag / Werkvertrag">Arbeitsvertrag / Werkvertrag</option>
+                                                <option value="Freelancer Projektvertrag">Freelancer Projektvertrag</option>
+                                                <option value="Krankmeldung (AU)">Krankmeldung (AU)</option>
+                                                <option value="Krankenkassenkarte / SV-Ausweis">Krankenkassenkarte / SV-Ausweis</option>
+                                                <option value="Führerschein / Zertifikat">Führerschein / Zertifikat</option>
+                                                <option value="Sonstiges">Sonstiges</option>
+                                              </select>
+                                              <DateInput value={editingDocDate} onChange={e => setEditingDocDate(e.target.value)} style={{ width: '135px' }} />
+                                              <button type="button" className="btn-primary btn-sm" style={{ padding: '4px 8px' }} onClick={() => handleSaveDocTitle(doc.id)}><Check size={13} /> Speichern</button>
+                                              <button type="button" className="btn-secondary btn-sm" style={{ padding: '4px 8px' }} onClick={() => setEditingDocId(null)}><X size={13} /></button>
                                             </div>
-                                            <div style={{ minWidth: 0, flex: 1 }}>
-                                              {isEditingThis ? (
-                                                <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginBottom: '6px' }}>
-                                                  <input value={editingDocTitle} onChange={e => setEditingDocTitle(e.target.value)} style={{ fontSize: '0.82rem', padding: '4px 8px', flex: 1 }} placeholder="Dokumenten-Bezeichnung" autoFocus />
-                                                  <button type="button" className="btn-primary btn-sm" style={{ padding: '4px 8px' }} onClick={() => handleSaveDocTitle(doc.id)}><Check size={13} /> Speichern</button>
-                                                  <button type="button" className="btn-secondary btn-sm" style={{ padding: '4px 8px' }} onClick={() => setEditingDocId(null)}><X size={13} /></button>
-                                                </div>
-                                              ) : (
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '4px' }}>
-                                                  <strong style={{ wordBreak: 'break-word', fontSize: '0.86rem' }}>{doc.title}</strong>
-                                                  <span className="badge" style={{ fontSize: '0.68rem', padding: '2px 6px', background: '#e2e8f0', color: '#475569' }}>{ext}</span>
-                                                </div>
+                                          ) : (
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '4px' }}>
+                                              <strong style={{ wordBreak: 'break-word', fontSize: '0.86rem' }}>{doc.title}</strong>
+                                              <span className="badge" style={{ fontSize: '0.68rem', padding: '2px 7px', background: isPayslipDoc ? '#d1fae5' : 'rgba(255,107,0,0.12)', color: isPayslipDoc ? '#065f46' : 'var(--accent)', fontWeight: 700 }}>
+                                                {doc.effectiveKind}
+                                              </span>
+                                              {isPayslipDoc && (
+                                                <span className="badge" style={{ fontSize: '0.66rem', padding: '2px 6px', background: '#ecfdf5', color: '#047857' }}>
+                                                  ✓ Im Lohnabrechnung-Tab sichtbar
+                                                </span>
                                               )}
-                                              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', fontSize: '0.73rem', color: 'var(--text-muted)' }}>
-                                                {doc.file_name && <span>Datei: <strong style={{ color: 'var(--text)' }}>{doc.file_name}</strong></span>}
-                                                {doc.file_size ? <span>Größe: <strong style={{ color: 'var(--text)' }}>{(doc.file_size / 1024).toFixed(1)} KB</strong></span> : null}
-                                                {doc.created_at ? <span>Hochgeladen: <strong style={{ color: 'var(--text)' }}>{formatDateTime(doc.created_at)}</strong></span> : null}
-                                              </div>
+                                              <span className="badge" style={{ fontSize: '0.66rem', padding: '2px 6px', background: doc.uploaded_by === 'Mitarbeiter' ? '#dbeafe' : '#f1f5f9', color: doc.uploaded_by === 'Mitarbeiter' ? '#1d4ed8' : '#475569' }}>
+                                                {doc.uploaded_by === 'Mitarbeiter' ? '👤 Vom Mitarbeiter' : '🏢 Vom Management'}
+                                              </span>
+                                              <span className="badge" style={{ fontSize: '0.68rem', padding: '2px 6px', background: '#e2e8f0', color: '#475569' }}>{ext}</span>
                                             </div>
-                                          </div>
-                                          <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexShrink: 0 }}>
-                                            {fileUrl && (
-                                              <a href={resolveMediaUrl(fileUrl)} target="_blank" rel="noreferrer" download={doc.file_name || true} className="btn-secondary btn-sm" style={{ textDecoration: 'none', color: 'var(--accent)', display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '4px 9px' }}>
-                                                <Download size={13} /> Download
-                                              </a>
-                                            )}
-                                            {!isEditingThis && (
-                                              <button type="button" className="btn-secondary btn-sm" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 9px' }} onClick={() => { setEditingDocId(doc.id); setEditingDocTitle(doc.title || doc.file_name || ''); }}>
-                                                <Edit3 size={13} /> Umbenennen
-                                              </button>
-                                            )}
-                                            <button type="button" className="btn-secondary btn-sm" style={{ color: '#dc2626', display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 9px' }} onClick={() => handleDeleteEmpDocument(doc.id)}>
-                                              <Trash2 size={13} /> Löschen
-                                            </button>
+                                          )}
+                                          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', fontSize: '0.73rem', color: 'var(--text-muted)' }}>
+                                            {doc.effectiveDate && <span>Datum: <strong style={{ color: 'var(--text)' }}>{formatDate(doc.effectiveDate)}</strong></span>}
+                                            {doc.file_name && <span>Datei: <strong style={{ color: 'var(--text)' }}>{doc.file_name}</strong></span>}
+                                            {doc.file_size ? <span>Größe: <strong style={{ color: 'var(--text)' }}>{(doc.file_size / 1024).toFixed(1)} KB</strong></span> : null}
                                           </div>
                                         </div>
-                                      );
-                                    })}
-                                  </div>
-                                </div>
-                              ))}
+                                      </div>
+                                      <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexShrink: 0 }}>
+                                        {fileUrl && (
+                                          <a href={resolveMediaUrl(fileUrl)} target="_blank" rel="noreferrer" download={doc.file_name || true} className="btn-secondary btn-sm" style={{ textDecoration: 'none', color: 'var(--accent)', display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '4px 9px' }}>
+                                            <Download size={13} /> Download
+                                          </a>
+                                        )}
+                                        {!isEditingThis && (
+                                          <button
+                                            type="button"
+                                            className="btn-secondary btn-sm"
+                                            style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 9px' }}
+                                            onClick={() => {
+                                              setEditingDocId(doc.id);
+                                              setEditingDocTitle(doc.title || doc.file_name || '');
+                                              setEditingDocCategory(doc.effectiveKind || 'Sonstiges');
+                                              setEditingDocDate(doc.effectiveDate || new Date().toISOString().slice(0, 10));
+                                            }}
+                                          >
+                                            <Edit3 size={13} /> Sortieren / Bearbeiten
+                                          </button>
+                                        )}
+                                        <button type="button" className="btn-secondary btn-sm" style={{ color: '#dc2626', display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 9px' }} onClick={() => handleDeleteEmpDocument(doc.id)}>
+                                          <Trash2 size={13} /> Löschen
+                                        </button>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
                             </div>
                           );
                         })()}
@@ -2477,59 +2683,6 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                 </div>
               </div>
             </form>
-        </div>
-      )}
-
-      {/* Issue Payslip Modal */}
-      {showAddSlip && (
-        <div className="modal-overlay">
-          <div className="glass-panel" style={{ width: '480px' }}>
-            <h3 style={{ marginBottom: '16px' }}>Issue Monthly Salary Document (Lohnabrechnung)</h3>
-            <form onSubmit={handleIssuePayslip} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Mitarbeiter (Persönliche Zuordnung) *</label>
-              <select required value={newSlip.employee_id} onChange={e => setNewSlip({...newSlip, employee_id: e.target.value})}>
-                <option value="">— Bitte Mitarbeiter wählen —</option>
-                {employees.map(emp => (
-                  <option key={emp.id} value={emp.id}>{emp.full_name}</option>
-                ))}
-              </select>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                <div>
-                  <label style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Month (1-12)</label>
-                  <input type="number" min="1" max="12" value={newSlip.period_month} onChange={e => setNewSlip({...newSlip, period_month: parseInt(e.target.value)})} />
-                </div>
-                <div>
-                  <label style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Year</label>
-                  <input type="number" value={newSlip.period_year} onChange={e => setNewSlip({...newSlip, period_year: parseInt(e.target.value)})} />
-                </div>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
-                <div>
-                  <label style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Gross (€)</label>
-                  <input type="number" step="0.01" value={newSlip.gross_salary} onChange={e => setNewSlip({...newSlip, gross_salary: parseFloat(e.target.value)})} />
-                </div>
-                <div>
-                  <label style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Net (€)</label>
-                  <input type="number" step="0.01" value={newSlip.net_salary} onChange={e => setNewSlip({...newSlip, net_salary: parseFloat(e.target.value)})} />
-                </div>
-                <div>
-                  <label style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Provision (€)</label>
-                  <input type="number" step="0.01" value={newSlip.commission_bonus} onChange={e => setNewSlip({...newSlip, commission_bonus: parseFloat(e.target.value)})} />
-                </div>
-              </div>
-              <div>
-                <label style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 700 }}>Lohnabrechnung Datei hochladen (PDF / Bild) * — Nur für diesen Mitarbeiter sichtbar</label>
-                <input type="file" required accept=".pdf,.png,.jpg,.jpeg,.txt" onChange={e => setSlipFile(e.target.files[0])} />
-              </div>
-              <input placeholder="Notes (e.g. Includes October Field Sales Provision)" value={newSlip.notes} onChange={e => setNewSlip({...newSlip, notes: e.target.value})} />
-              <div style={{ display: 'flex', gap: '10px' }}>
-                <button type="button" className="btn-secondary" style={{flex: 1}} onClick={() => setShowAddSlip(false)}>Cancel</button>
-                <button type="submit" disabled={uploadingSlip} className="btn-primary" style={{flex: 1}}>
-                  {uploadingSlip ? 'Uploading...' : 'Issue Payslip'}
-                </button>
-              </div>
-            </form>
-          </div>
         </div>
       )}
 
@@ -2782,16 +2935,11 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                           type="button"
                           className="btn-secondary btn-sm"
                           onClick={() => {
-                            setNewSlip(prev => ({
-                              ...prev,
-                              employee_id: e.id,
-                              gross_salary: e.base_salary || 0,
-                              net_salary: e.base_salary ? Math.round(e.base_salary * 0.68) : 0,
-                            }));
-                            setShowAddSlip(true);
+                            openEditEmployeeModal(e);
+                            setEmpCardTab('docs');
                           }}
                         >
-                          <Upload size={12} /> Abrechnung
+                          <Upload size={12} /> Dokumente ({(e.documents || []).length})
                         </button>
                       </div>
                     </td>
@@ -3424,76 +3572,330 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
         </div>
       )}
 
-      {tab === 'payslips' && (
-        <div className="glass-panel">
-          <div className="toolbar" style={{ marginBottom: 16 }}>
-            <p style={{ fontSize: '0.84rem', color: 'var(--text-muted)' }}>
-              Upload or replace monthly salary documents (Lohnabrechnung PDF/Image) for any employee. Uploaded documents appear immediately in the employee's mobile portal.
-            </p>
-            <button className="btn-primary" style={{ marginLeft: 'auto' }} onClick={() => setShowAddSlip(true)}>
-              <Upload size={15} /> Upload / Issue Lohnabrechnung
-            </button>
+      {(tab === 'documents' || tab === 'payslips') && (() => {
+        const allEmployeeDocs = employees.flatMap(emp =>
+          (emp.documents || []).map(doc => ({
+            ...doc,
+            employee_id: emp.id,
+            employee_name: emp.full_name,
+            effectiveKind: doc.category || doc.reference_type || 'Sonstiges',
+            effectiveDate: doc.doc_date || (doc.created_at ? String(doc.created_at).slice(0, 10) : ''),
+          }))
+        );
+        const uniqueKinds = Array.from(new Set([
+          'Lohnabrechnung',
+          'Arbeitsvertrag / Werkvertrag',
+          'Personalausweis / Reisepass',
+          'Krankmeldung (AU)',
+          'Führerschein / Zertifikat',
+          'Sonstiges',
+          ...allEmployeeDocs.map(d => d.effectiveKind),
+        ]));
+        const filteredAllDocs = allEmployeeDocs
+          .filter(d => docFilterEmpId === 'ALL' || String(d.employee_id) === String(docFilterEmpId))
+          .filter(d => docFilterKind === 'ALL' || d.effectiveKind === docFilterKind)
+          .filter(d => {
+            if (!docFilterSearch.trim()) return true;
+            const qStr = docFilterSearch.toLowerCase();
+            return (
+              (d.title || '').toLowerCase().includes(qStr) ||
+              (d.file_name || '').toLowerCase().includes(qStr) ||
+              (d.employee_name || '').toLowerCase().includes(qStr) ||
+              (d.effectiveKind || '').toLowerCase().includes(qStr) ||
+              (d.effectiveDate || '').toLowerCase().includes(qStr)
+            );
+          })
+          .sort((a, b) => {
+            if (docSortBy === 'date_asc') return (a.effectiveDate || '').localeCompare(b.effectiveDate || '');
+            if (docSortBy === 'kind_asc') return (a.effectiveKind || '').localeCompare(b.effectiveKind || '');
+            if (docSortBy === 'title_asc') return (a.title || '').localeCompare(b.title || '');
+            return (b.effectiveDate || '').localeCompare(a.effectiveDate || '');
+          });
+        const allVisibleSelected = filteredAllDocs.length > 0 && filteredAllDocs.every(d => selectedDocIds.includes(d.id));
+
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            {/* Multi-Document & Payslip Upload Card */}
+            <div className="glass-panel" style={{ padding: '18px 20px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px', marginBottom: '12px' }}>
+                <div>
+                  <h3 style={{ fontSize: '1.02rem', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Upload size={17} style={{ color: 'var(--accent)' }} />
+                    Mehrfach-Dokumenten-Upload & Lohnabrechnungen
+                  </h3>
+                  <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                    Laden Sie mehrere Dokumente gleichzeitig für einen Mitarbeiter hoch. Wenn Sie als Dokumentenart <strong>„Lohnabrechnung“</strong> auswählen, erscheint das Dokument automatisch im Lohnabrechnungs-Tab des jeweiligen Mitarbeiters. Mitarbeiter können alle ihre Dokumente sehen (auch eigene Uploads), aber nichts löschen.
+                  </p>
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.2fr 0.9fr 1fr 1.2fr', gap: '12px', alignItems: 'end' }}>
+                <div>
+                  <label>Mitarbeiter auswählen *</label>
+                  <select
+                    value={centralUploadEmpId}
+                    onChange={e => setCentralUploadEmpId(e.target.value)}
+                  >
+                    <option value="">— Mitarbeiter wählen —</option>
+                    {employees.map(emp => (
+                      <option key={emp.id} value={emp.id}>{emp.full_name} ({emp.department || emp.role})</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label>Dokumentenart (Kategorie)</label>
+                  <select value={docCategory} onChange={e => setDocCategory(e.target.value)}>
+                    <option value="Lohnabrechnung">💰 Lohnabrechnung / Entgeltnachweis (→ Lohnabrechnung-Tab)</option>
+                    <option value="Arbeitsvertrag / Werkvertrag">📄 Arbeitsvertrag / Werkvertrag</option>
+                    <option value="Personalausweis / Reisepass">🪪 Personalausweis / Reisepass / Aufenthaltstitel</option>
+                    <option value="Freelancer Projektvertrag">📑 Freelancer Projektvertrag</option>
+                    <option value="Krankmeldung (AU)">🏥 Krankmeldung (AU)</option>
+                    <option value="Krankenkassenkarte / SV-Ausweis">🏥 Krankenkassenkarte / SV-Ausweis</option>
+                    <option value="Freistellungsbescheinigung §48b EStG">📋 Freistellungsbescheinigung §48b EStG</option>
+                    <option value="Gewerbeanmeldung / BG BAU">🏗️ Gewerbeanmeldung / BG BAU Nachweis</option>
+                    <option value="Führerschein / Zertifikat">🚗 Führerschein / Schulungszertifikat</option>
+                    <option value="Lebenslauf / CV">📝 Lebenslauf / CV</option>
+                    <option value="Sonstiges">📎 Sonstiges</option>
+                  </select>
+                </div>
+                <div>
+                  <label>Dokumentendatum</label>
+                  <DateInput value={docUploadDate} onChange={e => setDocUploadDate(e.target.value)} />
+                </div>
+                <div>
+                  <label>Bezeichnung (Optional)</label>
+                  <input
+                    placeholder={docCategory === 'Lohnabrechnung' ? 'z.B. Abrechnung 10/2026' : 'z.B. Nachtrag / Zertifikat'}
+                    value={customDocLabel}
+                    onChange={e => setCustomDocLabel(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label>
+                    Dateien auswählen (Mehrfach-Upload)
+                    {uploadingEmpDoc && <span style={{ color: 'var(--accent)', marginLeft: '6px', fontWeight: 700 }}>• Hochladen...</span>}
+                  </label>
+                  <input
+                    type="file"
+                    multiple
+                    accept=".pdf,image/*,.doc,.docx"
+                    disabled={uploadingEmpDoc}
+                    onChange={(e) => handleUploadEmpDocumentNow(e, centralUploadEmpId)}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Documents Master Table with Filter, Sort & Multi-Select */}
+            <div className="glass-panel">
+              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center', marginBottom: '14px', paddingBottom: '12px', borderBottom: '1px solid var(--border)' }}>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', margin: 0 }}>
+                  <input
+                    type="checkbox"
+                    checked={allVisibleSelected}
+                    onChange={(ev) => {
+                      if (ev.target.checked) {
+                        setSelectedDocIds(Array.from(new Set([...selectedDocIds, ...filteredAllDocs.map(d => d.id)])));
+                      } else {
+                        const visibleSet = new Set(filteredAllDocs.map(d => d.id));
+                        setSelectedDocIds(selectedDocIds.filter(id => !visibleSet.has(id)));
+                      }
+                    }}
+                  />
+                  Alle auswählen ({selectedDocIds.length})
+                </label>
+
+                <input
+                  placeholder="Suche nach Mitarbeiter, Titel, Datei, Datum..."
+                  value={docFilterSearch}
+                  onChange={e => setDocFilterSearch(e.target.value)}
+                  style={{ width: '240px', fontSize: '0.82rem' }}
+                />
+
+                <select value={docFilterEmpId} onChange={e => setDocFilterEmpId(e.target.value)} style={{ width: 'auto', fontSize: '0.82rem' }}>
+                  <option value="ALL">Alle Mitarbeiter ({employees.length})</option>
+                  {employees.map(emp => (
+                    <option key={emp.id} value={emp.id}>{emp.full_name} ({(emp.documents || []).length})</option>
+                  ))}
+                </select>
+
+                <select value={docFilterKind} onChange={e => setDocFilterKind(e.target.value)} style={{ width: 'auto', fontSize: '0.82rem' }}>
+                  <option value="ALL">Alle Dokumentenarten ({allEmployeeDocs.length})</option>
+                  {uniqueKinds.map(k => (
+                    <option key={k} value={k}>{k}</option>
+                  ))}
+                </select>
+
+                <select value={docSortBy} onChange={e => setDocSortBy(e.target.value)} style={{ width: 'auto', fontSize: '0.82rem' }}>
+                  <option value="date_desc">Sortieren: Datum (Neueste zuerst)</option>
+                  <option value="date_asc">Sortieren: Datum (Älteste zuerst)</option>
+                  <option value="kind_asc">Sortieren: Dokumentenart (A–Z)</option>
+                  <option value="title_asc">Sortieren: Bezeichnung (A–Z)</option>
+                </select>
+
+                {selectedDocIds.length > 0 && (
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginLeft: 'auto' }}>
+                    <select
+                      value={bulkTargetKind}
+                      onChange={e => {
+                        setBulkTargetKind(e.target.value);
+                        if (e.target.value) handleBulkChangeDocCategory(e.target.value);
+                      }}
+                      style={{ width: 'auto', fontSize: '0.8rem' }}
+                    >
+                      <option value="">Art für {selectedDocIds.length} Dokumente ändern...</option>
+                      <option value="Lohnabrechnung">💰 Lohnabrechnung (Erscheint im Payslip-Tab)</option>
+                      <option value="Arbeitsvertrag / Werkvertrag">📄 Arbeitsvertrag / Werkvertrag</option>
+                      <option value="Personalausweis / Reisepass">🪪 Personalausweis / Reisepass</option>
+                      <option value="Krankmeldung (AU)">🏥 Krankmeldung (AU)</option>
+                      <option value="Führerschein / Zertifikat">🚗 Führerschein / Zertifikat</option>
+                      <option value="Sonstiges">📎 Sonstiges</option>
+                    </select>
+                    <button type="button" className="btn-secondary btn-sm" style={{ color: '#dc2626', fontWeight: 700 }} onClick={handleBulkDeleteDocs}>
+                      <Trash2 size={14} /> Ausgewählte löschen ({selectedDocIds.length})
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {filteredAllDocs.length === 0 ? (
+                <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.86rem' }}>
+                  Keine Dokumente für die gewählten Filter gefunden.
+                </div>
+              ) : (
+                <table style={{ width: '100%', textAlign: 'left', borderCollapse: 'collapse', fontSize: '0.84rem' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid var(--border)', color: 'var(--text-muted)' }}>
+                      <th style={{ padding: '10px 8px', width: '36px' }} />
+                      <th style={{ padding: '10px 8px' }}>Datum</th>
+                      <th style={{ padding: '10px 8px' }}>Mitarbeiter</th>
+                      <th style={{ padding: '10px 8px' }}>Dokumentenart</th>
+                      <th style={{ padding: '10px 8px' }}>Bezeichnung / Datei</th>
+                      <th style={{ padding: '10px 8px' }}>Herkunft</th>
+                      <th style={{ padding: '10px 8px' }}>Aktionen (Management)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredAllDocs.map(doc => {
+                      const fileUrl = doc.url || doc.download_url || doc.file_url;
+                      const isChecked = selectedDocIds.includes(doc.id);
+                      const isEditingThis = editingDocId === doc.id;
+                      const isPayslipDoc = (doc.effectiveKind || '').toLowerCase().includes('lohnabrechnung') || doc.reference_type === 'Lohnabrechnung';
+                      return (
+                        <tr key={doc.id} style={{ borderBottom: '1px solid var(--border)', background: isChecked ? '#fff7ed' : 'transparent' }}>
+                          <td style={{ padding: '10px 8px' }}>
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={(ev) => {
+                                if (ev.target.checked) setSelectedDocIds(prev => [...prev, doc.id]);
+                                else setSelectedDocIds(prev => prev.filter(id => id !== doc.id));
+                              }}
+                            />
+                          </td>
+                          <td style={{ padding: '10px 8px', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                            {isEditingThis ? (
+                              <DateInput value={editingDocDate} onChange={e => setEditingDocDate(e.target.value)} style={{ width: '130px' }} />
+                            ) : (
+                              formatDate(doc.effectiveDate)
+                            )}
+                          </td>
+                          <td style={{ padding: '10px 8px', fontWeight: 700 }}>{doc.employee_name}</td>
+                          <td style={{ padding: '10px 8px' }}>
+                            {isEditingThis ? (
+                              <select value={editingDocCategory} onChange={e => setEditingDocCategory(e.target.value)} style={{ fontSize: '0.8rem', padding: '4px 8px' }}>
+                                <option value="Lohnabrechnung">💰 Lohnabrechnung</option>
+                                <option value="Arbeitsvertrag / Werkvertrag">Arbeitsvertrag / Werkvertrag</option>
+                                <option value="Personalausweis / Reisepass">Personalausweis / Reisepass</option>
+                                <option value="Krankmeldung (AU)">Krankmeldung (AU)</option>
+                                <option value="Führerschein / Zertifikat">Führerschein / Zertifikat</option>
+                                <option value="Sonstiges">Sonstiges</option>
+                              </select>
+                            ) : (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', alignItems: 'flex-start' }}>
+                                <span className="badge" style={{ background: isPayslipDoc ? '#d1fae5' : 'rgba(255,107,0,0.12)', color: isPayslipDoc ? '#065f46' : 'var(--accent)', fontWeight: 700 }}>
+                                  {doc.effectiveKind}
+                                </span>
+                                {isPayslipDoc && (
+                                  <span style={{ fontSize: '0.68rem', color: '#059669', fontWeight: 600 }}>✓ Im Lohnabrechnung-Tab sichtbar</span>
+                                )}
+                              </div>
+                            )}
+                          </td>
+                          <td style={{ padding: '10px 8px' }}>
+                            {isEditingThis ? (
+                              <input value={editingDocTitle} onChange={e => setEditingDocTitle(e.target.value)} style={{ fontSize: '0.82rem', padding: '4px 8px', width: '100%' }} />
+                            ) : (
+                              <div>
+                                <div style={{ fontWeight: 700 }}>{doc.title}</div>
+                                {doc.file_name && <div style={{ fontSize: '0.73rem', color: 'var(--text-muted)' }}>{doc.file_name}</div>}
+                              </div>
+                            )}
+                          </td>
+                          <td style={{ padding: '10px 8px' }}>
+                            <span className="badge" style={{ background: doc.uploaded_by === 'Mitarbeiter' ? '#dbeafe' : '#f1f5f9', color: doc.uploaded_by === 'Mitarbeiter' ? '#1d4ed8' : '#475569' }}>
+                              {doc.uploaded_by === 'Mitarbeiter' ? '👤 Mitarbeiter-Upload' : '🏢 Management'}
+                            </span>
+                          </td>
+                          <td style={{ padding: '10px 8px' }}>
+                            <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+                              {isEditingThis ? (
+                                <>
+                                  <button type="button" className="btn-primary btn-sm" onClick={() => handleSaveDocTitle(doc.id)}>
+                                    <Check size={13} /> Speichern
+                                  </button>
+                                  <button type="button" className="btn-secondary btn-sm" onClick={() => setEditingDocId(null)}>
+                                    <X size={13} />
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  {fileUrl && (
+                                    <a
+                                      href={resolveMediaUrl(fileUrl)}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      download={doc.file_name || true}
+                                      className="btn-secondary btn-sm"
+                                      style={{ textDecoration: 'none', color: 'var(--accent)', fontWeight: 600 }}
+                                    >
+                                      <Download size={13} /> Ansehen / Download
+                                    </a>
+                                  )}
+                                  <button
+                                    type="button"
+                                    className="btn-secondary btn-sm"
+                                    onClick={() => {
+                                      setEditingDocId(doc.id);
+                                      setEditingDocTitle(doc.title || doc.file_name || '');
+                                      setEditingDocCategory(doc.effectiveKind || 'Sonstiges');
+                                      setEditingDocDate(doc.effectiveDate || new Date().toISOString().slice(0, 10));
+                                    }}
+                                  >
+                                    <Edit3 size={13} /> Sortieren / Bearbeiten
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="btn-secondary btn-sm"
+                                    style={{ color: '#dc2626' }}
+                                    onClick={() => handleDeleteEmpDocument(doc.id)}
+                                  >
+                                    <Trash2 size={13} /> Löschen
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
           </div>
-          <table style={{ width: '100%', textAlign: 'left', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
-            <thead>
-              <tr style={{ borderBottom: '1px solid var(--border)', color: 'var(--text-muted)' }}>
-                <th style={{ padding: '10px 8px' }}>Period</th>
-                <th style={{ padding: '10px 8px' }}>Employee</th>
-                <th style={{ padding: '10px 8px' }}>Gross (€)</th>
-                <th style={{ padding: '10px 8px' }}>Net (€)</th>
-                <th style={{ padding: '10px 8px' }}>Provision Bonus</th>
-                <th style={{ padding: '10px 8px' }}>Total Payout</th>
-                <th style={{ padding: '10px 8px' }}>Lohnabrechnung File</th>
-              </tr>
-            </thead>
-            <tbody>
-              {payslips.map(p => (
-                <tr key={p.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                  <td style={{ padding: '10px 8px', fontWeight: 700 }}>{p.period_label}</td>
-                  <td style={{ padding: '10px 8px', fontWeight: 600 }}>{p.employee_name}</td>
-                  <td style={{ padding: '10px 8px' }}>{formatEuro(p.gross_salary)}</td>
-                  <td style={{ padding: '10px 8px' }}>{formatEuro(p.net_salary)}</td>
-                  <td style={{ padding: '10px 8px', color: '#059669' }}>{formatEuro(p.commission_bonus, { showPlus: true })}</td>
-                  <td style={{ padding: '10px 8px', fontWeight: 700, color: 'var(--accent)' }}>{formatEuro(p.total_payout)}</td>
-                  <td style={{ padding: '10px 8px' }}>
-                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-                      {p.document_url && (
-                        <a
-                          href={resolveMediaUrl(p.document_url)}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="btn-secondary"
-                          style={{ padding: '4px 10px', fontSize: '0.75rem', textDecoration: 'none', color: 'var(--accent)', fontWeight: 600 }}
-                        >
-                          <Download size={13} /> Download PDF
-                        </a>
-                      )}
-                      <label className="btn-secondary" style={{ padding: '4px 10px', fontSize: '0.75rem', cursor: 'pointer' }}>
-                        <Upload size={13} /> {p.document_url ? 'Replace File' : 'Upload Lohnabrechnung'}
-                        <input
-                          type="file"
-                          accept=".pdf,image/*"
-                          style={{ display: 'none' }}
-                          onChange={e => handleUploadPayslipFile(e, p)}
-                        />
-                      </label>
-                      <button
-                        type="button"
-                        className="btn-secondary"
-                        style={{ padding: '4px 8px', fontSize: '0.75rem', color: '#dc2626' }}
-                        onClick={() => handleDeletePayslip(p.id)}
-                        title="Lohnabrechnung löschen"
-                      >
-                        <Trash2 size={13} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 };

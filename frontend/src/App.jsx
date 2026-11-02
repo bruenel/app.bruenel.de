@@ -80,7 +80,7 @@ export const NAV = [
       { to: '/hr/timelogs', label: 'Working Hours' },
       { to: '/hr/leaves', label: 'Holiday Requests' },
       { to: '/hr/sickness', label: 'Sickness Reports' },
-      { to: '/hr/payslips', label: 'Payslips (Lohnabrechnung)' },
+      { to: '/hr/documents', label: 'Documents (Dokumente)' },
     ],
   },
   {
@@ -138,7 +138,6 @@ const QUICK_ACTIONS = [
   { label: 'New Building Object', icon: Building2, to: '/projects/objects', action: 'add-object', mod: 'mod_projects' },
   { label: 'Material Buchen / Schwund', icon: ArrowRightLeft, to: '/inventory/stock', action: 'buchen', mod: 'mod_inventory' },
   { label: 'Record Expense', icon: FilePlus2, to: '/accounting/expenses', action: 'add-expense', mod: 'mod_accounting' },
-  { label: 'Issue Payslip', icon: Receipt, to: '/hr/payslips', action: 'add-payslip', mod: 'mod_hr' },
 ];
 
 const LoginScreen = ({ onLogin, isPortalDomain }) => {
