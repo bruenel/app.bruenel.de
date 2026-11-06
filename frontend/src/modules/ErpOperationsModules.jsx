@@ -8,7 +8,7 @@ import {
 import { fetchWithToken, uploadMediaFile, resolveMediaUrl, API_URL, getToken, formatEuro, formatDate, formatDateTime, formatDateRange } from '../core/api';
 import { TASK_STATUS_CONFIG } from '../core/i18n';
 import { useParams, useNavigate } from 'react-router-dom';
-import { PageHead, SubTabs, useQuickAction, Empty } from '../components/ui';
+import { PageHead, SubTabs, useQuickAction, Empty, downloadCsv } from '../components/ui';
 import { BarChart } from './LegacyModules';
 
 // ==============================================================================
@@ -2146,19 +2146,72 @@ export const AccountingModule = () => {
   const navigate = useNavigate();
   const sec = section || 'overview';
   const [statusFilter, setStatusFilter] = useState('All');
+  const [categoryFilter, setCategoryFilter] = useState('All');
+  const [expSearch, setExpSearch] = useState('');
   const [expenses, setExpenses] = useState([]);
   const [summary, setSummary] = useState(null);
+  const [employees, setEmployees] = useState([]);
+  const [projects, setProjects] = useState([]);
+  const [vehicles, setVehicles] = useState([]);
   const [showAdd, setShowAdd] = useState(false);
+  const [editingExpId, setEditingExpId] = useState(null);
   const [receiptFile, setReceiptFile] = useState(null);
-  const [newExp, setNewExp] = useState({ category: 'Fuel', merchant: '', description: '', amount_gross: '', vat_rate: 19, expense_date: new Date().toISOString().split('T')[0] });
+  const defaultExpState = () => ({
+    employee_id: '',
+    project_id: '',
+    vehicle_id: '',
+    category: 'Fuel',
+    merchant: '',
+    description: '',
+    amount_gross: '',
+    vat_rate: 19,
+    status: 'Approved',
+    expense_date: new Date().toISOString().split('T')[0],
+    document_id: null,
+  });
+  const [newExp, setNewExp] = useState(defaultExpState);
 
   const loadData = () => {
     fetchWithToken('/api/v1/accounting/expenses').then(setExpenses).catch(console.error);
     fetchWithToken('/api/v1/accounting/summary').then(setSummary).catch(console.error);
+    fetchWithToken('/api/v1/hr/employees').then(setEmployees).catch(() => []);
+    fetchWithToken('/api/v1/projects').then(setProjects).catch(() => []);
+    fetchWithToken('/api/v1/fleet/vehicles').then(setVehicles).catch(() => []);
   };
 
   useEffect(() => { loadData(); }, []);
-  useQuickAction('add-expense', () => setShowAdd(true));
+  useQuickAction('add-expense', () => {
+    setEditingExpId(null);
+    setNewExp(defaultExpState());
+    setReceiptFile(null);
+    setShowAdd(true);
+  });
+
+  const openCreateExpenseModal = () => {
+    setEditingExpId(null);
+    setNewExp(defaultExpState());
+    setReceiptFile(null);
+    setShowAdd(true);
+  };
+
+  const openEditExpenseModal = (ex) => {
+    setEditingExpId(ex.id);
+    setReceiptFile(null);
+    setNewExp({
+      employee_id: ex.employee_id || '',
+      project_id: ex.project_id || '',
+      vehicle_id: ex.vehicle_id || '',
+      category: ex.category || 'Fuel',
+      merchant: ex.merchant || '',
+      description: ex.description || '',
+      amount_gross: ex.amount_gross ?? '',
+      vat_rate: ex.vat_rate ?? 19,
+      status: ex.status || 'Pending',
+      expense_date: ex.expense_date || new Date().toISOString().split('T')[0],
+      document_id: ex.document_id || null,
+    });
+    setShowAdd(true);
+  };
 
   const handleApprove = async (id, status) => {
     try {
@@ -2172,19 +2225,46 @@ export const AccountingModule = () => {
     }
   };
 
+  const handleDeleteExpense = async (id) => {
+    if (!window.confirm('Möchten Sie diesen Beleg / Ausgabeneintrag wirklich löschen?')) return;
+    try {
+      await fetchWithToken(`/api/v1/accounting/expenses/${id}`, { method: 'DELETE' });
+      loadData();
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
   const handleSubmitExpense = async (e) => {
     e.preventDefault();
     try {
-      let docId = null;
+      let docId = newExp.document_id || null;
       if (receiptFile) {
         const up = await uploadMediaFile({ file: receiptFile, referenceType: 'Expense', title: receiptFile.name });
         docId = up.document_id;
       }
-      await fetchWithToken('/api/v1/accounting/expenses', {
-        method: 'POST',
-        body: JSON.stringify({ ...newExp, amount_gross: parseFloat(newExp.amount_gross), document_id: docId }),
-      });
+      const payload = {
+        ...newExp,
+        employee_id: newExp.employee_id || null,
+        project_id: newExp.project_id || null,
+        vehicle_id: newExp.vehicle_id || null,
+        amount_gross: parseFloat(newExp.amount_gross || 0),
+        vat_rate: parseFloat(newExp.vat_rate ?? 19),
+        document_id: docId,
+      };
+      if (editingExpId) {
+        await fetchWithToken(`/api/v1/accounting/expenses/${editingExpId}`, {
+          method: 'PUT',
+          body: JSON.stringify(payload),
+        });
+      } else {
+        await fetchWithToken('/api/v1/accounting/expenses', {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        });
+      }
       setShowAdd(false);
+      setEditingExpId(null);
       setReceiptFile(null);
       loadData();
     } catch (err) {
@@ -2205,11 +2285,31 @@ export const AccountingModule = () => {
     a.click();
   };
 
+  const filteredExpenses = expenses.filter((e) => {
+    if (statusFilter !== 'All' && e.status !== statusFilter) return false;
+    if (categoryFilter !== 'All' && e.category !== categoryFilter) return false;
+    if (expSearch.trim()) {
+      const q = expSearch.trim().toLowerCase();
+      return (
+        (e.merchant || '').toLowerCase().includes(q) ||
+        (e.description || '').toLowerCase().includes(q) ||
+        (e.employee_name || '').toLowerCase().includes(q) ||
+        (e.category || '').toLowerCase().includes(q)
+      );
+    }
+    return true;
+  });
+
+  const previewGross = parseFloat(newExp.amount_gross || 0);
+  const previewVatRate = parseFloat(newExp.vat_rate ?? 19);
+  const previewNet = previewGross > 0 ? previewGross / (1 + previewVatRate / 100) : 0;
+  const previewVat = previewGross - previewNet;
+
   return (
     <div>
-      <PageHead title="Accounting" desc="Review field receipts, VAT, payroll totals and DATEV-ready exports. n8n webhook status is prepared for later automation.">
+      <PageHead title="Accounting & Finance" desc="Review field receipts, Vorsteuer (VAT), payroll totals and DATEV-ready exports. n8n webhook status is prepared for later automation.">
         <button className="btn-secondary" onClick={downloadDatevCsv}><Download size={16} /> DATEV CSV</button>
-        <button className="btn-primary" onClick={() => setShowAdd(true)}><Plus size={16} /> Record expense</button>
+        <button className="btn-primary" onClick={openCreateExpenseModal}><Plus size={16} /> Record expense</button>
       </PageHead>
       <SubTabs base="/accounting" active={sec} items={[
         { id: 'overview', label: 'Overview' }, { id: 'expenses', label: 'Expenses', count: expenses.length },
@@ -2218,10 +2318,34 @@ export const AccountingModule = () => {
 
       {summary && sec === 'overview' && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
-          <div className="glass-panel"><div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>TOTAL EXPENSES (GROSS)</div><div style={{ fontSize: '1.8rem', fontWeight: 700, color: 'var(--accent)' }}>{formatEuro(summary.total_expenses_gross)}</div></div>
-          <div className="glass-panel"><div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>APPROVED FOR REIMBURSEMENT</div><div style={{ fontSize: '1.8rem', fontWeight: 700, color: '#059669' }}>{formatEuro(summary.approved_expenses_gross)}</div></div>
-          <div className="glass-panel"><div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>FIELD SALES REVENUE</div><div style={{ fontSize: '1.8rem', fontWeight: 700, color: '#2563eb' }}>{formatEuro(summary.total_field_sales_revenue)}</div></div>
-          <div className="glass-panel"><div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>PAYROLL GROSS ISSUED</div><div style={{ fontSize: '1.8rem', fontWeight: 700 }}>{formatEuro(summary.total_payroll_gross)}</div></div>
+          <div className="glass-panel">
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>TOTAL EXPENSES (GROSS)</div>
+            <div style={{ fontSize: '1.8rem', fontWeight: 700, color: 'var(--accent)' }}>{formatEuro(summary.total_expenses_gross)}</div>
+            <div style={{ fontSize: '0.73rem', color: 'var(--text-muted)', marginTop: 4 }}>
+              Netto: {formatEuro(summary.total_expenses_net || 0)} • Vorsteuer: {formatEuro(summary.total_vat_amount || 0)}
+            </div>
+          </div>
+          <div className="glass-panel">
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>APPROVED FOR REIMBURSEMENT</div>
+            <div style={{ fontSize: '1.8rem', fontWeight: 700, color: '#059669' }}>{formatEuro(summary.approved_expenses_gross)}</div>
+            <div style={{ fontSize: '0.73rem', color: 'var(--text-muted)', marginTop: 4 }}>
+              {summary.pending_expenses_count || 0} pending review
+            </div>
+          </div>
+          <div className="glass-panel">
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>FIELD SALES REVENUE</div>
+            <div style={{ fontSize: '1.8rem', fontWeight: 700, color: '#2563eb' }}>{formatEuro(summary.total_field_sales_revenue)}</div>
+            <div style={{ fontSize: '0.73rem', color: 'var(--text-muted)', marginTop: 4 }}>
+              Confirmed hardware & upselling
+            </div>
+          </div>
+          <div className="glass-panel">
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>MONTHLY PAYROLL GROSS (HR)</div>
+            <div style={{ fontSize: '1.8rem', fontWeight: 700 }}>{formatEuro(summary.total_payroll_gross)}</div>
+            <div style={{ fontSize: '0.73rem', color: 'var(--text-muted)', marginTop: 4 }}>
+              Active HR workforce base payroll
+            </div>
+          </div>
         </div>
       )}
 
@@ -2231,14 +2355,17 @@ export const AccountingModule = () => {
           <div className="glass-panel"><h3 style={{ marginBottom: 16 }}>Pending review</h3>
             <div style={{ fontSize: 40, fontWeight: 700, color: 'var(--accent)' }}>{summary.pending_expenses_count}</div>
             <p>expense(s) waiting for approval.</p>
-            <button className="btn-primary" style={{ marginTop: 16 }} onClick={() => { setStatusFilter('Pending'); navigate('/accounting/expenses'); }}>Review now</button>
+            <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+              <button className="btn-primary" onClick={() => { setStatusFilter('Pending'); navigate('/accounting/expenses'); }}>Review now</button>
+              <button className="btn-secondary" onClick={openCreateExpenseModal}><Plus size={15} /> Add Expense</button>
+            </div>
           </div>
         </div>
       )}
       {sec === 'export' && (
         <div className="glass-panel" style={{ maxWidth: 640 }}>
           <h3>DATEV / CSV export</h3>
-          <p style={{ margin: '8px 0 16px' }}>Exports all expenses with net, VAT rate, gross amount, status and receipt ID. Approved items are flagged <code>Queued_For_DATEV_Export</code> for the future n8n pipeline.</p>
+          <p style={{ margin: '8px 0 16px' }}>Exports all expenses with net, VAT rate, Vorsteuer, gross amount, status and receipt ID. Approved items are flagged <code>Queued_For_DATEV_Export</code> for the future n8n pipeline.</p>
           <p style={{ marginBottom: 16 }}>{expenses.filter((e) => e.n8n_sync_status === 'Queued_For_DATEV_Export').length} item(s) queued · {expenses.filter((e) => e.n8n_sync_status === 'Ready_For_Webhook').length} awaiting approval.</p>
           <button className="btn-primary" onClick={downloadDatevCsv}><Download size={16} /> Download DATEV CSV</button>
         </div>
@@ -2256,24 +2383,111 @@ export const AccountingModule = () => {
 
       {showAdd && (
         <div className="modal-overlay">
-          <div className="glass-panel" style={{ width: '440px' }}>
-            <h3 style={{ marginBottom: '14px' }}>Submit Expense & Receipt</h3>
+          <div className="glass-panel" style={{ width: '540px', maxWidth: '95vw' }}>
+            <div className="flex-between" style={{ marginBottom: '14px' }}>
+              <h3 style={{ margin: 0 }}>{editingExpId ? 'Beleg / Ausgabe bearbeiten' : 'Ausgabe & Beleg erfassen'}</h3>
+              <button type="button" className="btn-secondary btn-sm" onClick={() => setShowAdd(false)}><X size={14} /></button>
+            </div>
             <form onSubmit={handleSubmitExpense} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <select value={newExp.category} onChange={e => setNewExp({...newExp, category: e.target.value})}>
-                <option value="Fuel">Fuel / Tankbeleg</option>
-                <option value="Material">Site Material / Hardware</option>
-                <option value="Parking">Parking & Toll</option>
-                <option value="Hotel">Accommodation</option>
-                <option value="Other">Other Operational Expense</option>
-              </select>
-              <input placeholder="Merchant (e.g. Aral, Bauhaus)" required value={newExp.merchant} onChange={e => setNewExp({...newExp, merchant: e.target.value})} />
-              <input type="number" step="0.01" placeholder="Gross Amount in EUR" required value={newExp.amount_gross} onChange={e => setNewExp({...newExp, amount_gross: e.target.value})} />
-              <DateInput  required value={newExp.expense_date} onChange={e => setNewExp({...newExp, expense_date: e.target.value})} />
-              <input type="file" accept="image/*,.pdf" onChange={e => setReceiptFile(e.target.files[0])} />
-              <textarea placeholder="Description..." value={newExp.description} onChange={e => setNewExp({...newExp, description: e.target.value})} />
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                <div>
+                  <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)' }}>Zuordnung (Mitarbeiter / Firma)</label>
+                  <select value={newExp.employee_id} onChange={e => setNewExp({ ...newExp, employee_id: e.target.value })}>
+                    <option value="">Unternehmen / Geschäftsführung</option>
+                    {employees.map(emp => (
+                      <option key={emp.id} value={emp.id}>{emp.full_name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)' }}>Kategorie</label>
+                  <select value={newExp.category} onChange={e => setNewExp({ ...newExp, category: e.target.value })}>
+                    <option value="Fuel">Fuel / Tankbeleg</option>
+                    <option value="Material">Site Material / Hardware</option>
+                    <option value="Parking">Parking & Toll</option>
+                    <option value="Hotel">Accommodation / Hotel</option>
+                    <option value="Tooling">Werkzeug & Maschinen</option>
+                    <option value="IT & Software">IT, Software & Telekommunikation</option>
+                    <option value="Subcontractor">Subunternehmer / Fremdleistung</option>
+                    <option value="Other">Other Operational Expense</option>
+                  </select>
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr', gap: '10px' }}>
+                <div>
+                  <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)' }}>Händler / Lieferant *</label>
+                  <input placeholder="z.B. Aral, Bauhaus, Telekom..." required value={newExp.merchant} onChange={e => setNewExp({ ...newExp, merchant: e.target.value })} />
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)' }}>Belegdatum *</label>
+                  <DateInput required value={newExp.expense_date} onChange={e => setNewExp({ ...newExp, expense_date: e.target.value })} />
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 0.8fr 0.9fr', gap: '10px' }}>
+                <div>
+                  <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)' }}>Bruttobetrag (€) *</label>
+                  <input type="number" step="0.01" placeholder="0.00" required value={newExp.amount_gross} onChange={e => setNewExp({ ...newExp, amount_gross: e.target.value })} />
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)' }}>MwSt.-Satz</label>
+                  <select value={newExp.vat_rate} onChange={e => setNewExp({ ...newExp, vat_rate: parseFloat(e.target.value) })}>
+                    <option value={19}>19% MwSt.</option>
+                    <option value={7}>7% MwSt.</option>
+                    <option value={0}>0% (Steuerfrei / §13b)</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)' }}>Status</label>
+                  <select value={newExp.status} onChange={e => setNewExp({ ...newExp, status: e.target.value })}>
+                    <option value="Approved">Approved (Freigegeben)</option>
+                    <option value="Pending">Pending (Prüfung)</option>
+                    <option value="Rejected">Rejected (Abgelehnt)</option>
+                  </select>
+                </div>
+              </div>
+
+              {previewGross > 0 && (
+                <div style={{ padding: '8px 12px', borderRadius: 8, background: 'var(--surface-2)', border: '1px solid var(--border)', fontSize: '0.78rem', display: 'flex', justifyContent: 'space-between' }}>
+                  <span>Netto: <strong>{formatEuro(previewNet)}</strong></span>
+                  <span>Vorsteuer ({previewVatRate}%): <strong>{formatEuro(previewVat)}</strong></span>
+                  <span>Brutto: <strong style={{ color: 'var(--accent)' }}>{formatEuro(previewGross)}</strong></span>
+                </div>
+              )}
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                <div>
+                  <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)' }}>Projekt (Optional)</label>
+                  <select value={newExp.project_id} onChange={e => setNewExp({ ...newExp, project_id: e.target.value })}>
+                    <option value="">— Kein Projekt —</option>
+                    {projects.map(p => (
+                      <option key={p.id} value={p.id}>{p.code} · {p.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)' }}>Fahrzeug (Optional)</label>
+                  <select value={newExp.vehicle_id} onChange={e => setNewExp({ ...newExp, vehicle_id: e.target.value })}>
+                    <option value="">— Kein Fahrzeug —</option>
+                    {vehicles.map(v => (
+                      <option key={v.id} value={v.id}>{v.license_plate} · {v.make_model}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)' }}>Beleg-Datei (PDF / Foto)</label>
+                <input type="file" accept="image/*,.pdf" onChange={e => setReceiptFile(e.target.files[0])} />
+              </div>
+              <div>
+                <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)' }}>Beschreibung / Verwendungszweck</label>
+                <textarea placeholder="Optionale Details zum Beleg..." value={newExp.description} onChange={e => setNewExp({ ...newExp, description: e.target.value })} />
+              </div>
               <div style={{ display: 'flex', gap: '10px' }}>
-                <button type="button" className="btn-secondary" style={{flex: 1}} onClick={() => setShowAdd(false)}>Cancel</button>
-                <button type="submit" className="btn-primary" style={{flex: 1}}>Save Expense</button>
+                <button type="button" className="btn-secondary" style={{ flex: 1 }} onClick={() => setShowAdd(false)}>Abbrechen</button>
+                <button type="submit" className="btn-primary" style={{ flex: 1 }}>{editingExpId ? 'Änderungen speichern' : 'Beleg speichern'}</button>
               </div>
             </form>
           </div>
@@ -2281,21 +2495,53 @@ export const AccountingModule = () => {
       )}
 
       <div className="glass-panel" style={{ display: sec === 'expenses' ? undefined : 'none' }}>
-<div className="toolbar" style={{ marginBottom: 12 }}><select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}><option value="All">All statuses</option><option>Pending</option><option>Approved</option><option>Rejected</option></select></div>
-<table style={{ width: '100%', textAlign: 'left', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+        <div className="toolbar" style={{ marginBottom: 12, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <input
+            placeholder="Beleg, Händler, Mitarbeiter suchen..."
+            value={expSearch}
+            onChange={(e) => setExpSearch(e.target.value)}
+            style={{ width: 240 }}
+          />
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ width: 'auto' }}>
+            <option value="All">Alle Status</option>
+            <option value="Pending">Pending</option>
+            <option value="Approved">Approved</option>
+            <option value="Rejected">Rejected</option>
+          </select>
+          <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} style={{ width: 'auto' }}>
+            <option value="All">Alle Kategorien</option>
+            <option value="Fuel">Fuel / Tankbeleg</option>
+            <option value="Material">Site Material / Hardware</option>
+            <option value="Parking">Parking & Toll</option>
+            <option value="Hotel">Accommodation</option>
+            <option value="Tooling">Werkzeug & Maschinen</option>
+            <option value="IT & Software">IT & Software</option>
+            <option value="Subcontractor">Subunternehmer</option>
+            <option value="Other">Other</option>
+          </select>
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+            <button className="btn-secondary" onClick={() => downloadCsv(filteredExpenses, `bruenel_expenses_${new Date().toISOString().slice(0, 10)}.csv`)}>
+              <Download size={14} /> CSV Export
+            </button>
+            <button className="btn-primary" onClick={openCreateExpenseModal}>
+              <Plus size={14} /> Ausgabe erfassen
+            </button>
+          </div>
+        </div>
+        <table style={{ width: '100%', textAlign: 'left', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
           <thead>
             <tr style={{ borderBottom: '1px solid var(--border)', color: 'var(--text-muted)' }}>
               <th style={{ padding: '10px 8px' }}>Date</th>
-              <th style={{ padding: '10px 8px' }}>Employee</th>
+              <th style={{ padding: '10px 8px' }}>Employee / Zuordnung</th>
               <th style={{ padding: '10px 8px' }}>Category & Merchant</th>
-              <th style={{ padding: '10px 8px' }}>Net / Gross</th>
+              <th style={{ padding: '10px 8px' }}>Net / VAT / Gross</th>
               <th style={{ padding: '10px 8px' }}>Receipt</th>
               <th style={{ padding: '10px 8px' }}>Status</th>
               <th style={{ padding: '10px 8px' }}>Actions</th>
             </tr>
           </thead>
           <tbody>
-            {expenses.filter((e) => statusFilter === 'All' || e.status === statusFilter).map(ex => (
+            {filteredExpenses.map(ex => (
               <tr key={ex.id} style={{ borderBottom: '1px solid var(--border)' }}>
                 <td style={{ padding: '10px 8px' }}>{formatDate(ex.expense_date)}</td>
                 <td style={{ padding: '10px 8px', fontWeight: 600 }}>{ex.employee_name}</td>
@@ -2304,20 +2550,37 @@ export const AccountingModule = () => {
                   <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{ex.description}</div>
                 </td>
                 <td style={{ padding: '10px 8px' }}>
-                  {formatEuro(ex.amount_net)} Netto<br/>
+                  <span style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
+                    {formatEuro(ex.amount_net)} Netto ({ex.vat_rate ?? 19}% MwSt.)
+                  </span><br/>
                   <strong>{formatEuro(ex.amount_gross)} Brutto</strong>
                 </td>
                 <td style={{ padding: '10px 8px' }}>
                   {ex.receipt_url ? <a href={resolveMediaUrl(ex.receipt_url)} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}><Receipt size={13} /> View Receipt</a> : '—'}
                 </td>
-                <td style={{ padding: '10px 8px' }}><span className="badge">{ex.status}</span></td>
-                <td style={{ padding: '10px 8px', display: 'flex', gap: '6px' }}>
-                  {ex.status === 'Pending' && (
-                    <>
-                      <button className="btn-primary" style={{ padding: '4px 10px', fontSize: '0.75rem' }} onClick={() => handleApprove(ex.id, 'Approved')}>Approve</button>
-                      <button className="btn-secondary" style={{ padding: '4px 10px', fontSize: '0.75rem', color: '#dc2626' }} onClick={() => handleApprove(ex.id, 'Rejected')}>Reject</button>
-                    </>
-                  )}
+                <td style={{ padding: '10px 8px' }}>
+                  <span className="badge" style={{
+                    background: ex.status === 'Approved' ? 'rgba(34,197,94,0.16)' : ex.status === 'Rejected' ? 'rgba(239,68,68,0.16)' : undefined,
+                    color: ex.status === 'Approved' ? '#16a34a' : ex.status === 'Rejected' ? '#dc2626' : undefined,
+                  }}>
+                    {ex.status}
+                  </span>
+                </td>
+                <td style={{ padding: '10px 8px' }}>
+                  <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+                    {ex.status === 'Pending' && (
+                      <>
+                        <button className="btn-primary" style={{ padding: '4px 10px', fontSize: '0.75rem' }} onClick={() => handleApprove(ex.id, 'Approved')}>Approve</button>
+                        <button className="btn-secondary" style={{ padding: '4px 10px', fontSize: '0.75rem', color: '#dc2626' }} onClick={() => handleApprove(ex.id, 'Rejected')}>Reject</button>
+                      </>
+                    )}
+                    <button className="btn-secondary" style={{ padding: '4px 8px', fontSize: '0.75rem' }} onClick={() => openEditExpenseModal(ex)} title="Beleg bearbeiten">
+                      <Edit3 size={12} />
+                    </button>
+                    <button className="btn-secondary" style={{ padding: '4px 8px', fontSize: '0.75rem', color: '#dc2626' }} onClick={() => handleDeleteExpense(ex.id)} title="Beleg löschen">
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}

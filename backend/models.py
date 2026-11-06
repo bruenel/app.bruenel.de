@@ -464,7 +464,7 @@ class Payslip(Base):
 class Expense(Base):
     __tablename__ = "expenses"
     id = Column(String(36), primary_key=True, default=gen_uuid, index=True)
-    employee_id = Column(String(36), ForeignKey("employees.id"), nullable=False, index=True)
+    employee_id = Column(String(36), ForeignKey("employees.id"), nullable=True, index=True)
     project_id = Column(String(36), ForeignKey("projects.id"), nullable=True)
     vehicle_id = Column(String(36), ForeignKey("vehicles.id"), nullable=True)
     category = Column(String(100), nullable=False)  # Fuel, Material, Parking, Hotel, Tool, Other

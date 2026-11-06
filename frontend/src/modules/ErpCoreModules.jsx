@@ -448,6 +448,19 @@ export const HRManagementModule = ({ user }) => {
   const [editingLogId, setEditingLogId] = useState(null);
   const [editLogForm, setEditLogForm] = useState({ date: '', project_id: '', check_in_time: '', check_out_time: '', break_minutes: 0 });
 
+  // Manager Add Holiday (Urlaub) & Sickness (Krankmeldung) State
+  const [showAddLeave, setShowAddLeave] = useState(false);
+  const [newLeaveForm, setNewLeaveForm] = useState(() => {
+    const todayIso = new Date().toISOString().slice(0, 10);
+    return { employee_id: '', type: 'Annual Leave', start_date: todayIso, end_date: todayIso, reason: '', status: 'Approved' };
+  });
+  const [showAddSick, setShowAddSick] = useState(false);
+  const [sickAuFile, setSickAuFile] = useState(null);
+  const [newSickForm, setNewSickForm] = useState(() => {
+    const todayIso = new Date().toISOString().slice(0, 10);
+    return { employee_id: '', start_date: todayIso, end_date: todayIso, doctor_visited: true, symptoms_note: '' };
+  });
+
   const fmtTimeInput = (isoStr) => {
     if (!isoStr) return '';
     const d = new Date(isoStr);
@@ -697,6 +710,12 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
       if (data.length > 0 && !manualTimeForm.employee_id) {
         setManualTimeForm(prev => ({ ...prev, employee_id: data[0].id }));
       }
+      if (data.length > 0 && !newLeaveForm.employee_id) {
+        setNewLeaveForm(prev => ({ ...prev, employee_id: data[0].id }));
+      }
+      if (data.length > 0 && !newSickForm.employee_id) {
+        setNewSickForm(prev => ({ ...prev, employee_id: data[0].id }));
+      }
       if (editingEmpId) {
         const refreshed = data.find(x => x.id === editingEmpId);
         if (refreshed) populateEmpModal(refreshed);
@@ -942,7 +961,7 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
     setEditingLogId(log.id);
     setEditLogForm({
       date: log.date,
-      project_id: log.project_id || projects[0]?.id || '',
+      project_id: log.project_id || '',
       check_in_time: fmtTimeInput(log.check_in_time),
       check_out_time: fmtTimeInput(log.check_out_time),
       break_minutes: log.break_minutes || 0,
@@ -955,7 +974,7 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
         method: 'PUT',
         body: JSON.stringify({
           date: editLogForm.date || log.date,
-          project_id: editLogForm.project_id || log.project_id,
+          project_id: editLogForm.project_id || null,
           check_in_time: editLogForm.check_in_time,
           check_out_time: editLogForm.check_out_time,
           break_minutes: parseInt(editLogForm.break_minutes || 0, 10),
@@ -969,8 +988,103 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
   };
 
   const handleDeleteTimeLog = async (logId) => {
+    if (!window.confirm('Möchten Sie diesen Arbeitszeiteintrag wirklich löschen?')) return;
     try {
       await fetchWithToken(`/api/v1/hr/time-logs/${logId}`, { method: 'DELETE' });
+      loadAll();
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  const handleDeleteEmployee = async (empId, empName) => {
+    if (!window.confirm(`Möchten Sie die Personalakte und den Account von "${empName}" wirklich unwiderruflich löschen?`)) return;
+    try {
+      await fetchWithToken(`/api/v1/hr/employees/${empId}`, { method: 'DELETE' });
+      if (editingEmpId === empId) {
+        setShowAddEmp(false);
+        setEditingEmpId(null);
+      }
+      loadAll();
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  const handleCreateLeave = async (e) => {
+    e.preventDefault();
+    try {
+      await fetchWithToken('/api/v1/hr/leave-requests', {
+        method: 'POST',
+        body: JSON.stringify({
+          employee_id: newLeaveForm.employee_id || employees[0]?.id,
+          type: newLeaveForm.type,
+          start_date: newLeaveForm.start_date,
+          end_date: newLeaveForm.end_date,
+          reason: newLeaveForm.reason,
+          status: newLeaveForm.status || 'Approved',
+        }),
+      });
+      setShowAddLeave(false);
+      loadAll();
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  const handleDeleteLeave = async (leaveId) => {
+    if (!window.confirm('Möchten Sie diesen Urlaubsantrag wirklich löschen?')) return;
+    try {
+      await fetchWithToken(`/api/v1/hr/leave-requests/${leaveId}`, { method: 'DELETE' });
+      loadAll();
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  const handleCreateSickness = async (e) => {
+    e.preventDefault();
+    try {
+      const targetEmpId = newSickForm.employee_id || employees[0]?.id;
+      let docId = null;
+      if (sickAuFile && targetEmpId) {
+        const up = await uploadMediaFile({
+          file: sickAuFile,
+          referenceType: 'Krankmeldung (AU)',
+          referenceId: targetEmpId,
+          employeeId: targetEmpId,
+          title: `Krankmeldung (AU): ${sickAuFile.name}`,
+          metadata: {
+            category: 'Krankmeldung (AU)',
+            doc_date: newSickForm.start_date,
+            uploaded_by: 'Management',
+          },
+        });
+        docId = up.document_id;
+      }
+      await fetchWithToken('/api/v1/hr/sickness', {
+        method: 'POST',
+        body: JSON.stringify({
+          employee_id: targetEmpId,
+          start_date: newSickForm.start_date,
+          end_date: newSickForm.end_date,
+          doctor_visited: newSickForm.doctor_visited,
+          symptoms_note: newSickForm.symptoms_note,
+          au_document_id: docId,
+        }),
+      });
+      setShowAddSick(false);
+      setSickAuFile(null);
+      loadAll();
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  const handleDeleteSickness = async (sickId) => {
+    if (!window.confirm('Möchten Sie diese Krankmeldung wirklich löschen?')) return;
+    try {
+      await fetchWithToken(`/api/v1/hr/sickness/${sickId}`, { method: 'DELETE' });
       loadAll();
     } catch (err) {
       alert(err.message);
@@ -984,7 +1098,7 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
         method: 'POST',
         body: JSON.stringify({
           employee_id: manualTimeForm.employee_id || biEmpFilter || employees[0]?.id,
-          project_id: manualTimeForm.project_id || projects[0]?.id || null,
+          project_id: manualTimeForm.project_id || null,
           date: manualTimeForm.date,
           check_in_time: manualTimeForm.check_in_time,
           check_out_time: manualTimeForm.check_out_time,
@@ -2670,8 +2784,20 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
 
               {/* Fixed Static Footer */}
               <div className="flex-between" style={{ padding: '14px 24px', borderTop: '1px solid var(--border)', background: '#f8fafc' }}>
-                <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
-                  Active Mode: <strong>{newEmp.employment_type}</strong> • Position: <strong>{newEmp.role}</strong> • Abteilung: <strong>{newEmp.department}</strong>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  {editingEmpId && (
+                    <button
+                      type="button"
+                      className="btn-secondary btn-sm"
+                      style={{ color: '#dc2626', borderColor: '#fecaca', background: '#fef2f2' }}
+                      onClick={() => handleDeleteEmployee(editingEmpId, `${newEmp.first_name} ${newEmp.last_name}`)}
+                    >
+                      <Trash2 size={13} /> Personalakte löschen
+                    </button>
+                  )}
+                  <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
+                    Active Mode: <strong>{newEmp.employment_type}</strong> • Position: <strong>{newEmp.role}</strong> • Abteilung: <strong>{newEmp.department}</strong>
+                  </div>
                 </div>
                 <div style={{ display: 'flex', gap: '10px' }}>
                   <button type="button" className="btn-secondary" onClick={() => setShowAddEmp(false)}>
@@ -2941,6 +3067,15 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                         >
                           <Upload size={12} /> Dokumente ({(e.documents || []).length})
                         </button>
+                        <button
+                          type="button"
+                          className="btn-secondary btn-sm"
+                          style={{ color: '#dc2626', padding: '4px 8px' }}
+                          title="Mitarbeiter & Personalakte löschen"
+                          onClick={() => handleDeleteEmployee(e.id, e.full_name)}
+                        >
+                          <Trash2 size={12} />
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -3095,6 +3230,7 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                 <div>
                   <label style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)' }}>Project</label>
                   <select value={manualTimeForm.project_id} onChange={e => setManualTimeForm({ ...manualTimeForm, project_id: e.target.value })}>
+                    <option value="">— Allgemein / Kein Projekt —</option>
                     {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                   </select>
                 </div>
@@ -3406,6 +3542,7 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                               onChange={e => setEditLogForm({ ...editLogForm, project_id: e.target.value })}
                               style={{ width: '180px', padding: '4px 6px' }}
                             >
+                              <option value="">— Allgemein / Kein Projekt —</option>
                               {projects.map(p => (
                                 <option key={p.id} value={p.id}>{p.name}</option>
                               ))}
@@ -3484,8 +3621,66 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
             <select value={leaveFilter} onChange={(e) => setLeaveFilter(e.target.value)}>
               <option value="All">All statuses</option><option>Pending</option><option>Approved</option><option>Rejected</option>
             </select>
-            <button className="btn-secondary" style={{ marginLeft: 'auto' }} onClick={() => downloadCsv(filteredLeaves, 'leave-requests.csv')}>Export CSV</button>
+            <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
+              <button type="button" className="btn-primary" onClick={() => setShowAddLeave(!showAddLeave)}>
+                <Plus size={15} /> {showAddLeave ? 'Schließen' : 'Urlaub eintragen'}
+              </button>
+              <button className="btn-secondary" onClick={() => downloadCsv(filteredLeaves, 'leave-requests.csv')}>Export CSV</button>
+            </div>
           </div>
+
+          {showAddLeave && (
+            <form
+              onSubmit={handleCreateLeave}
+              style={{
+                marginBottom: '16px',
+                padding: '14px',
+                borderRadius: '10px',
+                background: 'var(--surface-2)',
+                border: '1px solid var(--border)',
+                display: 'grid',
+                gridTemplateColumns: '1.3fr 1fr 1fr 1fr 1.4fr 0.9fr auto',
+                gap: '8px',
+                alignItems: 'end',
+              }}
+            >
+              <div>
+                <label style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)' }}>Mitarbeiter</label>
+                <select value={newLeaveForm.employee_id} onChange={e => setNewLeaveForm({ ...newLeaveForm, employee_id: e.target.value })}>
+                  {employees.map(emp => <option key={emp.id} value={emp.id}>{emp.full_name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)' }}>Art</label>
+                <select value={newLeaveForm.type} onChange={e => setNewLeaveForm({ ...newLeaveForm, type: e.target.value })}>
+                  <option value="Annual Leave">Erholungsurlaub (Annual Leave)</option>
+                  <option value="Special Leave">Sonderurlaub</option>
+                  <option value="Unpaid Leave">Unbezahlter Urlaub</option>
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)' }}>Von</label>
+                <DateInput required value={newLeaveForm.start_date} onChange={e => setNewLeaveForm({ ...newLeaveForm, start_date: e.target.value })} />
+              </div>
+              <div>
+                <label style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)' }}>Bis</label>
+                <DateInput required value={newLeaveForm.end_date} onChange={e => setNewLeaveForm({ ...newLeaveForm, end_date: e.target.value })} />
+              </div>
+              <div>
+                <label style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)' }}>Grund / Notiz</label>
+                <input placeholder="Optional..." value={newLeaveForm.reason} onChange={e => setNewLeaveForm({ ...newLeaveForm, reason: e.target.value })} />
+              </div>
+              <div>
+                <label style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)' }}>Status</label>
+                <select value={newLeaveForm.status} onChange={e => setNewLeaveForm({ ...newLeaveForm, status: e.target.value })}>
+                  <option value="Approved">Approved (Genehmigt)</option>
+                  <option value="Pending">Pending (Offen)</option>
+                </select>
+              </div>
+              <button type="submit" className="btn-primary">Speichern</button>
+            </form>
+          )}
+
           <table style={{ width: '100%', textAlign: 'left', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border)', color: 'var(--text-muted)' }}>
@@ -3523,6 +3718,9 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                         </button>
                       </>
                     )}
+                    <button className="btn-secondary" style={{ padding: '4px 8px', fontSize: '0.75rem', color: '#dc2626' }} onClick={() => handleDeleteLeave(lv.id)} title="Urlaubsantrag löschen">
+                      <Trash2 size={12} />
+                    </button>
                   </td>
                 </tr>
               ))}
@@ -3533,6 +3731,58 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
 
       {tab === 'sickness' && (
         <div className="glass-panel">
+          <div className="toolbar" style={{ marginBottom: 16 }}>
+            <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+              Krankmeldungen & Arbeitsunfähigkeitsbescheinigungen (AU) • Werden automatisch mit +8.0h/Tag in der HR-Monatsübersicht gutgeschrieben
+            </p>
+            <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
+              <button type="button" className="btn-primary" onClick={() => setShowAddSick(!showAddSick)}>
+                <Plus size={15} /> {showAddSick ? 'Schließen' : 'Krankmeldung erfassen'}
+              </button>
+            </div>
+          </div>
+
+          {showAddSick && (
+            <form
+              onSubmit={handleCreateSickness}
+              style={{
+                marginBottom: '16px',
+                padding: '14px',
+                borderRadius: '10px',
+                background: 'var(--surface-2)',
+                border: '1px solid var(--border)',
+                display: 'grid',
+                gridTemplateColumns: '1.2fr 0.9fr 0.9fr 1.2fr 1.2fr auto',
+                gap: '8px',
+                alignItems: 'end',
+              }}
+            >
+              <div>
+                <label style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)' }}>Mitarbeiter</label>
+                <select value={newSickForm.employee_id} onChange={e => setNewSickForm({ ...newSickForm, employee_id: e.target.value })}>
+                  {employees.map(emp => <option key={emp.id} value={emp.id}>{emp.full_name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)' }}>Von</label>
+                <DateInput required value={newSickForm.start_date} onChange={e => setNewSickForm({ ...newSickForm, start_date: e.target.value })} />
+              </div>
+              <div>
+                <label style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)' }}>Bis</label>
+                <DateInput required value={newSickForm.end_date} onChange={e => setNewSickForm({ ...newSickForm, end_date: e.target.value })} />
+              </div>
+              <div>
+                <label style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)' }}>Notiz / Arztbesuch</label>
+                <input placeholder="Arzt attestiert / Notiz..." value={newSickForm.symptoms_note} onChange={e => setNewSickForm({ ...newSickForm, symptoms_note: e.target.value })} />
+              </div>
+              <div>
+                <label style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)' }}>AU-Bescheinigung (Optional)</label>
+                <input type="file" accept=".pdf,image/*" onChange={e => setSickAuFile(e.target.files?.[0] || null)} />
+              </div>
+              <button type="submit" className="btn-primary">Speichern</button>
+            </form>
+          )}
+
           <table style={{ width: '100%', textAlign: 'left', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border)', color: 'var(--text-muted)' }}>
@@ -3558,12 +3808,15 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                     ) : 'Pending AU'}
                   </td>
                   <td style={{ padding: '10px 8px' }}><span className="badge">{s.status}</span></td>
-                  <td style={{ padding: '10px 8px' }}>
+                  <td style={{ padding: '10px 8px', display: 'flex', gap: '6px' }}>
                     {s.status !== 'Acknowledged' && (
                       <button className="btn-secondary" style={{ padding: '4px 10px', fontSize: '0.75rem' }} onClick={() => handleSicknessAck(s.id, 'Acknowledged')}>
                         Acknowledge
                       </button>
                     )}
+                    <button className="btn-secondary" style={{ padding: '4px 8px', fontSize: '0.75rem', color: '#dc2626' }} onClick={() => handleDeleteSickness(s.id)} title="Krankmeldung löschen">
+                      <Trash2 size={12} />
+                    </button>
                   </td>
                 </tr>
               ))}

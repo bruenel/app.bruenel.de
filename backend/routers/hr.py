@@ -596,6 +596,57 @@ def reset_employee_one_time_password(
     }
 
 
+@router.delete("/employees/{emp_id}")
+def delete_employee_record(
+    emp_id: str,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    tier = get_effective_tier(current_user)
+    if tier not in (1, 2, 3):
+        raise HTTPException(status_code=403, detail="Only Management or HR can delete employee profiles.")
+
+    emp = db.query(models.Employee).filter(models.Employee.id == emp_id).first()
+    if not emp:
+        raise HTTPException(status_code=404, detail="Employee not found")
+
+    emp_email = emp.email
+    # Clean up dependent records
+    emp_log_ids = [r.id for r in db.query(models.TimeLog.id).filter(models.TimeLog.employee_id == emp_id).all()]
+    if emp_log_ids:
+        db.query(models.TimeLogTeam).filter(models.TimeLogTeam.time_log_id.in_(emp_log_ids)).delete(synchronize_session=False)
+        db.query(models.TimeLogVehicle).filter(models.TimeLogVehicle.time_log_id.in_(emp_log_ids)).delete(synchronize_session=False)
+        db.query(models.TimeLogTool).filter(models.TimeLogTool.time_log_id.in_(emp_log_ids)).delete(synchronize_session=False)
+    db.query(models.TimeLogTeam).filter(models.TimeLogTeam.team_member_id == emp_id).delete(synchronize_session=False)
+    db.query(models.TimeLog).filter(models.TimeLog.employee_id == emp_id).delete(synchronize_session=False)
+    db.query(models.LeaveRequest).filter(models.LeaveRequest.employee_id == emp_id).delete(synchronize_session=False)
+    db.query(models.SicknessRecord).filter(models.SicknessRecord.employee_id == emp_id).delete(synchronize_session=False)
+    db.query(models.Payslip).filter(models.Payslip.employee_id == emp_id).delete(synchronize_session=False)
+    db.query(models.DocumentRecord).filter(
+        (models.DocumentRecord.employee_id == emp_id) | (models.DocumentRecord.reference_id == emp_id)
+    ).delete(synchronize_session=False)
+    db.query(models.Assignment).filter(models.Assignment.employee_id == emp_id).delete(synchronize_session=False)
+    db.query(models.Expense).filter(models.Expense.employee_id == emp_id).delete(synchronize_session=False)
+    db.query(models.MaterialTransaction).filter(models.MaterialTransaction.employee_id == emp_id).delete(synchronize_session=False)
+    db.query(models.Equipment).filter(models.Equipment.assigned_employee_id == emp_id).update({"assigned_employee_id": None}, synchronize_session=False)
+    db.query(models.Vehicle).filter(models.Vehicle.assigned_team_lead_id == emp_id).update({"assigned_team_lead_id": None}, synchronize_session=False)
+
+    # Delete linked user account unless it is the current logged-in Owner
+    linked_users = db.query(models.User).filter(
+        (models.User.employee_id == emp_id) | (models.User.email == emp_email if emp_email else False)
+    ).all()
+    for u in linked_users:
+        if u.id == current_user.id or u.role == models.RoleEnum.OWNER:
+            u.employee_id = None
+        else:
+            db.delete(u)
+
+    db.delete(emp)
+    db.commit()
+    log_audit(db, "employees", "DELETE", emp_id, current_user.email, {"email": emp_email}, None)
+    return {"status": "deleted", "id": emp_id}
+
+
 # ==============================================================================
 # SMART CHECK-IN & CHECK-OUT (WORKING HOURS)
 # ==============================================================================
@@ -607,7 +658,10 @@ def list_time_logs(
     current_user: models.User = Depends(get_current_user),
 ):
     tier = get_effective_tier(current_user)
-    emp_map = {e.id: f"{e.first_name} {e.last_name}" for e in db.query(models.Employee).all()}
+    if tier == 5 and not current_user.employee_id:
+        ensure_employee_linked(db, current_user)
+
+    emp_map = {e.id: f"{e.first_name} {e.last_name}".strip() for e in db.query(models.Employee).all()}
     proj_map = {p.id: p.name for p in db.query(models.Project).all()}
     veh_map = {v.id: v.plate_number for v in db.query(models.Vehicle).all()}
     tool_map = {t.id: f"{t.name} ({t.serial_number})" for t in db.query(models.Equipment).all()}
@@ -618,19 +672,21 @@ def list_time_logs(
     elif employee_id:
         query = query.filter(models.TimeLog.employee_id == employee_id)
 
-    logs = query.order_by(models.TimeLog.check_in_time.desc()).limit(200).all()
+    logs = query.order_by(models.TimeLog.date.desc(), models.TimeLog.check_in_time.desc()).limit(250).all()
     results = []
     for l in logs:
         team_ids = [t.team_member_id for t in db.query(models.TimeLogTeam).filter(models.TimeLogTeam.time_log_id == l.id).all()]
         veh_ids = [v.vehicle_id for v in db.query(models.TimeLogVehicle).filter(models.TimeLogVehicle.time_log_id == l.id).all()]
         tool_ids = [t.equipment_id for t in db.query(models.TimeLogTool).filter(models.TimeLogTool.time_log_id == l.id).all()]
+        ci_data = l.check_in_data if isinstance(l.check_in_data, dict) else {}
+        resolved_proj_name = proj_map.get(l.project_id) or ci_data.get("project_name") or "Allgemein / Projekt"
 
         results.append({
             "id": l.id,
             "employee_id": l.employee_id,
-            "employee_name": emp_map.get(l.employee_id, "Employee"),
+            "employee_name": emp_map.get(l.employee_id, "Mitarbeiter"),
             "project_id": l.project_id,
-            "project_name": proj_map.get(l.project_id, "General / Office"),
+            "project_name": resolved_proj_name,
             "object_id": l.object_id,
             "date": l.date.isoformat() if l.date else None,
             "check_in_time": l.check_in_time.isoformat() if l.check_in_time else None,
@@ -639,6 +695,7 @@ def list_time_logs(
             "break_minutes": l.break_minutes or 0,
             "total_hours": float(l.total_hours) if l.total_hours is not None else None,
             "status": l.status,
+            "notes": ci_data.get("notes") or "",
             "is_locked_for_employee": l.status == "Approved",
             "approved_by": getattr(l, "approved_by", None),
             "approved_by_name": emp_map.get(getattr(l, "approved_by", None), None),
@@ -646,7 +703,7 @@ def list_time_logs(
             "team_members": [{"id": tid, "name": emp_map.get(tid, tid)} for tid in team_ids],
             "vehicles": [{"id": vid, "plate": veh_map.get(vid, vid)} for vid in veh_ids],
             "tools": [{"id": eid, "name": tool_map.get(eid, eid)} for eid in tool_ids],
-            "check_in_data": l.check_in_data or {},
+            "check_in_data": ci_data,
             "check_out_data": l.check_out_data or {},
         })
     return results
@@ -869,14 +926,24 @@ def create_manual_time_log(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(get_current_user),
 ):
+    from datetime import timedelta
+
     tier = get_effective_tier(current_user)
     if tier == 5:
         emp = ensure_employee_linked(db, current_user)
+        if not emp:
+            raise HTTPException(status_code=400, detail="Kein Mitarbeiterprofil mit diesem Konto verknüpft.")
         target_emp_id = emp.id
     else:
         target_emp_id = payload.get("employee_id") or current_user.employee_id
         if not target_emp_id:
-            raise HTTPException(status_code=400, detail="employee_id is required")
+            emp = ensure_employee_linked(db, current_user)
+            target_emp_id = emp.id if emp else None
+        if not target_emp_id:
+            first_emp = db.query(models.Employee).order_by(models.Employee.created_at.asc()).first()
+            target_emp_id = first_emp.id if first_emp else None
+        if not target_emp_id:
+            raise HTTPException(status_code=400, detail="Bitte wählen Sie einen Mitarbeiter aus.")
 
     raw_date = str(payload.get("date") or date.today().isoformat())[:10]
     ref_date = date.fromisoformat(raw_date)
@@ -886,9 +953,11 @@ def create_manual_time_log(
 
     dt_in = _parse_iso_dt(start_str, ref_date) or datetime(ref_date.year, ref_date.month, ref_date.day, 8, 0, 0)
     dt_out = _parse_iso_dt(end_str, ref_date) or datetime(ref_date.year, ref_date.month, ref_date.day, 16, 30, 0)
+    if dt_out < dt_in:
+        dt_out = dt_out + timedelta(days=1)
 
     dur_sec = max((dt_out - dt_in).total_seconds(), 0)
-    net_hours = round(max((dur_sec - break_mins * 60) / 3600.0, 0.0), 2)
+    net_hours = round(max((dur_sec - break_mins * 60) / 3600.0, 0.05), 2)
 
     status_val = "Completed"
     approved_by = None
@@ -898,10 +967,17 @@ def create_manual_time_log(
         approved_by = current_user.employee_id
         approved_at = datetime.utcnow()
 
+    proj_id = payload.get("project_id") or None
+    proj_name = payload.get("project_name") or ""
+    if proj_id and not proj_name:
+        p_obj = db.query(models.Project).filter(models.Project.id == proj_id).first()
+        if p_obj:
+            proj_name = p_obj.name
+
     tl = models.TimeLog(
         id=str(uuid.uuid4()),
         employee_id=target_emp_id,
-        project_id=payload.get("project_id") or None,
+        project_id=proj_id,
         object_id=payload.get("object_id") or None,
         date=ref_date,
         check_in_time=dt_in,
@@ -911,7 +987,10 @@ def create_manual_time_log(
         status=status_val,
         approved_by=approved_by,
         approved_at=approved_at,
-        check_in_data={"notes": payload.get("notes") or "Manual past-day entry"},
+        check_in_data={
+            "project_name": proj_name or "Allgemein / Projekt",
+            "notes": payload.get("notes") or "Manueller Zeiteintrag",
+        },
     )
     db.add(tl)
     db.commit()
@@ -1006,9 +1085,12 @@ def update_time_log_hours(
 
     # Recalculate net hours if both check_in_time and check_out_time are set
     if tl.check_in_time and tl.check_out_time:
+        from datetime import timedelta
+        if tl.check_out_time < tl.check_in_time:
+            tl.check_out_time = tl.check_out_time + timedelta(days=1)
         dur_sec = max((tl.check_out_time - tl.check_in_time).total_seconds(), 0)
         brk_sec = (tl.break_minutes or 0) * 60
-        tl.total_hours = round(max((dur_sec - brk_sec) / 3600.0, 0.0), 2)
+        tl.total_hours = round(max((dur_sec - brk_sec) / 3600.0, 0.05), 2)
         if tl.status in ("Active", "Paused"):
             tl.status = "Completed"
 
@@ -1417,24 +1499,54 @@ def get_leave_requests(
 
 @router.post("/leave-requests")
 def create_leave_request(
-    payload: schemas.LeaveRequestCreate,
+    payload: dict,
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    emp = ensure_employee_linked(db, current_user)
+    tier = get_effective_tier(current_user)
+    target_emp_id = payload.get("employee_id") if tier <= 3 else None
+    if not target_emp_id:
+        emp = ensure_employee_linked(db, current_user)
+        target_emp_id = emp.id if emp else None
+    if not target_emp_id:
+        raise HTTPException(status_code=400, detail="Bitte wählen Sie einen Mitarbeiter aus.")
+
+    start_d = date.fromisoformat(str(payload.get("start_date"))[:10])
+    end_d = date.fromisoformat(str(payload.get("end_date"))[:10])
+    init_status = payload.get("status") if (tier <= 3 and payload.get("status") in ("Pending", "Approved", "Rejected")) else "Pending"
+
     lv = models.LeaveRequest(
         id=str(uuid.uuid4()),
-        employee_id=emp.id,
-        start_date=payload.start_date,
-        end_date=payload.end_date,
-        type=payload.type,
-        reason=payload.reason,
-        status="Pending",
+        employee_id=target_emp_id,
+        start_date=start_d,
+        end_date=end_d,
+        type=payload.get("type") or "Daily",
+        reason=payload.get("reason") or "Erholungsurlaub",
+        status=init_status,
+        approved_by=current_user.employee_id if init_status == "Approved" else None,
     )
     db.add(lv)
     db.commit()
     db.refresh(lv)
     return {"id": lv.id, "status": lv.status, "message": "Urlaub request submitted."}
+
+
+@router.delete("/leave-requests/{leave_id}")
+def delete_leave_request(
+    leave_id: str,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    tier = get_effective_tier(current_user)
+    if tier > 3:
+        raise HTTPException(status_code=403, detail="Only Management or HR can delete leave requests.")
+    lv = db.query(models.LeaveRequest).filter(models.LeaveRequest.id == leave_id).first()
+    if not lv:
+        raise HTTPException(status_code=404, detail="Leave request not found")
+    db.delete(lv)
+    db.commit()
+    log_audit(db, "leave_requests", "DELETE", leave_id, current_user.email, None, None)
+    return {"status": "deleted", "id": leave_id}
 
 
 @router.patch("/leave-requests/{leave_id}/status")
@@ -1504,25 +1616,53 @@ def list_sickness_records(
 
 @router.post("/sickness")
 def report_sickness(
-    payload: schemas.SicknessCreate,
+    payload: dict,
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    emp = ensure_employee_linked(db, current_user)
+    tier = get_effective_tier(current_user)
+    target_emp_id = payload.get("employee_id") if tier <= 3 else None
+    if not target_emp_id:
+        emp = ensure_employee_linked(db, current_user)
+        target_emp_id = emp.id if emp else None
+    if not target_emp_id:
+        raise HTTPException(status_code=400, detail="Bitte wählen Sie einen Mitarbeiter aus.")
+
+    start_d = date.fromisoformat(str(payload.get("start_date"))[:10])
+    end_d = date.fromisoformat(str(payload.get("end_date"))[:10])
+    au_doc_id = payload.get("au_document_id") or None
     rec = models.SicknessRecord(
         id=str(uuid.uuid4()),
-        employee_id=emp.id,
-        start_date=payload.start_date,
-        end_date=payload.end_date,
-        symptoms_note=payload.symptoms_note,
-        doctor_visited=payload.doctor_visited,
-        au_document_id=payload.au_document_id,
-        status="AU_Uploaded" if payload.au_document_id else "Reported",
+        employee_id=target_emp_id,
+        start_date=start_d,
+        end_date=end_d,
+        symptoms_note=payload.get("symptoms_note") or "",
+        doctor_visited=bool(payload.get("doctor_visited", True)),
+        au_document_id=au_doc_id,
+        status="AU_Uploaded" if au_doc_id else "Reported",
     )
     db.add(rec)
     db.commit()
     db.refresh(rec)
     return {"id": rec.id, "status": rec.status, "message": "Sickness notification (Krankmeldung) recorded."}
+
+
+@router.delete("/sickness/{sickness_id}")
+def delete_sickness_record(
+    sickness_id: str,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    tier = get_effective_tier(current_user)
+    if tier > 3:
+        raise HTTPException(status_code=403, detail="Only Management or HR can delete sickness records.")
+    rec = db.query(models.SicknessRecord).filter(models.SicknessRecord.id == sickness_id).first()
+    if not rec:
+        raise HTTPException(status_code=404, detail="Sickness record not found")
+    db.delete(rec)
+    db.commit()
+    log_audit(db, "sickness_records", "DELETE", sickness_id, current_user.email, None, None)
+    return {"status": "deleted", "id": sickness_id}
 
 
 @router.patch("/sickness/{sickness_id}/status")
