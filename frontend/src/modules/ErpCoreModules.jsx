@@ -449,6 +449,7 @@ export const HRManagementModule = ({ user }) => {
     return [parts[0] || '2026', parts[1] || '10'];
   }, [biMonth]);
   const [biSummary, setBiSummary] = useState(null);
+  const [otReport, setOtReport] = useState(null);
   const [editingLogId, setEditingLogId] = useState(null);
   const [editLogForm, setEditLogForm] = useState({ date: '', project_id: '', check_in_time: '', check_out_time: '', break_minutes: 0 });
 
@@ -497,6 +498,9 @@ export const HRManagementModule = ({ user }) => {
     if (!yr || !mo) return;
     const qs = `year=${yr}&month=${mo}&include_absence_credits=true${empId ? `&employee_id=${empId}` : ''}`;
     fetchWithToken(`/api/v1/hr/time-logs/bi-summary?${qs}`).then(setBiSummary).catch(() => null);
+    fetchWithToken(`/api/v1/hr/time-logs/overtime-report?year=${yr}${empId ? `&employee_id=${empId}` : ''}`)
+      .then(setOtReport)
+      .catch(() => setOtReport(null));
   };
 
   // ── AI Document Reader (Multi-file support) ────────────────────────────────
@@ -3641,7 +3645,8 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                                 {eb.employee_name}
                               </td>
                               <td style={{ padding: '8px', fontSize: '0.76rem' }}>
-                                {eb.employment_type} ({eb.monthly_contract_hours || 160}h/mo • {eb.weekly_hours_limit || 40}h/wk)
+                                {eb.employment_type} ({eb.weekly_hours_limit || 40}h/Woche)
+                                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Soll bis heute: {eb.soll_hours ?? 0} h</div>
                               </td>
                               <td style={{ padding: '8px', fontWeight: 600 }}>
                                 {eb.worked_hours} h{' '}
@@ -3661,15 +3666,17 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                               <td style={{ padding: '8px' }}>
                                 {eb.overtime_hours > 0 ? (
                                   <span style={{ fontWeight: 700, color: '#ea580c' }}>
-                                    +{eb.overtime_hours}h ({formatEuro(eb.overtime_cost)})
+                                    +{eb.overtime_hours}h Mehrstunden ({formatEuro(eb.overtime_cost)})
                                   </span>
                                 ) : (
-                                  '0 h'
+                                  <span style={{ color: (eb.difference_hours || 0) < 0 ? '#64748b' : undefined }}>
+                                    0 h{(eb.difference_hours || 0) < 0 ? ` (${eb.difference_hours} h zum Soll)` : ''}
+                                  </span>
                                 )}
                                 {eb.weekly_exceeded && (
                                   <div style={{ marginTop: 2 }}>
                                     <span className="badge danger" style={{ fontSize: '0.66rem' }}>
-                                      Wochenlimit überschritten ({eb.max_weekly_hours}h / {eb.weekly_hours_limit}h)
+                                      Woche über Vertrag ({eb.max_weekly_hours}h / {eb.weekly_hours_limit}h)
                                     </span>
                                   </div>
                                 )}
@@ -3681,6 +3688,62 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                           ))}
                       </tbody>
                     </table>
+                  </div>
+                )}
+
+                {/* Yearly month-by-month Mehrstunden (Überstunden) per employee based on weekly contract hours */}
+                {otReport && (otReport.employees || []).length > 0 && (
+                  <div style={{ marginTop: 24 }}>
+                    <h4 style={{ fontSize: '0.9rem', marginBottom: 4 }}>
+                      Mehrstunden pro Monat {otReport.year} (laut Wochenstunden im Vertrag)
+                    </h4>
+                    <p style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginBottom: 10 }}>
+                      Soll = Wochenstunden ÷ 5 × Werktage. Ist = gearbeitete Stunden + Urlaub (8 h/Tag) + Krankheit (8 h/Tag). Mehrstunden = Ist − Soll (nur positiv).
+                    </p>
+                    {otReport.employees
+                      .filter(r => !biEmpFilter || r.employee_id === biEmpFilter)
+                      .map(r => (
+                        <div key={r.employee_id} style={{ marginBottom: 18, overflowX: 'auto' }}>
+                          <div className="flex-between" style={{ marginBottom: 6 }}>
+                            <strong>{r.employee_name} <span style={{ fontWeight: 400, color: 'var(--text-muted)', fontSize: '0.76rem' }}>({r.employment_type}{r.overtime_exempt ? ' – ohne Überstundenberechnung' : ` – ${r.weekly_hours} h/Woche`})</span></strong>
+                            {!r.overtime_exempt && (
+                              <span style={{ fontWeight: 800, color: r.total_overtime_hours > 0 ? '#ea580c' : 'var(--text-muted)' }}>
+                                Mehrstunden {otReport.year}: +{r.total_overtime_hours} h • Saldo: {r.balance_hours > 0 ? '+' : ''}{r.balance_hours} h
+                              </span>
+                            )}
+                          </div>
+                          {!r.overtime_exempt && (
+                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.76rem', textAlign: 'right' }}>
+                              <thead>
+                                <tr style={{ borderBottom: '1px solid var(--border)', color: 'var(--text-muted)' }}>
+                                  <th style={{ padding: '5px 6px', textAlign: 'left' }}>Monat</th>
+                                  <th style={{ padding: '5px 6px' }}>Soll</th>
+                                  <th style={{ padding: '5px 6px' }}>Gearbeitet</th>
+                                  <th style={{ padding: '5px 6px' }}>Urlaub</th>
+                                  <th style={{ padding: '5px 6px' }}>Krank</th>
+                                  <th style={{ padding: '5px 6px' }}>Ist gesamt</th>
+                                  <th style={{ padding: '5px 6px' }}>Differenz</th>
+                                  <th style={{ padding: '5px 6px' }}>Mehrstunden</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {r.months.map(mo => (
+                                  <tr key={mo.month} style={{ borderBottom: '1px solid var(--border)', background: mo.overtime_hours > 0 ? 'rgba(255,237,213,0.5)' : undefined }}>
+                                    <td style={{ padding: '5px 6px', textAlign: 'left', fontWeight: 600 }}>{MONTH_OPTIONS[mo.month - 1]?.label.replace(/^\d+\s*·\s*/, '')}</td>
+                                    <td style={{ padding: '5px 6px' }}>{mo.soll_hours} h</td>
+                                    <td style={{ padding: '5px 6px' }}>{mo.worked_hours} h</td>
+                                    <td style={{ padding: '5px 6px', color: mo.urlaub_hours > 0 ? '#ca8a04' : undefined }}>{mo.urlaub_hours} h</td>
+                                    <td style={{ padding: '5px 6px', color: mo.krankheit_hours > 0 ? '#dc2626' : undefined }}>{mo.krankheit_hours} h</td>
+                                    <td style={{ padding: '5px 6px', fontWeight: 700 }}>{mo.ist_hours} h</td>
+                                    <td style={{ padding: '5px 6px', color: mo.difference_hours < 0 ? '#64748b' : '#16a34a' }}>{mo.difference_hours > 0 ? '+' : ''}{mo.difference_hours} h</td>
+                                    <td style={{ padding: '5px 6px', fontWeight: 800, color: mo.overtime_hours > 0 ? '#ea580c' : 'var(--text-muted)' }}>{mo.overtime_hours > 0 ? `+${mo.overtime_hours} h` : '—'}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          )}
+                        </div>
+                      ))}
                   </div>
                 )}
               </>

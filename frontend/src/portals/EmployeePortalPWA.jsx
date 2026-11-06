@@ -278,15 +278,19 @@ export const EmployeePortalPWA = ({ user, logout, onSwitchToManagement }) => {
       }
 
       if (prj.length > 0 && !checkInForm.project_id) {
+        const me = emps.find(e => e.id === user?.employee_id) || emps.find(e => e.email?.toLowerCase() === user?.email?.toLowerCase());
+        const assignedId = me?.assigned_project_id || me?.attributes?.assigned_project_id;
+        const assignedProj = assignedId ? prj.find(p => p.id === assignedId) : null;
         setCheckInForm(f => ({
           ...f,
-          project_id: prj[0].id,
+          project_id: (assignedProj || prj[0]).id,
           vehicle_id: veh[0]?.id || '',
         }));
       }
     });
     loadBiSummary(biMonth);
   };
+
 
   useEffect(() => {
     if (user?.preferred_language && user.preferred_language !== lang) {
@@ -348,6 +352,16 @@ export const EmployeePortalPWA = ({ user, logout, onSwitchToManagement }) => {
       null
     );
   }, [employees, user]);
+
+  const assignedProjectId = myEmployeeProfile?.assigned_project_id || myEmployeeProfile?.attributes?.assigned_project_id || '';
+
+  // Always keep the manager-assigned project as the default check-in selection
+  useEffect(() => {
+    if (assignedProjectId && projects.some(p => p.id === assignedProjectId) && checkInForm.project_id !== assignedProjectId) {
+      setCheckInForm(f => ({ ...f, project_id: assignedProjectId }));
+    }
+    // eslint-disable-next-line
+  }, [assignedProjectId, projects]);
 
   const activeSession = timeLogs.find(l => !l.check_out_time);
   const isPaused = Boolean(activeSession && (activeSession.status === 'Paused' || activeSession.pause_start_time));
@@ -965,9 +979,14 @@ export const EmployeePortalPWA = ({ user, logout, onSwitchToManagement }) => {
                         value={checkInForm.project_id}
                         onChange={e => setCheckInForm({ ...checkInForm, project_id: e.target.value })}
                       >
-                        {projects.map(p => (
-                          <option key={p.id} value={p.id}>{p.name}</option>
-                        ))}
+                        {projects.map(p => {
+                          const locked = Boolean(assignedProjectId) && p.id !== assignedProjectId;
+                          return (
+                            <option key={p.id} value={p.id} disabled={locked} style={locked ? { color: '#9ca3af' } : undefined}>
+                              {p.id === assignedProjectId ? `★ ${p.name}` : p.name}
+                            </option>
+                          );
+                        })}
                       </select>
                     </div>
 
@@ -1165,9 +1184,14 @@ export const EmployeePortalPWA = ({ user, logout, onSwitchToManagement }) => {
                         value={manualLogForm.project_id || projects[0]?.id || ''}
                         onChange={e => setManualLogForm({ ...manualLogForm, project_id: e.target.value })}
                       >
-                        {projects.map(p => (
-                          <option key={p.id} value={p.id}>{p.name}</option>
-                        ))}
+                        {projects.map(p => {
+                          const locked = Boolean(assignedProjectId) && p.id !== assignedProjectId;
+                          return (
+                            <option key={p.id} value={p.id} disabled={locked} style={locked ? { color: '#9ca3af' } : undefined}>
+                              {p.id === assignedProjectId ? `★ ${p.name}` : p.name}
+                            </option>
+                          );
+                        })}
                       </select>
                     </div>
                   </div>

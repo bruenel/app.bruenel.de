@@ -366,6 +366,15 @@ def admin_reset_password(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     user.hashed_password = get_password_hash(data.new_password)
+    # A temporary password set by a manager must be replaced by the user on the next login
+    user.must_change_password = True
+    if user.employee_id:
+        emp = db.query(models.Employee).filter(models.Employee.id == user.employee_id).first()
+        if emp:
+            attrs = dict(emp.attributes or {})
+            attrs["must_change_password"] = True
+            attrs.pop("last_generated_otp", None)
+            emp.attributes = attrs
     db.commit()
     log_audit(db, "users", "UPDATE_PASSWORD", str(user.id), current_user.email)
     return {"status": "success", "message": "User password reset successfully"}

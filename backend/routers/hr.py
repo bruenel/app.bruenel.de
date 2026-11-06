@@ -21,6 +21,84 @@ from core.audit import log_audit
 router = APIRouter()
 
 
+NO_OVERTIME_TYPES = ("Freelancer", "Subunternehmer", "Candidate")
+DAILY_CREDIT_HOURS = 8.0  # Urlaub & Krankheit are credited with 8h per weekday
+
+
+def _employee_weekly_hours(emp) -> float:
+    """Contract hours per week (Wochenstunden) of an employee."""
+    attrs = dict(emp.attributes or {})
+    raw = attrs.get("weekly_hours")
+    try:
+        if raw not in (None, ""):
+            return float(raw)
+    except (TypeError, ValueError):
+        pass
+    if emp.employment_type == "Part-time":
+        return 20.0
+    return 40.0
+
+
+def _contract_soll_hours(emp, y: int, m: int, today: Optional[date] = None) -> float:
+    """
+    Contractual target hours (Soll) of a month = weekly contract hours / 5 × number of weekdays
+    (Mon-Fri) in the month. Weekdays before the contract start date and days in the future
+    (current month) are not counted yet.
+    """
+    from datetime import timedelta
+    today = today or date.today()
+    weekly = _employee_weekly_hours(emp)
+    if weekly <= 0:
+        return 0.0
+    first = date(y, m, 1)
+    last = date(y, m, calendar.monthrange(y, m)[1])
+    last = min(last, today) if (y, m) == (today.year, today.month) else last
+    attrs = dict(emp.attributes or {})
+    cs = attrs.get("contract_start_date")
+    if cs:
+        try:
+            cs_d = date.fromisoformat(str(cs)[:10])
+            if cs_d > first:
+                first = cs_d
+        except ValueError:
+            pass
+    if (y, m) > (today.year, today.month) or first > last:
+        return 0.0
+    weekdays = 0
+    cur = first
+    while cur <= last:
+        if cur.weekday() < 5:
+            weekdays += 1
+        cur += timedelta(days=1)
+    return round(weekdays * (weekly / 5.0), 2)
+
+
+def _absence_credit_hours(leaves, sicks, start_d: date, end_d: date):
+    """Returns (urlaub_hours, krankheit_hours) credited at 8h/weekday (4h for half-day leave)."""
+    from datetime import timedelta
+    urlaub = 0.0
+    krank = 0.0
+    for lv in leaves:
+        if not lv.start_date or not lv.end_date or lv.status != "Approved":
+            continue
+        cur = max(lv.start_date, start_d)
+        last = min(lv.end_date, end_d)
+        while cur <= last:
+            if cur.weekday() < 5:
+                urlaub += DAILY_CREDIT_HOURS / 2 if lv.type == "Half-day" else DAILY_CREDIT_HOURS
+            cur += timedelta(days=1)
+    for sk in sicks:
+        if not sk.start_date or not sk.end_date:
+            continue
+        cur = max(sk.start_date, start_d)
+        last = min(sk.end_date, end_d)
+        while cur <= last:
+            if cur.weekday() < 5:
+                krank += DAILY_CREDIT_HOURS
+            cur += timedelta(days=1)
+    return round(urlaub, 2), round(krank, 2)
+
+
 import secrets
 import string
 
@@ -1401,8 +1479,14 @@ def get_monthly_working_hours_bi_summary(
             st["max_weekly_hours"] = round(max_wk_h, 2)
             st["exceeded_weeks"] = exceeded_weeks
 
-            monthly_ot = round(tot_cred - contract_h, 2) if (contract_h > 0 and tot_cred > contract_h) else 0.0
-            effective_ot = max(monthly_ot, weekly_overtime_sum)
+            # Überstunden = Ist (gearbeitet + Urlaub 8h/Tag + Krankheit 8h/Tag) − Soll (Wochenstunden laut Vertrag)
+            emp_obj = next((x for x in emps if x.id == e_id), None)
+            is_exempt = (st["employment_type"] in NO_OVERTIME_TYPES) or emp_obj is None
+            soll_h = 0.0 if is_exempt else _contract_soll_hours(emp_obj, y, m)
+            st["soll_hours"] = soll_h
+            st["ist_hours"] = tot_cred
+            st["difference_hours"] = round(tot_cred - soll_h, 2) if not is_exempt else 0.0
+            effective_ot = round(tot_cred - soll_h, 2) if (not is_exempt and soll_h > 0 and tot_cred > soll_h) else 0.0
             if effective_ot > 0:
                 st["overtime_hours"] = round(effective_ot, 2)
                 st["overtime_cost"] = round(st["overtime_hours"] * st["overtime_rate"], 2)
@@ -1464,6 +1548,86 @@ def get_monthly_working_hours_bi_summary(
         })
 
     return result
+
+
+@router.get("/time-logs/overtime-report")
+def get_yearly_overtime_report(
+    year: Optional[int] = None,
+    employee_id: Optional[str] = None,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """
+    Month-by-month Überstunden report (Jan-Dec) per employee, based on the weekly contract hours.
+    Soll = Wochenstunden / 5 × Werktage, Ist = gearbeitet + Urlaub (8h/Tag) + Krankheit (8h/Tag).
+    Mehrstunden = max(0, Ist − Soll).
+    """
+    if get_effective_tier(current_user) > 4:
+        raise HTTPException(status_code=403, detail="Only management can view the overtime report.")
+    y = year or date.today().year
+    y_start, y_end = date(y, 1, 1), date(y, 12, 31)
+
+    emp_query = db.query(models.Employee)
+    if employee_id:
+        emp_query = emp_query.filter(models.Employee.id == employee_id)
+    emps = emp_query.order_by(models.Employee.employee_number.asc()).all()
+
+    logs = db.query(models.TimeLog).filter(models.TimeLog.date >= y_start, models.TimeLog.date <= y_end).all()
+    leaves = db.query(models.LeaveRequest).filter(
+        models.LeaveRequest.status == "Approved",
+        models.LeaveRequest.start_date <= y_end,
+        models.LeaveRequest.end_date >= y_start,
+    ).all()
+    sicks = db.query(models.SicknessRecord).filter(
+        models.SicknessRecord.start_date <= y_end,
+        models.SicknessRecord.end_date >= y_start,
+    ).all()
+
+    worked = {}
+    for l in logs:
+        if l.date and l.employee_id:
+            worked[(l.employee_id, l.date.month)] = worked.get((l.employee_id, l.date.month), 0.0) + float(l.total_hours or 0.0)
+
+    result = []
+    for e in emps:
+        exempt = e.employment_type in NO_OVERTIME_TYPES
+        e_leaves = [x for x in leaves if x.employee_id == e.id]
+        e_sicks = [x for x in sicks if x.employee_id == e.id]
+        months = []
+        total_ot = 0.0
+        total_diff = 0.0
+        for mm in range(1, 13):
+            ms = date(y, mm, 1)
+            me = date(y, mm, calendar.monthrange(y, mm)[1])
+            urlaub_h, krank_h = _absence_credit_hours(e_leaves, e_sicks, ms, me)
+            worked_h = round(worked.get((e.id, mm), 0.0), 2)
+            ist = round(worked_h + urlaub_h + krank_h, 2)
+            soll = 0.0 if exempt else _contract_soll_hours(e, y, mm)
+            diff = 0.0 if exempt else round(ist - soll, 2)
+            ot = diff if diff > 0 else 0.0
+            total_ot += ot
+            total_diff += diff
+            months.append({
+                "month": mm,
+                "soll_hours": soll,
+                "worked_hours": worked_h,
+                "urlaub_hours": urlaub_h,
+                "krankheit_hours": krank_h,
+                "ist_hours": ist,
+                "difference_hours": diff,
+                "overtime_hours": round(ot, 2),
+            })
+        result.append({
+            "employee_id": e.id,
+            "employee_name": f"{e.first_name} {e.last_name}",
+            "employment_type": e.employment_type,
+            "weekly_hours": 0.0 if exempt else _employee_weekly_hours(e),
+            "overtime_exempt": exempt,
+            "months": months,
+            "total_overtime_hours": round(total_ot, 2),
+            "balance_hours": round(total_diff, 2),
+        })
+    return {"year": y, "employees": result}
 
 
 # ==============================================================================
