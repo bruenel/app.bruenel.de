@@ -747,7 +747,9 @@ def list_time_logs(
     tool_map = {t.id: f"{t.name} ({t.serial_number})" for t in db.query(models.Equipment).all()}
 
     query = db.query(models.TimeLog)
-    if tier == 5:
+    if tier not in (1, 2, 3):
+        if not current_user.employee_id:
+            return []
         query = query.filter(models.TimeLog.employee_id == current_user.employee_id)
     elif employee_id:
         query = query.filter(models.TimeLog.employee_id == employee_id)
@@ -1642,7 +1644,9 @@ def get_leave_requests(
     tier = get_effective_tier(current_user)
     emp_map = {e.id: f"{e.first_name} {e.last_name}" for e in db.query(models.Employee).all()}
     query = db.query(models.LeaveRequest)
-    if tier == 5:
+    if tier not in (1, 2, 3):
+        if not current_user.employee_id:
+            return []
         query = query.filter(models.LeaveRequest.employee_id == current_user.employee_id)
 
     leaves = query.order_by(models.LeaveRequest.created_at.desc()).all()
@@ -1752,7 +1756,9 @@ def list_sickness_records(
     tier = get_effective_tier(current_user)
     emp_map = {e.id: f"{e.first_name} {e.last_name}" for e in db.query(models.Employee).all()}
     query = db.query(models.SicknessRecord)
-    if tier == 5:
+    if tier not in (1, 2, 3):
+        if not current_user.employee_id:
+            return []
         query = query.filter(models.SicknessRecord.employee_id == current_user.employee_id)
 
     records = query.order_by(models.SicknessRecord.created_at.desc()).all()

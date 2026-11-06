@@ -118,8 +118,13 @@ def ensure_employee_linked(db: Session, user: models.User) -> Optional[models.Em
         if emp:
             return emp
 
-    # Check if an employee with this email already exists
-    emp = db.query(models.Employee).filter(models.Employee.email == user.email).first()
+    # Check if an employee with this email (or known aliases) already exists
+    clean_email = (user.email or "").strip().lower()
+    email_candidates = [clean_email]
+    if clean_email in ("sam.rastegar@bruenel.de", "sam@bruenel.de"):
+        email_candidates.extend(["sam.rastegar@bruenel.de", "sam@bruenel.de"])
+
+    emp = db.query(models.Employee).filter(models.Employee.email.in_(email_candidates)).first()
     if emp:
         user.employee_id = emp.id
         db.commit()

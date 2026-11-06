@@ -363,9 +363,15 @@ def list_media_documents(
     if reference_id:
         query = query.filter(models.DocumentRecord.reference_id == reference_id)
 
-    # RLS enforcement for Tier 5 Field Employees on sensitive HR/Expense docs
-    if tier == 5 and reference_type in ("Lohnabrechnung", "Expense", "Krankmeldung", "Contract"):
-        query = query.filter(models.DocumentRecord.employee_id == current_user.employee_id)
+    # RLS enforcement for non-management tiers on sensitive HR/Expense/Personal docs
+    if tier not in (1, 2, 3):
+        if not current_user.employee_id:
+            return []
+        if reference_type in ("Lohnabrechnung", "Expense", "Krankmeldung", "Contract", "Employee", "Payslip") or not reference_type:
+            query = query.filter(
+                (models.DocumentRecord.employee_id == current_user.employee_id) |
+                (models.DocumentRecord.reference_id == current_user.employee_id)
+            )
 
     docs = query.order_by(models.DocumentRecord.created_at.desc()).all()
     out = []
