@@ -84,7 +84,25 @@ export const resolveMediaUrl = (url) => {
 export const uploadMediaFile = async ({ file, referenceType = 'ObjectMedia', referenceId = null, employeeId = null, title = null, metadata = {}, onProgress = null }) => {
   if (!file) throw new Error('No file selected');
 
-  // Step 1: Request Pre-Signed PUT URL from /api/v1/media/presign
+  // For PDFs/images/documents up to 15 MB, send base64_data inline in /presign for an atomic single-request upload on serverless
+  let inlineBase64 = null;
+  if ((file.size || 0) <= 15 * 1024 * 1024) {
+    try {
+      inlineBase64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const resStr = String(reader.result || '');
+          resolve(resStr.includes(',') ? resStr.split(',')[1] : resStr);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    } catch {
+      inlineBase64 = null;
+    }
+  }
+
+  // Step 1: Request Pre-Signed PUT URL (or complete atomic upload when base64_data is included)
   const presign = await fetchWithToken('/api/v1/media/presign', {
     method: 'POST',
     body: JSON.stringify({
@@ -96,8 +114,14 @@ export const uploadMediaFile = async ({ file, referenceType = 'ObjectMedia', ref
       mime_type: file.type || 'application/octet-stream',
       file_size: file.size || 0,
       metadata: metadata || {},
+      ...(inlineBase64 ? { base64_data: inlineBase64 } : {}),
     }),
   });
+
+  if (presign.already_uploaded) {
+    if (onProgress) onProgress(100);
+    return presign;
+  }
 
   const targetUrl = presign.upload_url.startsWith('http')
     ? presign.upload_url

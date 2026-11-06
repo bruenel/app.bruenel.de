@@ -66,6 +66,7 @@ def _sync_payslip_for_document(db: Session, doc: models.DocumentRecord):
         existing_slip.employee_id = target_emp_id
         existing_slip.period_month = p_month
         existing_slip.period_year = p_year
+        existing_slip.notes = doc.title
         db.commit()
     else:
         slip = models.Payslip(
@@ -93,6 +94,7 @@ def request_presigned_upload(
 ):
     """
     Request a Pre-Signed URL to upload large videos, site photos, receipts, or PDFs directly.
+    Also supports inline base64_data for single-request atomic uploads of PDFs/images on serverless (Vercel).
     """
     tier = get_effective_tier(current_user)
     reference_type = payload.get("reference_type", "ObjectMedia")
@@ -124,6 +126,22 @@ def request_presigned_upload(
     if "lohnabrechnung" in str(incoming_meta.get("category", "")).lower():
         reference_type = "Lohnabrechnung"
 
+    inline_b64 = payload.get("base64_data") or incoming_meta.get("base64_data")
+    already_uploaded = False
+    if inline_b64:
+        raw_b64 = str(inline_b64).split(",", 1)[1] if "," in str(inline_b64) else str(inline_b64)
+        incoming_meta["base64_data"] = raw_b64
+        already_uploaded = True
+        try:
+            raw_bytes = base64.b64decode(raw_b64)
+            if not file_size:
+                file_size = len(raw_bytes)
+            full_path = get_local_file_path(storage_key)
+            with open(full_path, "wb") as f:
+                f.write(raw_bytes)
+        except Exception:
+            pass
+
     doc = models.DocumentRecord(
         id=doc_id,
         reference_type=reference_type,
@@ -136,7 +154,7 @@ def request_presigned_upload(
         storage_provider=STORAGE_PROVIDER,
         storage_key=storage_key,
         drive_file_id=f"s3://{storage_key}",
-        status="Pending_Upload",
+        status="Uploaded" if already_uploaded else "Pending_Upload",
         metadata_json=incoming_meta,
     )
     db.add(doc)
@@ -146,14 +164,20 @@ def request_presigned_upload(
     _sync_payslip_for_document(db, doc)
 
     presign_info = create_presigned_upload(storage_key, mime_type)
+    download_link = create_presigned_download(storage_key)
     return {
         "document_id": doc.id,
         "reference_type": doc.reference_type,
         "reference_id": doc.reference_id,
         "doc_date": incoming_meta.get("doc_date"),
         "category": incoming_meta.get("category"),
+        "period_month": incoming_meta.get("period_month"),
+        "period_year": incoming_meta.get("period_year"),
         "uploaded_by": incoming_meta.get("uploaded_by"),
         "storage_key": storage_key,
+        "already_uploaded": already_uploaded,
+        "download_url": download_link,
+        "file_url": download_link,
         **presign_info,
     }
 
@@ -440,6 +464,10 @@ def update_media_document(
             doc.reference_type = cat_val
     if "doc_date" in payload and payload["doc_date"]:
         meta["doc_date"] = str(payload["doc_date"]).strip()
+    if "period_month" in payload and payload["period_month"]:
+        meta["period_month"] = int(payload["period_month"])
+    if "period_year" in payload and payload["period_year"]:
+        meta["period_year"] = int(payload["period_year"])
 
     doc.metadata_json = meta
     db.commit()

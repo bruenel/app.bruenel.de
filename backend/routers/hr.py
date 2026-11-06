@@ -55,6 +55,8 @@ def serialize_employee(emp: models.Employee, db: Optional[Session] = None, inclu
                 "reference_type": d.reference_type,
                 "category": meta.get("category") or d.reference_type,
                 "doc_date": meta.get("doc_date") or (d.created_at.strftime("%Y-%m-%d") if d.created_at else None),
+                "period_month": meta.get("period_month"),
+                "period_year": meta.get("period_year"),
                 "uploaded_by": meta.get("uploaded_by") or ("Mitarbeiter" if d.reference_type == "Krankmeldung" else "Management"),
                 "file_name": d.file_name,
                 "title": d.title or d.file_name,

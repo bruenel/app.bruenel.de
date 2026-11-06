@@ -356,6 +356,10 @@ export const HRManagementModule = ({ user }) => {
   const [pendingUploadFiles, setPendingUploadFiles] = useState([]);
   const [docCategory, setDocCategory] = useState('Lohnabrechnung');
   const [docUploadDate, setDocUploadDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [docPayslipMonth, setDocPayslipMonth] = useState(() => String(new Date().getMonth() + 1).padStart(2, '0'));
+  const [docPayslipYear, setDocPayslipYear] = useState(() => String(new Date().getFullYear()));
+  const [stagedUploadFiles, setStagedUploadFiles] = useState([]);
+  const [docUploadFeedback, setDocUploadFeedback] = useState(null);
   const [customDocLabel, setCustomDocLabel] = useState('');
   const [uploadingEmpDoc, setUploadingEmpDoc] = useState(false);
   const [otpBanner, setOtpBanner] = useState(null);
@@ -715,6 +719,9 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
       }
       if (data.length > 0 && !newSickForm.employee_id) {
         setNewSickForm(prev => ({ ...prev, employee_id: data[0].id }));
+      }
+      if (data.length > 0 && !centralUploadEmpId) {
+        setCentralUploadEmpId(data[0].id);
       }
       if (editingEmpId) {
         const refreshed = data.find(x => x.id === editingEmpId);
@@ -1271,21 +1278,39 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
     }
   };
 
-  const handleUploadEmpDocumentNow = async (e, overrideEmpId = null) => {
-    const files = Array.from(e.target?.files || []);
-    const targetEmpId = overrideEmpId || editingEmpId || centralUploadEmpId;
-    if (!files.length || !targetEmpId) {
-      if (!targetEmpId) alert('Bitte wählen Sie zuerst einen Mitarbeiter aus.');
+  const executeDocUpload = async (filesToUpload, overrideEmpId = null) => {
+    const targetEmpId = overrideEmpId || editingEmpId || centralUploadEmpId || employees[0]?.id;
+    if (!targetEmpId) {
+      alert('Bitte wählen Sie zuerst einen Mitarbeiter aus.');
+      return;
+    }
+    if (!filesToUpload || filesToUpload.length === 0) {
+      alert('Bitte wählen Sie mindestens eine Datei (PDF / Bild) zum Hochladen aus.');
       return;
     }
     setUploadingEmpDoc(true);
+    setDocUploadFeedback(null);
     try {
       const isSlip = docCategory.toLowerCase().includes('lohnabrechnung');
       const refType = isSlip ? 'Lohnabrechnung' : docCategory;
-      for (const file of files) {
-        const labelTitle = customDocLabel.trim()
-          ? `${docCategory}: ${customDocLabel.trim()} (${file.name})`
-          : `${docCategory}: ${file.name}`;
+      const monthObj = MONTH_OPTIONS.find(m => m.value === String(docPayslipMonth).padStart(2, '0'));
+      const monthName = monthObj ? monthObj.label.replace(/^\d+\s*·\s*/, '') : docPayslipMonth;
+      const effectiveDocDate = isSlip
+        ? `${docPayslipYear}-${String(docPayslipMonth).padStart(2, '0')}-01`
+        : docUploadDate;
+
+      for (const file of filesToUpload) {
+        let labelTitle;
+        if (isSlip) {
+          labelTitle = customDocLabel.trim()
+            ? `Lohnabrechnung ${monthName} ${docPayslipYear} (${String(docPayslipMonth).padStart(2, '0')}/${docPayslipYear}) — ${customDocLabel.trim()}`
+            : `Lohnabrechnung ${monthName} ${docPayslipYear} (${String(docPayslipMonth).padStart(2, '0')}/${docPayslipYear})`;
+        } else {
+          labelTitle = customDocLabel.trim()
+            ? `${docCategory}: ${customDocLabel.trim()} (${file.name})`
+            : `${docCategory}: ${file.name}`;
+        }
+
         await uploadMediaFile({
           file,
           referenceType: refType,
@@ -1293,19 +1318,43 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
           employeeId: targetEmpId,
           title: labelTitle,
           metadata: {
-            category: docCategory,
-            doc_date: docUploadDate,
+            category: isSlip ? 'Lohnabrechnung' : docCategory,
+            doc_date: effectiveDocDate,
+            ...(isSlip ? { period_month: Number(docPayslipMonth), period_year: Number(docPayslipYear) } : {}),
             uploaded_by: 'Management',
           },
         });
       }
+
+      const empObj = employees.find(x => x.id === targetEmpId);
+      const empLabel = empObj ? empObj.full_name : 'Mitarbeiter';
+      setDocUploadFeedback({
+        type: 'success',
+        text: isSlip
+          ? `✅ Lohnabrechnung (${String(docPayslipMonth).padStart(2, '0')}/${docPayslipYear}) für ${empLabel} erfolgreich hochgeladen! Sie ist ab sofort im Mitarbeiter-Portal unter „Lohnabrechnung“ sichtbar und als PDF abrufbar.`
+          : `✅ ${filesToUpload.length} Dokument(e) (${docCategory}) für ${empLabel} erfolgreich hochgeladen!`,
+      });
       setCustomDocLabel('');
-      if (e.target) e.target.value = '';
+      setStagedUploadFiles([]);
       loadAll();
     } catch (err) {
+      setDocUploadFeedback({
+        type: 'error',
+        text: `⚠️ Fehler beim Hochladen: ${err.message}`,
+      });
       alert(err.message);
     }
     setUploadingEmpDoc(false);
+  };
+
+  const handleUploadEmpDocumentNow = async (e, overrideEmpId = null) => {
+    const files = Array.from(e.target?.files || []);
+    if (!files.length) return;
+    setStagedUploadFiles(files);
+  };
+
+  const handleSubmitStagedDocuments = async (overrideEmpId = null) => {
+    await executeDocUpload(stagedUploadFiles, overrideEmpId);
   };
 
   const handleDeleteEmpDocument = async (docId) => {
@@ -2435,17 +2484,82 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
 
                     {/* ── Manual Multi-Document Upload ──────────────────────────── */}
                     <div style={{ padding: '14px', borderRadius: '10px', background: 'var(--surface-2)', border: '1px solid var(--border)' }}>
-                      <h4 style={{ fontSize: '0.88rem', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <Upload size={14} /> Dokumente oder Lohnabrechnung hochladen (Mehrfachauswahl möglich)
-                      </h4>
-                      <p style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginBottom: '12px' }}>
-                        Wählen Sie <strong>„Lohnabrechnung“</strong>, damit das Dokument automatisch im Lohnabrechnungs-Tab des Mitarbeiters angezeigt wird. Mitarbeiter können alle Dokumente einsehen, aber nichts löschen.
-                      </p>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.9fr 1fr 1.2fr', gap: '10px', alignItems: 'end' }}>
+                      <div className="flex-between" style={{ flexWrap: 'wrap', gap: '8px', marginBottom: '10px' }}>
+                        <div>
+                          <h4 style={{ fontSize: '0.88rem', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <Upload size={14} /> Dokumente oder monatliche Lohnabrechnung hochladen
+                          </h4>
+                          <p style={{ fontSize: '0.74rem', color: 'var(--text-muted)', margin: 0 }}>
+                            Wählen Sie <strong>„Lohnabrechnung“</strong> und den Abrechnungsmonat, damit die PDF automatisch im Lohnabrechnungs-Tab des Mitarbeiters angezeigt wird.
+                          </p>
+                        </div>
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                          <button
+                            type="button"
+                            onClick={() => setDocCategory('Lohnabrechnung')}
+                            style={{
+                              padding: '5px 12px',
+                              borderRadius: '999px',
+                              fontSize: '0.75rem',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              border: docCategory === 'Lohnabrechnung' ? '1.5px solid #059669' : '1px solid var(--border)',
+                              background: docCategory === 'Lohnabrechnung' ? '#ecfdf5' : '#ffffff',
+                              color: docCategory === 'Lohnabrechnung' ? '#047857' : 'var(--text-main)',
+                            }}
+                          >
+                            💰 Monatliche Lohnabrechnung
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (docCategory === 'Lohnabrechnung') setDocCategory('Arbeitsvertrag / Werkvertrag');
+                            }}
+                            style={{
+                              padding: '5px 12px',
+                              borderRadius: '999px',
+                              fontSize: '0.75rem',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              border: docCategory !== 'Lohnabrechnung' ? '1.5px solid var(--accent)' : '1px solid var(--border)',
+                              background: docCategory !== 'Lohnabrechnung' ? 'var(--accent-soft)' : '#ffffff',
+                              color: docCategory !== 'Lohnabrechnung' ? 'var(--accent)' : 'var(--text-main)',
+                            }}
+                          >
+                            📂 Personaldokument / Vertrag
+                          </button>
+                        </div>
+                      </div>
+
+                      {docUploadFeedback && (
+                        <div
+                          style={{
+                            marginBottom: '12px',
+                            padding: '10px 12px',
+                            borderRadius: '8px',
+                            fontSize: '0.8rem',
+                            fontWeight: 600,
+                            background: docUploadFeedback.type === 'success' ? '#ecfdf5' : '#fef2f2',
+                            border: `1px solid ${docUploadFeedback.type === 'success' ? '#10b981' : '#fca5a5'}`,
+                            color: docUploadFeedback.type === 'success' ? '#065f46' : '#991b1b',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: '8px',
+                          }}
+                        >
+                          <span>{docUploadFeedback.text}</span>
+                          <button type="button" className="btn-secondary btn-sm" onClick={() => setDocUploadFeedback(null)}>
+                            <X size={12} />
+                          </button>
+                        </div>
+                      )}
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 1fr 0.9fr 1.1fr auto', gap: '10px', alignItems: 'end' }}>
                         <div>
                           <label>Dokumentenart (Kategorie)</label>
                           <select value={docCategory} onChange={e => setDocCategory(e.target.value)}>
-                            <option value="Lohnabrechnung">💰 Lohnabrechnung / Entgeltnachweis (Erscheint im Lohnabrechnung-Tab)</option>
+                            <option value="Lohnabrechnung">💰 Lohnabrechnung / Entgeltnachweis (→ Lohnabrechnung-Tab)</option>
                             <option value="Personalausweis / Reisepass">🪪 Personalausweis / Reisepass / Aufenthaltstitel</option>
                             <option value="Arbeitsvertrag / Werkvertrag">📄 Arbeitsvertrag / Werkvertrag</option>
                             <option value="Freelancer Projektvertrag">📑 Freelancer Projektvertrag</option>
@@ -2458,41 +2572,101 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                             <option value="Sonstiges">📎 Sonstiges (Eigene Bezeichnung)</option>
                           </select>
                         </div>
+
+                        {docCategory === 'Lohnabrechnung' ? (
+                          <div>
+                            <label>Abrechnungsmonat & Jahr *</label>
+                            <div style={{ display: 'flex', gap: '6px' }}>
+                              <select value={docPayslipMonth} onChange={e => setDocPayslipMonth(e.target.value)} style={{ fontWeight: 700 }}>
+                                {MONTH_OPTIONS.map(m => (
+                                  <option key={m.value} value={m.value}>{m.label}</option>
+                                ))}
+                              </select>
+                              <select value={docPayslipYear} onChange={e => setDocPayslipYear(e.target.value)} style={{ width: '92px', fontWeight: 700 }}>
+                                {YEAR_OPTIONS.map(yr => (
+                                  <option key={yr} value={yr}>{yr}</option>
+                                ))}
+                              </select>
+                            </div>
+                          </div>
+                        ) : (
+                          <div>
+                            <label>Dokumentendatum</label>
+                            <DateInput value={docUploadDate} onChange={e => setDocUploadDate(e.target.value)} />
+                          </div>
+                        )}
+
                         <div>
-                          <label>Dokumentendatum</label>
-                          <DateInput value={docUploadDate} onChange={e => setDocUploadDate(e.target.value)} />
-                        </div>
-                        <div>
-                          <label>Bezeichnung (Optional)</label>
+                          <label>Zusatz / Notiz (Optional)</label>
                           <input
-                            placeholder={docCategory === 'Lohnabrechnung' ? 'z.B. Lohnabrechnung 10/2026' : 'z.B. Nachtrag Nr. 2'}
+                            placeholder={docCategory === 'Lohnabrechnung' ? 'z.B. Korrektur / Bonus' : 'z.B. Nachtrag Nr. 2'}
                             value={customDocLabel}
                             onChange={e => setCustomDocLabel(e.target.value)}
                           />
                         </div>
+
                         <div>
                           <label>
-                            {editingEmpId ? 'Dateien sofort hochladen (Mehrfach)' : 'Dateien beim Speichern hinzufügen'}
-                            {uploadingEmpDoc && <span style={{ color: 'var(--accent)', marginLeft: '6px', fontWeight: 600 }}>• Hochladen...</span>}
+                            {editingEmpId ? 'Datei(en) auswählen *' : 'Dateien beim Speichern hinzufügen'}
                           </label>
                           {editingEmpId ? (
-                            <input type="file" multiple accept=".pdf,image/*,.doc,.docx" onChange={handleUploadEmpDocumentNow} disabled={uploadingEmpDoc} />
+                            <input
+                              type="file"
+                              multiple
+                              accept=".pdf,image/*,.doc,.docx"
+                              onChange={handleUploadEmpDocumentNow}
+                              disabled={uploadingEmpDoc}
+                            />
                           ) : (
-                            <div>
-                              <input type="file" multiple accept=".pdf,image/*,.doc,.docx" onChange={e => setPendingUploadFiles(Array.from(e.target.files || []))} />
-                              {pendingUploadFiles.length > 0 && (
-                                <div style={{ marginTop: '6px', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--accent)' }}>
-                                  <FileText size={13} />
-                                  <span><strong>{pendingUploadFiles.length} Datei(en)</strong> ausgewählt</span>
-                                  <button type="button" className="btn-secondary btn-sm" style={{ padding: '1px 5px', fontSize: '0.7rem', color: '#dc2626' }} onClick={() => setPendingUploadFiles([])}>
-                                    <X size={11} /> Abbrechen
-                                  </button>
-                                </div>
-                              )}
-                            </div>
+                            <input
+                              type="file"
+                              multiple
+                              accept=".pdf,image/*,.doc,.docx"
+                              onChange={e => setPendingUploadFiles(Array.from(e.target.files || []))}
+                            />
                           )}
                         </div>
+
+                        {editingEmpId && (
+                          <div>
+                            <button
+                              type="button"
+                              className="btn-primary"
+                              disabled={uploadingEmpDoc}
+                              onClick={() => handleSubmitStagedDocuments(editingEmpId)}
+                              style={{ whiteSpace: 'nowrap', height: '38px' }}
+                            >
+                              <Upload size={14} />{' '}
+                              {uploadingEmpDoc
+                                ? 'Hochladen...'
+                                : docCategory === 'Lohnabrechnung'
+                                ? `Lohnabrechnung (${docPayslipMonth}/${docPayslipYear}) hochladen`
+                                : `Dokument(e) hochladen${stagedUploadFiles.length > 0 ? ` (${stagedUploadFiles.length})` : ''}`}
+                            </button>
+                          </div>
+                        )}
                       </div>
+
+                      {editingEmpId && stagedUploadFiles.length > 0 && (
+                        <div style={{ marginTop: '8px', fontSize: '0.76rem', color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <FileText size={13} />
+                          <span>
+                            Bereit zum Hochladen: <strong>{stagedUploadFiles.map(f => f.name).join(', ')}</strong>
+                          </span>
+                          <button type="button" className="btn-secondary btn-sm" style={{ padding: '2px 6px', fontSize: '0.7rem', color: '#dc2626' }} onClick={() => setStagedUploadFiles([])}>
+                            <X size={11} /> Auswahl löschen
+                          </button>
+                        </div>
+                      )}
+                      {!editingEmpId && pendingUploadFiles.length > 0 && (
+                        <div style={{ marginTop: '6px', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--accent)' }}>
+                          <FileText size={13} />
+                          <span><strong>{pendingUploadFiles.length} Datei(en)</strong> ausgewählt</span>
+                          <button type="button" className="btn-secondary btn-sm" style={{ padding: '1px 5px', fontSize: '0.7rem', color: '#dc2626' }} onClick={() => setPendingUploadFiles([])}>
+                            <X size={11} /> Abbrechen
+                          </button>
+                        </div>
+                      )}
                     </div>
 
                     {/* ── Divider: Archive ─────────────────────────────────────── */}
@@ -3870,19 +4044,81 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             {/* Multi-Document & Payslip Upload Card */}
             <div className="glass-panel" style={{ padding: '18px 20px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px', marginBottom: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px', marginBottom: '14px' }}>
                 <div>
                   <h3 style={{ fontSize: '1.02rem', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <Upload size={17} style={{ color: 'var(--accent)' }} />
-                    Mehrfach-Dokumenten-Upload & Lohnabrechnungen
+                    Mehrfach-Dokumenten-Upload & Monatliche Lohnabrechnungen
                   </h3>
                   <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '4px' }}>
-                    Laden Sie mehrere Dokumente gleichzeitig für einen Mitarbeiter hoch. Wenn Sie als Dokumentenart <strong>„Lohnabrechnung“</strong> auswählen, erscheint das Dokument automatisch im Lohnabrechnungs-Tab des jeweiligen Mitarbeiters. Mitarbeiter können alle ihre Dokumente sehen (auch eigene Uploads), aber nichts löschen.
+                    Wählen Sie <strong>„💰 Monatliche Lohnabrechnung“</strong> und den gewünschten Monat/Jahr aus, um einem Mitarbeiter seine Abrechnung bereitzustellen — sie erscheint sofort im Mitarbeiter-Portal unter <strong>„Lohnabrechnung“</strong> zum Ansehen & PDF-Download.
                   </p>
+                </div>
+
+                {/* Quick Mode Switcher: Lohnabrechnung vs. Personaldokument */}
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    onClick={() => setDocCategory('Lohnabrechnung')}
+                    style={{
+                      padding: '7px 14px',
+                      borderRadius: '999px',
+                      fontSize: '0.78rem',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      border: docCategory === 'Lohnabrechnung' ? '1.5px solid #059669' : '1px solid var(--border)',
+                      background: docCategory === 'Lohnabrechnung' ? '#ecfdf5' : '#ffffff',
+                      color: docCategory === 'Lohnabrechnung' ? '#047857' : 'var(--text-main)',
+                    }}
+                  >
+                    💰 Monatliche Lohnabrechnung hochladen
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (docCategory === 'Lohnabrechnung') setDocCategory('Arbeitsvertrag / Werkvertrag');
+                    }}
+                    style={{
+                      padding: '7px 14px',
+                      borderRadius: '999px',
+                      fontSize: '0.78rem',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      border: docCategory !== 'Lohnabrechnung' ? '1.5px solid var(--accent)' : '1px solid var(--border)',
+                      background: docCategory !== 'Lohnabrechnung' ? 'var(--accent-soft)' : '#ffffff',
+                      color: docCategory !== 'Lohnabrechnung' ? 'var(--accent)' : 'var(--text-main)',
+                    }}
+                  >
+                    📂 Allgemeines Dokument hochladen
+                  </button>
                 </div>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.2fr 0.9fr 1fr 1.2fr', gap: '12px', alignItems: 'end' }}>
+              {docUploadFeedback && (
+                <div
+                  style={{
+                    marginBottom: '14px',
+                    padding: '10px 14px',
+                    borderRadius: '10px',
+                    fontSize: '0.82rem',
+                    fontWeight: 600,
+                    background: docUploadFeedback.type === 'success' ? '#ecfdf5' : '#fef2f2',
+                    border: `1px solid ${docUploadFeedback.type === 'success' ? '#10b981' : '#fca5a5'}`,
+                    color: docUploadFeedback.type === 'success' ? '#065f46' : '#991b1b',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '10px',
+                  }}
+                >
+                  <span>{docUploadFeedback.text}</span>
+                  <button type="button" className="btn-secondary btn-sm" onClick={() => setDocUploadFeedback(null)}>
+                    <X size={13} />
+                  </button>
+                </div>
+              )}
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1.15fr 1.15fr 1.05fr 0.9fr 1.1fr auto', gap: '10px', alignItems: 'end' }}>
                 <div>
                   <label>Mitarbeiter auswählen *</label>
                   <select
@@ -3896,7 +4132,7 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                   </select>
                 </div>
                 <div>
-                  <label>Dokumentenart (Kategorie)</label>
+                  <label>Dokumentenart (Kategorie) *</label>
                   <select value={docCategory} onChange={e => setDocCategory(e.target.value)}>
                     <option value="Lohnabrechnung">💰 Lohnabrechnung / Entgeltnachweis (→ Lohnabrechnung-Tab)</option>
                     <option value="Arbeitsvertrag / Werkvertrag">📄 Arbeitsvertrag / Werkvertrag</option>
@@ -3911,22 +4147,49 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                     <option value="Sonstiges">📎 Sonstiges</option>
                   </select>
                 </div>
+
+                {docCategory === 'Lohnabrechnung' ? (
+                  <div>
+                    <label>Abrechnungsmonat & Jahr *</label>
+                    <div style={{ display: 'flex', gap: '6px' }}>
+                      <select
+                        value={docPayslipMonth}
+                        onChange={e => setDocPayslipMonth(e.target.value)}
+                        style={{ fontWeight: 700, borderColor: '#10b981', background: '#f0fdf4' }}
+                      >
+                        {MONTH_OPTIONS.map(m => (
+                          <option key={m.value} value={m.value}>{m.label}</option>
+                        ))}
+                      </select>
+                      <select
+                        value={docPayslipYear}
+                        onChange={e => setDocPayslipYear(e.target.value)}
+                        style={{ width: '92px', fontWeight: 700, borderColor: '#10b981', background: '#f0fdf4' }}
+                      >
+                        {YEAR_OPTIONS.map(yr => (
+                          <option key={yr} value={yr}>{yr}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <label>Dokumentendatum</label>
+                    <DateInput value={docUploadDate} onChange={e => setDocUploadDate(e.target.value)} />
+                  </div>
+                )}
+
                 <div>
-                  <label>Dokumentendatum</label>
-                  <DateInput value={docUploadDate} onChange={e => setDocUploadDate(e.target.value)} />
-                </div>
-                <div>
-                  <label>Bezeichnung (Optional)</label>
+                  <label>Bezeichnung / Notiz (Optional)</label>
                   <input
-                    placeholder={docCategory === 'Lohnabrechnung' ? 'z.B. Abrechnung 10/2026' : 'z.B. Nachtrag / Zertifikat'}
+                    placeholder={docCategory === 'Lohnabrechnung' ? 'z.B. inkl. Prämie' : 'z.B. Nachtrag / Zertifikat'}
                     value={customDocLabel}
                     onChange={e => setCustomDocLabel(e.target.value)}
                   />
                 </div>
                 <div>
                   <label>
-                    Dateien auswählen (Mehrfach-Upload)
-                    {uploadingEmpDoc && <span style={{ color: 'var(--accent)', marginLeft: '6px', fontWeight: 700 }}>• Hochladen...</span>}
+                    Dateien auswählen (PDF / Bild) *
                   </label>
                   <input
                     type="file"
@@ -3936,15 +4199,46 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                     onChange={(e) => handleUploadEmpDocumentNow(e, centralUploadEmpId)}
                   />
                 </div>
+                <div>
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    disabled={uploadingEmpDoc}
+                    onClick={() => handleSubmitStagedDocuments(centralUploadEmpId)}
+                    style={{ whiteSpace: 'nowrap', height: '38px', fontWeight: 700, padding: '0 16px' }}
+                  >
+                    <Upload size={15} />{' '}
+                    {uploadingEmpDoc
+                      ? 'Wird hochgeladen...'
+                      : docCategory === 'Lohnabrechnung'
+                      ? `Lohnabrechnung (${docPayslipMonth}/${docPayslipYear}) hochladen`
+                      : `Dokument(e) hochladen${stagedUploadFiles.length > 0 ? ` (${stagedUploadFiles.length})` : ''}`}
+                  </button>
+                </div>
               </div>
+
+              {stagedUploadFiles.length > 0 && (
+                <div style={{ marginTop: '10px', padding: '8px 12px', borderRadius: '8px', background: '#fff7ed', border: '1px solid rgba(255,107,0,0.3)', fontSize: '0.78rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#9a3412' }}>
+                    <FileText size={14} style={{ color: 'var(--accent)' }} />
+                    <span>
+                      Ausgewählte Datei(en) ({stagedUploadFiles.length}): <strong>{stagedUploadFiles.map(f => f.name).join(', ')}</strong> — Klicken Sie rechts auf <strong>„{docCategory === 'Lohnabrechnung' ? `Lohnabrechnung (${docPayslipMonth}/${docPayslipYear}) hochladen` : 'Dokument(e) hochladen'}“</strong>, um den Upload abzuschließen.
+                    </span>
+                  </div>
+                  <button type="button" className="btn-secondary btn-sm" style={{ color: '#dc2626' }} onClick={() => setStagedUploadFiles([])}>
+                    <X size={12} /> Auswahl aufheben
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Documents Master Table with Filter, Sort & Multi-Select */}
             <div className="glass-panel">
               <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center', marginBottom: '14px', paddingBottom: '12px', borderBottom: '1px solid var(--border)' }}>
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', margin: 0 }}>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', margin: 0, whiteSpace: 'nowrap' }}>
                   <input
                     type="checkbox"
+                    style={{ width: 'auto', margin: 0 }}
                     checked={allVisibleSelected}
                     onChange={(ev) => {
                       if (ev.target.checked) {
@@ -3955,7 +4249,7 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                       }
                     }}
                   />
-                  Alle auswählen ({selectedDocIds.length})
+                  <span>Alle auswählen ({selectedDocIds.length})</span>
                 </label>
 
                 <input
