@@ -73,6 +73,22 @@ def create_catalog_item(
     return {"id": item.id, "item_name": item.item_name, "sku": item.sku}
 
 
+@router.delete("/catalog/{catalog_id}")
+def delete_catalog_item(
+    catalog_id: str,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    if get_effective_tier(current_user) > 2:
+        raise HTTPException(status_code=403, detail="Only Super Admin or Project Manager can delete catalog items.")
+    item = db.query(models.SalesCatalog).filter(models.SalesCatalog.id == catalog_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Catalog item not found")
+    db.delete(item)
+    db.commit()
+    return {"status": "deleted", "id": catalog_id}
+
+
 @router.post("/transaction")
 def process_field_sale_transaction(
     payload: schemas.FieldSaleCreate,

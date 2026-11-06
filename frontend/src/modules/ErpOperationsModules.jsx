@@ -8,7 +8,7 @@ import {
 import { fetchWithToken, uploadMediaFile, resolveMediaUrl, API_URL, getToken, formatEuro, formatDate, formatDateTime, formatDateRange } from '../core/api';
 import { TASK_STATUS_CONFIG } from '../core/i18n';
 import { useParams, useNavigate } from 'react-router-dom';
-import { PageHead, SubTabs, useQuickAction, Empty, downloadCsv } from '../components/ui';
+import { PageHead, SubTabs, useQuickAction, Empty, downloadCsv, confirmDelete } from '../components/ui';
 import { BarChart } from './LegacyModules';
 
 // ==============================================================================
@@ -272,7 +272,12 @@ export const InventoryLedgerModule = () => {
   };
 
   const handleDeleteMaterial = async (mat) => {
-    if (!window.confirm(`Artikel "${mat.name} (${mat.sku})" wirklich unwiderruflich löschen?`)) return;
+    const ok = await confirmDelete({
+      title: 'Artikel (SKU) löschen?',
+      message: 'Sind Sie sicher, dass Sie diesen Artikel unwiderruflich aus dem Katalog löschen möchten?',
+      itemName: `${mat.name} (${mat.sku})`,
+    });
+    if (!ok) return;
     try {
       await fetchWithToken(`/api/v1/inventory/materials/${mat.id}`, { method: 'DELETE' });
       loadAll();
@@ -342,7 +347,12 @@ export const InventoryLedgerModule = () => {
   };
 
   const handleDeleteLager = async (lg) => {
-    if (!window.confirm(`Lager "${lg.name}" inklusive Bestandsbuchungen wirklich löschen?`)) return;
+    const ok = await confirmDelete({
+      title: 'Lagerstandort löschen?',
+      message: 'Sind Sie sicher, dass Sie dieses Lager inklusive aller zugehörigen Bestandsbuchungen unwiderruflich löschen möchten?',
+      itemName: `${lg.name} (${lg.location || 'Lager'})`,
+    });
+    if (!ok) return;
     try {
       await fetchWithToken(`/api/v1/inventory/lagers/${lg.id}`, { method: 'DELETE' });
       loadAll();
@@ -408,7 +418,13 @@ export const InventoryLedgerModule = () => {
   };
 
   const handleDeleteTransaction = async (txId) => {
-    if (!window.confirm('Diese Buchung stornieren / löschen? Der Lagerbestand wird entsprechend zurückgerechnet.')) return;
+    const tx = transactions.find(t => t.id === txId);
+    const ok = await confirmDelete({
+      title: 'Lagerbuchung stornieren / löschen?',
+      message: 'Sind Sie sicher, dass Sie diese Lagerbuchung löschen möchten? Der Lagerbestand wird entsprechend zurückgerechnet.',
+      itemName: tx ? `${tx.material_name} (${tx.quantity > 0 ? `+${tx.quantity}` : tx.quantity} ${tx.unit || ''}) — ${tx.source_lager_name}` : undefined,
+    });
+    if (!ok) return;
     try {
       await fetchWithToken(`/api/v1/inventory/transactions/${txId}`, { method: 'DELETE' });
       loadAll();
@@ -1637,6 +1653,36 @@ export const FleetEquipmentModule = () => {
     }
   };
 
+  const handleDeleteVehicle = async (veh) => {
+    const ok = await confirmDelete({
+      title: 'Fahrzeug löschen?',
+      message: 'Sind Sie sicher, dass Sie dieses Fahrzeug unwiderruflich aus dem Fuhrpark löschen möchten?',
+      itemName: `${veh.plate_number} (${veh.model})`,
+    });
+    if (!ok) return;
+    try {
+      await fetchWithToken(`/api/v1/fleet/vehicles/${veh.id}`, { method: 'DELETE' });
+      loadAll();
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  const handleDeleteEquipment = async (eq) => {
+    const ok = await confirmDelete({
+      title: 'Werkzeug / Gerät löschen?',
+      message: 'Sind Sie sicher, dass Sie dieses Werkzeug / Gerät unwiderruflich löschen möchten?',
+      itemName: `${eq.name} (SN: ${eq.serial_number})`,
+    });
+    if (!ok) return;
+    try {
+      await fetchWithToken(`/api/v1/fleet/equipment/${eq.id}`, { method: 'DELETE' });
+      loadAll();
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
   return (
     <div>
       <PageHead title="Fleet & Equipment" desc="Vehicles act as mobile lagers. High-value tools are held by an employee or a vehicle, never both.">
@@ -1700,7 +1746,18 @@ export const FleetEquipmentModule = () => {
           <div key={v.id} className="glass-panel">
             <div className="flex-between" style={{ marginBottom: '8px' }}>
               <span className="badge" style={{ fontSize: '0.85rem', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '6px' }}><Truck size={14} /> {v.plate_number}</span>
-              <span style={{ fontSize: '0.78rem', color: '#059669' }}>{v.mileage_km.toLocaleString('de-DE')} km</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '0.78rem', color: '#059669' }}>{v.mileage_km.toLocaleString('de-DE')} km</span>
+                <button
+                  type="button"
+                  className="btn-secondary btn-sm"
+                  style={{ padding: '2px 6px', color: '#dc2626', borderColor: '#fecaca' }}
+                  title="Fahrzeug löschen"
+                  onClick={() => handleDeleteVehicle(v)}
+                >
+                  <Trash2 size={12} />
+                </button>
+              </div>
             </div>
             <h4>{v.model}</h4>
             <p style={{ fontSize: '0.8rem', margin: '6px 0' }}>Team Lead: <strong>{v.assigned_team_lead_name}</strong></p>
@@ -1721,6 +1778,7 @@ export const FleetEquipmentModule = () => {
               <th style={{ padding: '10px 8px' }}>Current Exclusive Holder</th>
               <th style={{ padding: '10px 8px' }}>Reassign to Employee</th>
               <th style={{ padding: '10px 8px' }}>Reassign to Vehicle</th>
+              <th style={{ padding: '10px 8px', textAlign: 'right' }}>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -1750,6 +1808,17 @@ export const FleetEquipmentModule = () => {
                     <option value="">— Select Vehicle —</option>
                     {vehicles.map(v => <option key={v.id} value={v.id}>{v.plate_number}</option>)}
                   </select>
+                </td>
+                <td style={{ padding: '10px 8px', textAlign: 'right' }}>
+                  <button
+                    type="button"
+                    className="btn-secondary btn-sm"
+                    style={{ color: '#dc2626', borderColor: '#fecaca' }}
+                    title="Werkzeug löschen"
+                    onClick={() => handleDeleteEquipment(eq)}
+                  >
+                    <Trash2 size={13} />
+                  </button>
                 </td>
               </tr>
             ))}
@@ -2226,7 +2295,13 @@ export const AccountingModule = () => {
   };
 
   const handleDeleteExpense = async (id) => {
-    if (!window.confirm('Möchten Sie diesen Beleg / Ausgabeneintrag wirklich löschen?')) return;
+    const ex = expenses.find(e => e.id === id);
+    const ok = await confirmDelete({
+      title: 'Beleg / Ausgabe löschen?',
+      message: 'Sind Sie sicher, dass Sie diesen Beleg bzw. Ausgabeneintrag unwiderruflich löschen möchten?',
+      itemName: ex ? `${ex.category} — ${ex.merchant || ex.description || 'Ausgabe'} (${formatEuro(ex.amount_gross)} Brutto)` : undefined,
+    });
+    if (!ok) return;
     try {
       await fetchWithToken(`/api/v1/accounting/expenses/${id}`, { method: 'DELETE' });
       loadData();
@@ -2624,6 +2699,21 @@ export const FieldSalesAdminModule = () => {
     }
   };
 
+  const handleDeleteCatalogItem = async (catItem) => {
+    const ok = await confirmDelete({
+      title: 'Hardware-Katalogartikel löschen?',
+      message: 'Sind Sie sicher, dass Sie diesen Hardware-Artikel aus dem Verkaufskatalog entfernen möchten?',
+      itemName: `${catItem.item_name} (SKU: ${catItem.sku})`,
+    });
+    if (!ok) return;
+    try {
+      await fetchWithToken(`/api/v1/sales/catalog/${catItem.id}`, { method: 'DELETE' });
+      loadData();
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
   return (
     <div>
       <PageHead title="Field Sales & Upselling" desc="On-site hardware sales deduct vehicle stock automatically and credit technician commissions (Provision).">
@@ -2671,9 +2761,20 @@ export const FieldSalesAdminModule = () => {
                 <div style={{ fontWeight: 600 }}>{c.item_name}</div>
                 <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>SKU: {c.sku} • Buy: {formatEuro(c.buy_price)}</div>
               </div>
-              <div style={{ textAlign: 'right' }}>
-                <div style={{ fontWeight: 700, color: 'var(--accent)' }}>{formatEuro(c.sell_price)}</div>
-                <div style={{ fontSize: '0.75rem', color: '#059669' }}>Provision: {formatEuro(c.commission_amount)}</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontWeight: 700, color: 'var(--accent)' }}>{formatEuro(c.sell_price)}</div>
+                  <div style={{ fontSize: '0.75rem', color: '#059669' }}>Provision: {formatEuro(c.commission_amount)}</div>
+                </div>
+                <button
+                  type="button"
+                  className="btn-secondary btn-sm"
+                  style={{ color: '#dc2626', borderColor: '#fecaca' }}
+                  title="Katalogartikel löschen"
+                  onClick={() => handleDeleteCatalogItem(c)}
+                >
+                  <Trash2 size={13} />
+                </button>
               </div>
             </div>
           ))}

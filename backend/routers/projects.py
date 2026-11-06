@@ -79,6 +79,25 @@ def create_region(
     return {"id": reg.id, "name": reg.name, "postal_code": reg.postal_code, "city": reg.city}
 
 
+@router.delete("/regions/{region_id}")
+def delete_region(
+    region_id: str,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    if get_effective_tier(current_user) > 2:
+        raise HTTPException(status_code=403, detail="Only Super Admin or Project Manager can delete regions.")
+    reg = db.query(models.Region).filter(models.Region.id == region_id).first()
+    if not reg:
+        raise HTTPException(status_code=404, detail="Region not found")
+    db.query(models.Project).filter(models.Project.region_id == region_id).update({"region_id": None})
+    db.query(models.BuildingObject).filter(models.BuildingObject.region_id == region_id).update({"region_id": None})
+    db.query(models.Assignment).filter(models.Assignment.region_id == region_id).update({"region_id": None})
+    db.delete(reg)
+    db.commit()
+    return {"status": "deleted", "id": region_id}
+
+
 # ==============================================================================
 # PROJECTS (RLS + DELEGATION SCOPED)
 # ==============================================================================
@@ -193,6 +212,27 @@ def update_project(
         proj.region_id = valid_fk_or_none(db, models.Region, payload["region_id"])
     db.commit()
     return {"id": proj.id, "status": proj.status}
+
+
+@router.delete("/projects/{project_id}")
+def delete_project(
+    project_id: str,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    if get_effective_tier(current_user) > 2:
+        raise HTTPException(status_code=403, detail="Unauthorized to delete projects")
+    proj = db.query(models.Project).filter(models.Project.id == project_id).first()
+    if not proj:
+        raise HTTPException(status_code=404, detail="Project not found")
+    db.query(models.BuildingObject).filter(models.BuildingObject.project_id == project_id).update({"project_id": None})
+    db.query(models.Assignment).filter(models.Assignment.project_id == project_id).update({"project_id": None})
+    db.query(models.TimeLog).filter(models.TimeLog.project_id == project_id).update({"project_id": None})
+    db.query(models.Team).filter(models.Team.project_id == project_id).update({"project_id": None})
+    db.delete(proj)
+    db.commit()
+    log_audit(db, "projects", "DELETE", project_id, current_user.email, {"name": proj.name}, None)
+    return {"status": "deleted", "id": project_id}
 
 
 # ==============================================================================
@@ -351,6 +391,24 @@ def update_object_status(
 
     log_audit(db, "objects", "UPDATE", obj.id, current_user.email, {"status": old_status}, {"status": obj.status})
     return {"id": obj.id, "status": obj.status}
+
+
+@router.delete("/objects/{object_id}")
+def delete_building_object(
+    object_id: str,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    if get_effective_tier(current_user) > 3:
+        raise HTTPException(status_code=403, detail="Unauthorized to delete building objects")
+    obj = db.query(models.BuildingObject).filter(models.BuildingObject.id == object_id).first()
+    if not obj:
+        raise HTTPException(status_code=404, detail="Building Object not found")
+    db.query(models.Assignment).filter(models.Assignment.object_id == object_id).update({"object_id": None})
+    db.delete(obj)
+    db.commit()
+    log_audit(db, "objects", "DELETE", object_id, current_user.email, {"address": obj.address}, None)
+    return {"status": "deleted", "id": object_id}
 
 
 # ==============================================================================
@@ -781,6 +839,23 @@ def add_assignment_comment(
     return {"id": item.id, "comment": new_comment, "comments": item.comments, "task_status": item.task_status}
 
 
+@router.delete("/assignments/{assignment_id}")
+def delete_assignment(
+    assignment_id: str,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    if get_effective_tier(current_user) > 4:
+        raise HTTPException(status_code=403, detail="Unauthorized to delete task assignments")
+    item = db.query(models.Assignment).filter(models.Assignment.id == assignment_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Task assignment not found")
+    db.delete(item)
+    db.commit()
+    log_audit(db, "assignments", "DELETE", assignment_id, current_user.email, {"title": item.title}, None)
+    return {"status": "deleted", "id": assignment_id}
+
+
 # ==============================================================================
 # TIME-BOUND DELEGATION (VERTRETUNG - CHAPTER 3.2)
 # ==============================================================================
@@ -833,3 +908,19 @@ def create_delegation(
     db.refresh(d)
     log_audit(db, "delegation", "INSERT", d.id, current_user.email, None, {"delegator": d.delegator_id, "delegatee": d.delegatee_id})
     return {"id": d.id, "status": "active"}
+
+
+@router.delete("/delegations/{delegation_id}")
+def delete_delegation(
+    delegation_id: str,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    if get_effective_tier(current_user) > 2:
+        raise HTTPException(status_code=403, detail="Unauthorized to delete delegations")
+    d = db.query(models.Delegation).filter(models.Delegation.id == delegation_id).first()
+    if not d:
+        raise HTTPException(status_code=404, detail="Delegation not found")
+    db.delete(d)
+    db.commit()
+    return {"status": "deleted", "id": delegation_id}

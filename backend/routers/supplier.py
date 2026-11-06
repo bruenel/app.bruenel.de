@@ -142,3 +142,18 @@ def trigger_ai_sync(
             
     db.commit()
     return {"message": f"AI Extractor finished. Found {added_count} new suppliers, updated {updated_count} existing."}
+
+
+@router.delete("/{supplier_id}")
+def delete_supplier(
+    supplier_id: str,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    sup = db.query(models.SupplierMatrix).filter(models.SupplierMatrix.id == supplier_id).first()
+    if not sup:
+        raise HTTPException(status_code=404, detail="Supplier not found")
+    check_kst_access(current_user, sup.kst)
+    db.delete(sup)
+    db.commit()
+    return {"status": "deleted", "id": supplier_id}

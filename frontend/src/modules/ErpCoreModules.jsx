@@ -10,7 +10,7 @@ import {
 import { fetchWithToken, uploadMediaFile, resolveMediaUrl, TIER_LABELS, formatEuro, formatDate, formatDateTime, formatDateRange } from '../core/api';
 import { TASK_STATUS_CONFIG, getStatusStyle } from '../core/i18n';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { PageHead, SubTabs, useQuickAction, Empty, downloadCsv } from '../components/ui';
+import { PageHead, SubTabs, useQuickAction, Empty, downloadCsv, confirmDelete } from '../components/ui';
 
 // ==============================================================================
 // EXECUTIVE COMMAND DASHBOARD (app.bruenel.de Overview)
@@ -865,10 +865,17 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
     });
   };
 
-  const handleRemoveFreelancerContract = (fcId) => {
+  const handleRemoveFreelancerContract = async (fcId) => {
     const existingList = Array.isArray(newEmp.attributes?.freelancer_contracts)
       ? newEmp.attributes.freelancer_contracts
       : [];
+    const target = existingList.find(c => c.id === fcId);
+    const ok = await confirmDelete({
+      title: 'Freelancer-Vertrag löschen?',
+      message: 'Sind Sie sicher, dass Sie diesen Freelancer-/Werkvertrag aus der Akte entfernen möchten?',
+      itemName: target ? `${target.title || 'Vertrag'} (${target.project_name || 'Allgemein'})` : undefined,
+    });
+    if (!ok) return;
     setEmpAttr('freelancer_contracts', existingList.filter(c => c.id !== fcId));
   };
 
@@ -995,7 +1002,13 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
   };
 
   const handleDeleteTimeLog = async (logId) => {
-    if (!window.confirm('Möchten Sie diesen Arbeitszeiteintrag wirklich löschen?')) return;
+    const logItem = timeLogs.find(l => l.id === logId);
+    const ok = await confirmDelete({
+      title: 'Arbeitszeiteintrag löschen?',
+      message: 'Sind Sie sicher, dass Sie diesen Arbeitszeiteintrag unwiderruflich löschen möchten?',
+      itemName: logItem ? `${logItem.employee_name || 'Mitarbeiter'} — ${formatDate(logItem.date)} (${logItem.net_hours ?? 0} Std.)` : undefined,
+    });
+    if (!ok) return;
     try {
       await fetchWithToken(`/api/v1/hr/time-logs/${logId}`, { method: 'DELETE' });
       loadAll();
@@ -1005,7 +1018,12 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
   };
 
   const handleDeleteEmployee = async (empId, empName) => {
-    if (!window.confirm(`Möchten Sie die Personalakte und den Account von "${empName}" wirklich unwiderruflich löschen?`)) return;
+    const ok = await confirmDelete({
+      title: 'Mitarbeiter & Personalakte löschen?',
+      message: `Sind Sie sicher, dass Sie die Personalakte und den Account von "${empName}" unwiderruflich löschen möchten?\n\nAlle zugehörigen Dokumente, Arbeitszeiten und Zugangsdaten werden endgültig entfernt.`,
+      itemName: empName,
+    });
+    if (!ok) return;
     try {
       await fetchWithToken(`/api/v1/hr/employees/${empId}`, { method: 'DELETE' });
       if (editingEmpId === empId) {
@@ -1040,7 +1058,13 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
   };
 
   const handleDeleteLeave = async (leaveId) => {
-    if (!window.confirm('Möchten Sie diesen Urlaubsantrag wirklich löschen?')) return;
+    const lv = leaves.find(l => l.id === leaveId);
+    const ok = await confirmDelete({
+      title: 'Urlaubsantrag löschen?',
+      message: 'Sind Sie sicher, dass Sie diesen Urlaubs-/Abwesenheitseintrag unwiderruflich löschen möchten?',
+      itemName: lv ? `${lv.employee_name || 'Mitarbeiter'} — ${lv.type} (${formatDateRange(lv.start_date, lv.end_date)})` : undefined,
+    });
+    if (!ok) return;
     try {
       await fetchWithToken(`/api/v1/hr/leave-requests/${leaveId}`, { method: 'DELETE' });
       loadAll();
@@ -1089,7 +1113,13 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
   };
 
   const handleDeleteSickness = async (sickId) => {
-    if (!window.confirm('Möchten Sie diese Krankmeldung wirklich löschen?')) return;
+    const sk = sickness.find(s => s.id === sickId);
+    const ok = await confirmDelete({
+      title: 'Krankmeldung löschen?',
+      message: 'Sind Sie sicher, dass Sie diese Krankmeldung unwiderruflich löschen möchten?',
+      itemName: sk ? `${sk.employee_name || 'Mitarbeiter'} (${formatDateRange(sk.start_date, sk.end_date)})` : undefined,
+    });
+    if (!ok) return;
     try {
       await fetchWithToken(`/api/v1/hr/sickness/${sickId}`, { method: 'DELETE' });
       loadAll();
@@ -1358,7 +1388,14 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
   };
 
   const handleDeleteEmpDocument = async (docId) => {
-    if (!window.confirm('Möchten Sie dieses Dokument wirklich unwiderruflich löschen?')) return;
+    const allDocs = employees.flatMap(emp => (emp.documents || []).map(d => ({ ...d, empName: emp.full_name })));
+    const foundDoc = allDocs.find(d => d.id === docId) || (newEmp.documents || []).find(d => d.id === docId);
+    const ok = await confirmDelete({
+      title: 'Dokument unwiderruflich löschen?',
+      message: 'Sind Sie sicher, dass Sie dieses Dokument (bzw. diese Lohnabrechnung) endgültig löschen möchten?',
+      itemName: foundDoc ? `${foundDoc.title || foundDoc.file_name}${foundDoc.empName ? ` — ${foundDoc.empName}` : ''}` : undefined,
+    });
+    if (!ok) return;
     try {
       await fetchWithToken(`/api/v1/media/${docId}`, { method: 'DELETE' });
       setNewEmp(prev => ({
@@ -1374,7 +1411,12 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
 
   const handleBulkDeleteDocs = async () => {
     if (!selectedDocIds.length) return;
-    if (!window.confirm(`Möchten Sie die ${selectedDocIds.length} ausgewählten Dokumente wirklich unwiderruflich löschen?`)) return;
+    const ok = await confirmDelete({
+      title: `${selectedDocIds.length} ausgewählte Dokumente löschen?`,
+      message: `Sind Sie sicher, dass Sie die ${selectedDocIds.length} markierten Dokumente unwiderruflich löschen möchten?`,
+      itemName: `${selectedDocIds.length} Dokument(e) markiert`,
+    });
+    if (!ok) return;
     try {
       for (const docId of selectedDocIds) {
         await fetchWithToken(`/api/v1/media/${docId}`, { method: 'DELETE' });
@@ -1504,7 +1546,13 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
   };
 
   const handleDeletePayslip = async (slipId) => {
-    if (!window.confirm('Möchten Sie diese Lohnabrechnung wirklich löschen?')) return;
+    const sl = payslips.find(p => p.id === slipId);
+    const ok = await confirmDelete({
+      title: 'Lohnabrechnung löschen?',
+      message: 'Sind Sie sicher, dass Sie diese Lohnabrechnung unwiderruflich löschen möchten?',
+      itemName: sl ? `${sl.employee_name || 'Mitarbeiter'} (${String(sl.period_month).padStart(2, '0')}/${sl.period_year})` : undefined,
+    });
+    if (!ok) return;
     try {
       await fetchWithToken(`/api/v1/hr/payslips/${slipId}`, { method: 'DELETE' });
       loadAll();
@@ -4790,6 +4838,99 @@ export const ProjectsObjectsModule = () => {
     }
   };
 
+  const handleDeleteProject = async (proj) => {
+    const ok = await confirmDelete({
+      title: 'Projekt löschen?',
+      message: 'Sind Sie sicher, dass Sie dieses Projekt unwiderruflich löschen möchten?',
+      itemName: `${proj.name} (KST ${proj.kst})`,
+    });
+    if (!ok) return;
+    try {
+      await fetchWithToken(`/api/v1/projects/${proj.id}`, { method: 'DELETE' });
+      loadData();
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  const handleDeleteObject = async (obj) => {
+    const ok = await confirmDelete({
+      title: 'Gebäude / Objekt löschen?',
+      message: 'Sind Sie sicher, dass Sie dieses Gebäudeobjekt unwiderruflich löschen möchten?',
+      itemName: `${obj.address} (${obj.units_count} WE)`,
+    });
+    if (!ok) return;
+    try {
+      await fetchWithToken(`/api/v1/objects/${obj.id}`, { method: 'DELETE' });
+      if (selectedObjectMedia?.id === obj.id) setSelectedObjectMedia(null);
+      loadData();
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  const handleDeleteTask = async (task) => {
+    const ok = await confirmDelete({
+      title: 'Aufgabe / Einsatz löschen?',
+      message: 'Sind Sie sicher, dass Sie diese Aufgabe aus dem Kalender unwiderruflich löschen möchten?',
+      itemName: `${task.title} (${formatDate(task.date)})`,
+    });
+    if (!ok) return;
+    try {
+      await fetchWithToken(`/api/v1/assignments/${task.id}`, { method: 'DELETE' });
+      if (selectedTaskDoc?.id === task.id) setSelectedTaskDoc(null);
+      loadData();
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  const handleDeleteTeam = async (tm) => {
+    const ok = await confirmDelete({
+      title: 'Team löschen?',
+      message: 'Sind Sie sicher, dass Sie dieses Einsatzteam unwiderruflich löschen möchten?',
+      itemName: tm.name,
+    });
+    if (!ok) return;
+    try {
+      await fetchWithToken(`/api/v1/teams/${tm.id}`, { method: 'DELETE' });
+      loadData();
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  const handleDeleteDelegation = async (del) => {
+    const ok = await confirmDelete({
+      title: 'Vertretung löschen?',
+      message: 'Sind Sie sicher, dass Sie diese Vertretungsregelung unwiderruflich löschen möchten?',
+      itemName: `${del.delegator_name} → ${del.delegatee_name}`,
+    });
+    if (!ok) return;
+    try {
+      await fetchWithToken(`/api/v1/delegations/${del.id}`, { method: 'DELETE' });
+      loadData();
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  const handleDeleteMediaDoc = async (mediaItem, refreshCallback) => {
+    const ok = await confirmDelete({
+      title: 'Dokument / Datei löschen?',
+      message: 'Sind Sie sicher, dass Sie diese hochgeladene Datei unwiderruflich löschen möchten?',
+      itemName: mediaItem.title || mediaItem.file_name,
+    });
+    if (!ok) return;
+    try {
+      await fetchWithToken(`/api/v1/media/${mediaItem.id}`, { method: 'DELETE' });
+      if (refreshCallback) await refreshCallback();
+      loadData();
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
   const handleUploadObjectMedia = async (e, objectId) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -5003,10 +5144,20 @@ export const ProjectsObjectsModule = () => {
                   onChange={e => handleTaskStatusUpdate(selectedTaskDoc.id, e.target.value)}
                   style={{ width: 'auto', fontWeight: 700 }}
                 >
+                  <option value={selectedTaskDoc.task_status} disabled hidden>{selectedTaskDoc.task_status}</option>
                   {Object.values(TASK_STATUS_CONFIG).map(st => (
                     <option key={st.key} value={st.key}>{st.en}</option>
                   ))}
                 </select>
+                <button
+                  type="button"
+                  className="btn-secondary btn-sm"
+                  style={{ color: '#dc2626', borderColor: '#fecaca' }}
+                  title="Aufgabe löschen"
+                  onClick={() => handleDeleteTask(selectedTaskDoc)}
+                >
+                  <Trash2 size={14} /> Löschen
+                </button>
                 <button className="btn-secondary" onClick={() => setSelectedTaskDoc(null)}><X size={15} /></button>
               </div>
             </div>
@@ -5063,7 +5214,21 @@ export const ProjectsObjectsModule = () => {
                       <div key={m.id} style={{ padding: '10px', borderRadius: '8px', background: 'var(--surface-2)', border: '1px solid var(--border)' }}>
                         <div className="flex-between" style={{ fontSize: '0.75rem', marginBottom: '6px' }}>
                           <strong>{m.file_name}</strong>
-                          <span style={{ color: 'var(--text-muted)' }}>{formatDateTime(m.created_at)}</span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span style={{ color: 'var(--text-muted)' }}>{formatDateTime(m.created_at)}</span>
+                            <button
+                              type="button"
+                              className="btn-secondary btn-sm"
+                              style={{ padding: '2px 6px', color: '#dc2626', borderColor: '#fecaca' }}
+                              title="Datei löschen"
+                              onClick={() => handleDeleteMediaDoc(m, async () => {
+                                const fresh = await fetchWithToken(`/api/v1/assignments/${selectedTaskDoc.id}/documentation`);
+                                setSelectedTaskDoc(fresh);
+                              })}
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
                         </div>
                         {m.mime_type?.startsWith('video') ? (
                           <video controls style={{ width: '100%', borderRadius: '6px', maxHeight: '160px', background: '#000' }} src={resolveMediaUrl(m.url)} />
@@ -5262,7 +5427,21 @@ export const ProjectsObjectsModule = () => {
               ) : (
                 selectedObjectMedia.media.map(m => (
                   <div key={m.id} className="glass-panel" style={{ padding: '12px' }}>
-                    <div style={{ fontWeight: 600, fontSize: '0.85rem', marginBottom: '8px' }}>{m.title}</div>
+                    <div className="flex-between" style={{ marginBottom: '8px' }}>
+                      <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>{m.title}</div>
+                      <button
+                        type="button"
+                        className="btn-secondary btn-sm"
+                        style={{ padding: '2px 6px', color: '#dc2626', borderColor: '#fecaca' }}
+                        title="Datei löschen"
+                        onClick={() => handleDeleteMediaDoc(m, async () => {
+                          const updated = await fetchWithToken(`/api/v1/objects/${selectedObjectMedia.id}`);
+                          setSelectedObjectMedia(updated);
+                        })}
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
                     {m.mime_type?.startsWith('video') ? (
                       <video controls style={{ width: '100%', borderRadius: '8px', maxHeight: '220px', background: '#000' }} src={resolveMediaUrl(m.url)} />
                     ) : m.mime_type?.startsWith('image') ? (
@@ -5292,7 +5471,18 @@ export const ProjectsObjectsModule = () => {
                 <div key={obj.id} className="kanban-card" style={{ cursor: 'default' }}>
                   <div className="flex-between" style={{ marginBottom: '6px' }}>
                     <span className="badge" style={{ fontSize: '0.7rem' }}>{obj.units_count} WE</span>
-                    <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{obj.region_name}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{obj.region_name}</span>
+                      <button
+                        type="button"
+                        className="btn-secondary btn-sm"
+                        style={{ padding: '2px 5px', color: '#dc2626', borderColor: '#fecaca' }}
+                        title="Gebäude löschen"
+                        onClick={() => handleDeleteObject(obj)}
+                      >
+                        <Trash2 size={11} />
+                      </button>
+                    </div>
                   </div>
                   <h4 style={{ fontSize: '0.9rem', marginBottom: '4px' }}>{obj.address}</h4>
                   <p style={{ fontSize: '0.75rem', margin: '4px 0' }}>{obj.cabling_type}</p>
@@ -5526,9 +5716,20 @@ export const ProjectsObjectsModule = () => {
                           </select>
                         </td>
                         <td style={{ padding: '10px 8px' }}>
-                          <button className="btn-secondary btn-sm" onClick={() => setSelectedTaskDoc(a)}>
-                            <MessageSquare size={13} /> {(a.comments || []).length} • <Video size={13} /> {a.media_count || 0} Open
-                          </button>
+                          <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                            <button className="btn-secondary btn-sm" onClick={() => setSelectedTaskDoc(a)}>
+                              <MessageSquare size={13} /> {(a.comments || []).length} • <Video size={13} /> {a.media_count || 0} Open
+                            </button>
+                            <button
+                              type="button"
+                              className="btn-secondary btn-sm"
+                              style={{ color: '#dc2626', borderColor: '#fecaca', padding: '4px 7px' }}
+                              title="Aufgabe löschen"
+                              onClick={() => handleDeleteTask(a)}
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -5589,9 +5790,20 @@ export const ProjectsObjectsModule = () => {
                 <div key={tm.id} style={{ padding: '12px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--surface-2)' }}>
                   <div className="flex-between">
                     <strong>{tm.name}</strong>
-                    <button className="btn-secondary btn-sm" onClick={() => setTeamForm({ id: tm.id, name: tm.name, leader_id: tm.leader_id || '', member_ids: tm.member_ids || [], notes: tm.notes || '' })}>
-                      <Edit3 size={12} /> Edit
-                    </button>
+                    <div style={{ display: 'flex', gap: '6px' }}>
+                      <button className="btn-secondary btn-sm" onClick={() => setTeamForm({ id: tm.id, name: tm.name, leader_id: tm.leader_id || '', member_ids: tm.member_ids || [], notes: tm.notes || '' })}>
+                        <Edit3 size={12} /> Edit
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-secondary btn-sm"
+                        style={{ color: '#dc2626', borderColor: '#fecaca' }}
+                        title="Team löschen"
+                        onClick={() => handleDeleteTeam(tm)}
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
                   </div>
                   <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '4px' }}>
                     Lead: <strong>{tm.leader_name}</strong> • Members: {(tm.members || []).map(m => m.name).join(', ')}
@@ -5628,7 +5840,18 @@ export const ProjectsObjectsModule = () => {
                 <div key={p.id} className="glass-panel">
                   <div className="flex-between" style={{ marginBottom: '8px' }}>
                     <span className="badge">KST {p.kst}</span>
-                    <span className="badge">{p.status}</span>
+                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                      <span className="badge">{p.status}</span>
+                      <button
+                        type="button"
+                        className="btn-secondary btn-sm"
+                        style={{ padding: '2px 6px', color: '#dc2626', borderColor: '#fecaca' }}
+                        title="Projekt löschen"
+                        onClick={() => handleDeleteProject(p)}
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
                   </div>
                   <h3>{p.name}</h3>
                   <p style={{ fontSize: '0.8rem', margin: '6px 0' }}>Client: {p.client_name || 'Internal'}</p>
@@ -5690,6 +5913,7 @@ export const ProjectsObjectsModule = () => {
                 <th style={{ padding: '8px' }}>Start Date</th>
                 <th style={{ padding: '8px' }}>End Date</th>
                 <th style={{ padding: '8px' }}>Status</th>
+                <th style={{ padding: '8px', textAlign: 'right' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -5700,6 +5924,17 @@ export const ProjectsObjectsModule = () => {
                   <td style={{ padding: '8px' }}>{formatDate(d.start_date)}</td>
                   <td style={{ padding: '8px' }}>{formatDate(d.end_date)}</td>
                   <td style={{ padding: '8px' }}><span className="badge">{d.is_active ? 'Active' : 'Expired'}</span></td>
+                  <td style={{ padding: '8px', textAlign: 'right' }}>
+                    <button
+                      type="button"
+                      className="btn-secondary btn-sm"
+                      style={{ color: '#dc2626', borderColor: '#fecaca' }}
+                      title="Vertretung löschen"
+                      onClick={() => handleDeleteDelegation(d)}
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>

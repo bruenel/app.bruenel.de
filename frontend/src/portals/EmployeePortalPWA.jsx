@@ -8,6 +8,7 @@ import {
   LayoutDashboard, Package, Warehouse
 } from 'lucide-react';
 import { fetchWithToken, uploadMediaFile, resolveMediaUrl, formatEuro, formatDate, formatDateTime, formatDateRange } from '../core/api';
+import { confirmDelete } from '../components/ui';
 import { TRANSLATIONS, TASK_STATUS_CONFIG, getStatusStyle } from '../core/i18n';
 
 const fmtTimeInput = (isoStr) => {
@@ -606,6 +607,11 @@ export const EmployeePortalPWA = ({ user, logout, onSwitchToManagement }) => {
   };
 
   const handleDeleteTimeLog = async (logId) => {
+    const ok = await confirmDelete({
+      title: 'Arbeitszeiteintrag löschen?',
+      message: 'Sind Sie sicher, dass Sie diesen Arbeitszeiteintrag unwiderruflich löschen möchten?',
+    });
+    if (!ok) return;
     try {
       await fetchWithToken(`/api/v1/hr/time-logs/${logId}`, {
         method: 'DELETE',

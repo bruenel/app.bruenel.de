@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, ChevronRight, Users, ShieldCheck, CheckSquare } from 'lucide-react';
+import { Plus, ChevronRight, Users, ShieldCheck, CheckSquare, Trash2 } from 'lucide-react';
 import { fetchWithToken, MODULE_CATALOG, TIER_LABELS } from '../core/api';
 import { useParams } from 'react-router-dom';
+import { confirmDelete } from '../components/ui';
 
 export const SupplierMatrix = () => {
   const [data, setData] = useState([]);
@@ -30,6 +31,21 @@ export const SupplierMatrix = () => {
       loadSuppliers();
     } catch (err) {
       alert("Failed to add supplier: " + err.message);
+    }
+  };
+
+  const handleDeleteSupplier = async (sup) => {
+    const ok = await confirmDelete({
+      title: 'Lieferant löschen?',
+      message: 'Sind Sie sicher, dass Sie diesen Lieferanten unwiderruflich löschen möchten?',
+      itemName: `${sup.supplier_name} (KST ${sup.kst})`,
+    });
+    if (!ok) return;
+    try {
+      await fetchWithToken(`/api/supplier/${sup.id}`, { method: 'DELETE' });
+      loadSuppliers();
+    } catch (err) {
+      alert("Failed to delete supplier: " + err.message);
     }
   };
 
@@ -82,7 +98,18 @@ export const SupplierMatrix = () => {
               )}
               {data.filter(d => (d.status === col || (col === 'Samples Request' && d.status === 'Samples'))).map((item) => (
                 <div key={item.id} className="kanban-card">
-                  <div className="badge" style={{ marginBottom: '8px' }}>KST {item.kst}</div>
+                  <div className="flex-between" style={{ marginBottom: '8px' }}>
+                    <div className="badge">KST {item.kst}</div>
+                    <button
+                      type="button"
+                      className="btn-secondary btn-sm"
+                      style={{ padding: '2px 6px', color: '#dc2626', borderColor: '#fecaca' }}
+                      title="Lieferant löschen"
+                      onClick={() => handleDeleteSupplier(item)}
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
                   <h4>{item.supplier_name}</h4>
                   <div className="flex-between" style={{ marginTop: '16px', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
                     <span>{item.pricing || 'TBD'}</span>
@@ -281,6 +308,21 @@ export const LegalVault = () => {
     }
   };
 
+  const handleDeleteVaultDoc = async (doc) => {
+    const ok = await confirmDelete({
+      title: 'Vault-Dokument löschen?',
+      message: 'Sind Sie sicher, dass Sie dieses verschlüsselte Dokument unwiderruflich aus dem Archiv löschen möchten?',
+      itemName: `${doc.title} (KST ${doc.kst})`,
+    });
+    if (!ok) return;
+    try {
+      await fetchWithToken(`/api/vault/${doc.id}`, { method: 'DELETE' });
+      loadDocs();
+    } catch (err) {
+      alert("Delete failed: " + err.message);
+    }
+  };
+
   const groups = section && section !== 'all' ? [section] : ['Notary', 'HRB', 'Invoices'];
 
   return (
@@ -328,8 +370,17 @@ export const LegalVault = () => {
                 {count > 0 && (
                   <div style={{marginTop: '16px', background: 'var(--surface-2)', padding: '8px', borderRadius: '8px'}}>
                     {docs.filter(d => d.folder === g).map(d => (
-                      <div key={d.id} style={{fontSize: '0.8rem', padding: '4px 0', borderBottom: '1px solid var(--border)'}}>
-                        📄 {d.title} (KST {d.kst})
+                      <div key={d.id} className="flex-between" style={{fontSize: '0.8rem', padding: '5px 0', borderBottom: '1px solid var(--border)'}}>
+                        <span>📄 {d.title} (KST {d.kst})</span>
+                        <button
+                          type="button"
+                          className="btn-secondary btn-sm"
+                          style={{ padding: '2px 6px', color: '#dc2626', borderColor: '#fecaca' }}
+                          title="Dokument löschen"
+                          onClick={() => handleDeleteVaultDoc(d)}
+                        >
+                          <Trash2 size={11} />
+                        </button>
                       </div>
                     ))}
                   </div>
@@ -686,7 +737,13 @@ export const UserManagement = () => {
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm("Delete this user account?")) return;
+    const targetUser = users.find(u => u.id === id);
+    const ok = await confirmDelete({
+      title: 'Benutzerkonto löschen?',
+      message: 'Sind Sie sicher, dass Sie dieses Benutzerkonto unwiderruflich löschen möchten?',
+      itemName: targetUser ? `${targetUser.email} (${targetUser.role})` : undefined,
+    });
+    if (!ok) return;
     try {
       await fetchWithToken(`/api/auth/users/${id}`, { method: 'DELETE' });
       loadUsers();

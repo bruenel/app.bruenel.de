@@ -61,3 +61,24 @@ def list_documents(kst: int = None, db: Session = Depends(database.get_db), curr
         query = query.filter(models.LegalDocument.kst.in_(current_user.allowed_kst or []))
         
     return query.all()
+
+
+@router.delete("/{doc_id}")
+def delete_vault_document(
+    doc_id: str,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    if current_user.role == models.RoleEnum.MITARBEITER:
+        raise HTTPException(status_code=403, detail="Unauthorized to delete vault documents")
+    doc = db.query(models.LegalDocument).filter(models.LegalDocument.id == doc_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Vault document not found")
+    if doc.file_path and os.path.exists(doc.file_path):
+        try:
+            os.remove(doc.file_path)
+        except Exception:
+            pass
+    db.delete(doc)
+    db.commit()
+    return {"status": "deleted", "id": doc_id}

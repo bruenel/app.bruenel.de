@@ -70,6 +70,25 @@ def create_vehicle(
     return {"id": v.id, "plate_number": v.plate_number, "model": v.model}
 
 
+@router.delete("/vehicles/{vehicle_id}")
+def delete_vehicle(
+    vehicle_id: str,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    if get_effective_tier(current_user) > 3:
+        raise HTTPException(status_code=403, detail="Unauthorized to delete fleet vehicles")
+    v = db.query(models.Vehicle).filter(models.Vehicle.id == vehicle_id).first()
+    if not v:
+        raise HTTPException(status_code=404, detail="Vehicle not found")
+    db.query(models.Equipment).filter(models.Equipment.assigned_vehicle_id == vehicle_id).update({"assigned_vehicle_id": None})
+    db.query(models.Expense).filter(models.Expense.vehicle_id == vehicle_id).update({"vehicle_id": None})
+    db.delete(v)
+    db.commit()
+    log_audit(db, "vehicles", "DELETE", vehicle_id, current_user.email, {"plate": v.plate_number}, None)
+    return {"status": "deleted", "id": vehicle_id}
+
+
 @router.get("/equipment")
 def list_equipment(
     db: Session = Depends(database.get_db),
@@ -159,3 +178,20 @@ def assign_equipment_exclusive(
     db.commit()
     log_audit(db, "equipment", "UPDATE_ASSIGNMENT", eq.id, current_user.email, old_holder, {"employee": eq.assigned_employee_id, "vehicle": eq.assigned_vehicle_id})
     return {"id": eq.id, "assigned_employee_id": eq.assigned_employee_id, "assigned_vehicle_id": eq.assigned_vehicle_id}
+
+
+@router.delete("/equipment/{equipment_id}")
+def delete_equipment(
+    equipment_id: str,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    if get_effective_tier(current_user) > 3:
+        raise HTTPException(status_code=403, detail="Unauthorized to delete equipment")
+    eq = db.query(models.Equipment).filter(models.Equipment.id == equipment_id).first()
+    if not eq:
+        raise HTTPException(status_code=404, detail="Equipment not found")
+    db.delete(eq)
+    db.commit()
+    log_audit(db, "equipment", "DELETE", equipment_id, current_user.email, {"name": eq.name, "serial": eq.serial_number}, None)
+    return {"status": "deleted", "id": equipment_id}
