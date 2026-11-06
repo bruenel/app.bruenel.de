@@ -134,7 +134,7 @@ label { font-size: 12px; font-weight: 500; color: var(--text-muted); }
 }
 .sidebar.collapsed { width: var(--sidebar-w-collapsed); }
 
-.brand { display: flex; align-items: center; gap: 12px; padding: 4px 8px 16px; }
+.brand { display: flex; align-items: center; gap: 12px; padding: 4px 8px 16px; position: relative; }
 .brand-mark {
   width: 36px; height: 36px; flex-shrink: 0; border-radius: var(--r-md);
   background: linear-gradient(135deg, #ff8a3d, var(--accent)); color: #fff;
@@ -145,6 +145,35 @@ label { font-size: 12px; font-weight: 500; color: var(--text-muted); }
 .brand-text span { font-size: 12px; color: var(--text-muted); }
 .sidebar.collapsed .brand-text, .sidebar.collapsed .nav-label, .sidebar.collapsed .nav-chevron,
 .sidebar.collapsed .nav-section-title, .sidebar.collapsed .sidebar-foot-text { display: none; }
+
+.sidebar-mobile-close {
+  display: none;
+  margin-left: auto;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-sm);
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all var(--t-fast);
+}
+.sidebar-mobile-close:hover {
+  background: var(--surface-2);
+  color: var(--text-main);
+}
+
+.sidebar-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  z-index: 90;
+  animation: fadeIn 0.2s ease;
+}
 
 .nav-section-title { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #9a9aa6; padding: 12px 12px 4px; }
 
@@ -193,9 +222,34 @@ label { font-size: 12px; font-weight: 500; color: var(--text-muted); }
   backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
   border-bottom: 1px solid var(--border);
 }
+.topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  flex: 1;
+}
+.mobile-nav-toggle {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text-main);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background var(--t-fast), border-color var(--t-fast);
+}
+.mobile-nav-toggle:hover {
+  background: var(--surface-2);
+  border-color: var(--border-strong);
+}
 .crumbs { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-muted); min-width: 0; }
 .crumbs strong { color: var(--text-main); font-weight: 600; }
-.topbar-actions { display: flex; align-items: center; gap: 8px; }
+.topbar-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .search-trigger {
   display: flex; align-items: center; gap: 8px; width: 280px; padding: 8px 12px;
   background: var(--surface-2); border: 1px solid transparent; border-radius: var(--r-md);
@@ -211,7 +265,7 @@ label { font-size: 12px; font-weight: 500; color: var(--text-muted); }
 /* popover menus (glass) */
 .popover-wrap { position: relative; }
 .popover {
-  position: absolute; right: 0; top: calc(100% + 8px); min-width: 240px; padding: 8px; z-index: 60;
+  position: absolute; right: 0; top: calc(100% + 8px); min-width: 240px; max-width: calc(100vw - 24px); box-sizing: border-box; padding: 8px; z-index: 60;
   background: var(--glass-bg); backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
   border: 1px solid var(--border); border-radius: var(--r-md); box-shadow: var(--shadow-lg);
   animation: popIn var(--t-fast) var(--ease); transform-origin: top right;
@@ -257,10 +311,13 @@ label { font-size: 12px; font-weight: 500; color: var(--text-muted); }
   gap: 0;
   border-bottom: 2px solid var(--border);
   background: #f1f3f5;
-  padding: 0 20px;
+  padding: 0 16px;
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
   flex-shrink: 0;
 }
+.finder-tabs::-webkit-scrollbar { display: none; }
 .finder-tab {
   position: relative;
   padding: 9px 16px 10px;
@@ -375,8 +432,246 @@ tbody tr:hover { background: #fafafc; }
 .login-wrap { min-height: 100vh; display: grid; place-items: center; padding: 24px;
   background: radial-gradient(900px 500px at 85% -10%, rgba(255, 107, 0, 0.14), transparent 60%), radial-gradient(700px 400px at -10% 110%, rgba(255, 107, 0, 0.08), transparent 60%), var(--bg-color); }
 
-@media (max-width: 1100px) { .search-trigger { width: 44px; } .search-trigger span, .search-trigger .kbd { display: none; } .grid-cols-3 { grid-template-columns: 1fr 1fr; } }
-@media (max-width: 800px) { .sidebar { position: fixed; z-index: 70; } .sidebar:not(.collapsed) { box-shadow: var(--shadow-lg); } .grid-cols-3 { grid-template-columns: 1fr; } .main-content { padding: 16px; } }
+/* =============================================================================
+   RESPONSIVE DESIGN SYSTEM — Mobile Smartphones (<768px) & iPad/Tablets (768px-1024px)
+   ============================================================================= */
+
+/* Auto-scroll containers for tables */
+.glass-panel:has(table),
+.table-wrap,
+.table-responsive {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ── iPad & Tablet Optimization (<= 1024px) ────────────────────────────────── */
+@media (max-width: 1024px) {
+  .mobile-nav-toggle {
+    display: inline-flex;
+  }
+  .sidebar-mobile-close {
+    display: inline-flex;
+  }
+  .desktop-only-action {
+    display: none !important;
+  }
+
+  /* Sidebar becomes a sleek off-canvas drawer */
+  .sidebar {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    height: 100vh;
+    height: 100dvh;
+    z-index: 95;
+    width: min(300px, 86vw) !important;
+    background: #ffffff;
+    border-right: 1px solid var(--border);
+    box-shadow: none;
+    transform: translateX(-100%);
+    transition: transform 0.26s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.26s;
+  }
+  .sidebar.mobile-open {
+    transform: translateX(0);
+    box-shadow: 0 16px 48px rgba(15, 23, 42, 0.24);
+  }
+  /* Inside mobile drawer, always expand nav labels even if previously collapsed on desktop */
+  .sidebar.collapsed {
+    width: min(300px, 86vw) !important;
+  }
+  .sidebar.collapsed .brand-text,
+  .sidebar.collapsed .nav-label,
+  .sidebar.collapsed .nav-chevron,
+  .sidebar.collapsed .nav-section-title,
+  .sidebar.collapsed .sidebar-foot-text {
+    display: initial;
+  }
+  .sidebar.collapsed .nav-sub {
+    display: grid;
+  }
+
+  /* Topbar iPad optimizations */
+  .topbar {
+    padding: 0 16px;
+    height: 58px;
+  }
+  .search-trigger {
+    width: 38px;
+    height: 38px;
+    padding: 0;
+    justify-content: center;
+  }
+  .search-trigger span,
+  .search-trigger .kbd {
+    display: none;
+  }
+
+  /* Content area full width for maximum workspace on iPad */
+  .main-shell {
+    width: 100%;
+    min-width: 0;
+  }
+  .main-content {
+    padding: 16px;
+    gap: 16px;
+  }
+
+  /* KPI cards: 2 columns on tablet portrait / small landscape */
+  .grid-cols-3 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  div:has(> .kpi) {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  /* Two-column side-by-side split panels stack on tablet portrait */
+  @media (max-width: 900px) {
+    .main-content > div > div[style*="1.3fr 1fr"],
+    .main-content > div > div[style*="1.5fr 1fr"],
+    .main-content > div > div[style*="1.4fr 1fr"] {
+      grid-template-columns: 1fr !important;
+    }
+  }
+}
+
+/* ── Smartphone & Small Mobile Devices (<= 768px) ───────────────────────────── */
+@media (max-width: 768px) {
+  .topbar {
+    padding: 0 12px;
+    height: 52px;
+    gap: 8px;
+  }
+  .topbar-actions {
+    gap: 6px;
+  }
+  .topbar-timenet-btn .timenet-btn-text {
+    display: none;
+  }
+  .topbar-timenet-btn {
+    padding: 7px 8px !important;
+  }
+  .topbar-create-btn {
+    padding: 8px 10px;
+  }
+  .topbar-create-btn .create-btn-label {
+    display: none;
+  }
+  .crumb-root,
+  .crumb-parent,
+  .crumb-sep:not(:last-of-type) {
+    display: none;
+  }
+  .crumb-active {
+    font-size: 13.5px;
+    max-width: 130px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: inline-block;
+  }
+
+  .main-content {
+    padding: 12px;
+    gap: 14px;
+  }
+  .page-head {
+    gap: 10px;
+  }
+  .page-head h2 {
+    font-size: 1.25rem;
+  }
+  .page-actions {
+    width: 100%;
+  }
+  .page-actions .btn-primary,
+  .page-actions .btn-secondary {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+
+  /* Filter toolbars stack cleanly */
+  .toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .toolbar input,
+  .toolbar select,
+  .toolbar button {
+    width: 100%;
+    min-width: 0;
+  }
+
+  /* Single column grids on mobile */
+  .grid-cols-3 {
+    grid-template-columns: 1fr;
+  }
+  div:has(> .kpi) {
+    grid-template-columns: 1fr !important;
+  }
+  .main-content > div > div[style*="grid-template-columns"],
+  .main-content > div > div[style*="gridTemplateColumns"] {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Form grids collapse to single column */
+  .modal-overlay .glass-panel form div[style*="display: grid"],
+  .modal-overlay .glass-panel form div[style*="display:grid"],
+  .glass-panel form div[style*="grid-template-columns: 1fr 1fr 1fr"],
+  .glass-panel form div[style*="gridTemplateColumns: '1fr 1fr 1fr'"],
+  .glass-panel form div[style*="grid-template-columns: 1fr 1fr"],
+  .glass-panel form div[style*="gridTemplateColumns: '1fr 1fr'"] {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Modals: fit viewport without overflowing */
+  .modal-overlay {
+    padding: 8px;
+    align-items: flex-end;
+  }
+  @media (min-height: 560px) {
+    .modal-overlay {
+      align-items: center;
+    }
+  }
+  .modal-overlay > .glass-panel {
+    padding: 14px;
+    max-height: calc(100vh - 16px);
+    width: 100% !important;
+    border-radius: var(--r-md);
+  }
+  .palette {
+    width: calc(100vw - 20px) !important;
+  }
+
+  /* Tables maintain readable column widths and scroll smoothly horizontally */
+  .glass-panel table:not(.no-min-width) {
+    min-width: 580px;
+  }
+}
+
+/* ── Apple & Android Touch Target Optimization ──────────────────────────────── */
+@media (pointer: coarse) {
+  .nav-item, .nav-group-header, .nav-sub-link {
+    min-height: 42px;
+  }
+  .btn-primary, .btn-secondary, .btn-ghost, .btn-danger {
+    min-height: 40px;
+  }
+  .subtab {
+    min-height: 38px;
+    display: inline-flex;
+    align-items: center;
+  }
+  input, select, textarea {
+    min-height: 40px;
+  }
+  .finder-tab {
+    min-height: 42px;
+  }
+}
 
 /* =============================================================================
    EMPLOYEE PORTAL — NEOMORPHISM (light only, compact mobile-first field app)

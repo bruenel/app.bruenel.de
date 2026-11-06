@@ -13,7 +13,7 @@ import {
   LayoutDashboard, Building2, Users, Package, Truck, Calendar, Receipt, ShoppingBag,
   Briefcase, Mail, Lock, BarChart as BarChartIcon, Settings, ShieldCheck, LogOut,
   Smartphone, ChevronRight, ChevronsLeft, ChevronsRight, Search, Plus, Bell,
-  UserPlus, ClipboardList, ArrowRightLeft, FilePlus2, CornerDownLeft, Clock,
+  UserPlus, ClipboardList, ArrowRightLeft, FilePlus2, CornerDownLeft, Clock, Menu, X,
 } from 'lucide-react';
 
 import { useAuth, TIER_LABELS, fetchWithToken } from './core/api';
@@ -262,6 +262,7 @@ const ManagementLayout = ({ user, logout, onSwitchToPortal, children }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const [collapsed, setCollapsed] = useState(localStorage.getItem('sidebar_collapsed') === '1');
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [openGroups, setOpenGroups] = useState({});
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [menu, setMenu] = useState(null); // 'create' | 'user' | 'bell'
@@ -271,6 +272,11 @@ const ManagementLayout = ({ user, logout, onSwitchToPortal, children }) => {
 
   // force light enterprise theme for management
   useEffect(() => { document.documentElement.removeAttribute('data-theme'); }, []);
+
+  // auto-close mobile drawer on route navigation
+  useEffect(() => {
+    setMobileNavOpen(false);
+  }, [location.pathname]);
 
   const hasMod = (modKey) => {
     if (!modKey) return true;
@@ -309,7 +315,7 @@ const ManagementLayout = ({ user, logout, onSwitchToPortal, children }) => {
     };
     const onKey = (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); setPaletteOpen((p) => !p); }
-      if (e.key === 'Escape') { setPaletteOpen(false); setMenu(null); closeTopModal(); }
+      if (e.key === 'Escape') { setPaletteOpen(false); setMenu(null); closeTopModal(); setMobileNavOpen(false); }
     };
     const onDown = (e) => {
       if (e.target.classList && e.target.classList.contains('modal-overlay') && !e.target.querySelector('.palette')) {
@@ -338,7 +344,7 @@ const ManagementLayout = ({ user, logout, onSwitchToPortal, children }) => {
   }, [user]);
 
   const go = (item) => {
-    setPaletteOpen(false); setMenu(null);
+    setPaletteOpen(false); setMenu(null); setMobileNavOpen(false);
     if (item.href) {
       window.open(item.href, '_blank', 'noopener,noreferrer');
       return;
@@ -362,12 +368,33 @@ const ManagementLayout = ({ user, logout, onSwitchToPortal, children }) => {
 
   const initials = user.email.slice(0, 2).toUpperCase();
 
+  const handleNavClose = () => {
+    setMobileNavOpen(false);
+  };
+
   return (
     <div className="app-container">
-      <nav className={`sidebar ${collapsed ? 'collapsed' : ''}`}>
+      {/* Mobile & Tablet Drawer Backdrop */}
+      {mobileNavOpen && (
+        <div
+          className="sidebar-backdrop"
+          onClick={() => setMobileNavOpen(false)}
+          aria-label="Close navigation"
+        />
+      )}
+
+      <nav className={`sidebar ${collapsed ? 'collapsed' : ''} ${mobileNavOpen ? 'mobile-open' : ''}`}>
         <div className="brand">
           <div className="brand-mark">B</div>
           <div className="brand-text"><strong>Brünel OS</strong><span>app.bruenel.de</span></div>
+          <button
+            type="button"
+            className="sidebar-mobile-close"
+            onClick={() => setMobileNavOpen(false)}
+            aria-label="Close menu"
+          >
+            <X size={18} />
+          </button>
         </div>
 
         {compactNav.map((n, i) => {
@@ -376,7 +403,14 @@ const ManagementLayout = ({ user, logout, onSwitchToPortal, children }) => {
           const active = isActiveItem(n);
           if (!n.children) {
             return (
-              <NavLink key={n.id} to={n.to} end={n.to === '/'} className={`nav-item ${active ? 'active' : ''}`} title={collapsed ? n.label : undefined}>
+              <NavLink
+                key={n.id}
+                to={n.to}
+                end={n.to === '/'}
+                className={`nav-item ${active ? 'active' : ''}`}
+                title={collapsed ? n.label : undefined}
+                onClick={handleNavClose}
+              >
                 <Icon size={18} /><span className="nav-label">{n.label}</span>
               </NavLink>
             );
@@ -388,7 +422,7 @@ const ManagementLayout = ({ user, logout, onSwitchToPortal, children }) => {
                 className={`nav-group-header ${active ? 'active' : ''}`}
                 title={collapsed ? n.label : undefined}
                 onClick={() => {
-                  if (collapsed) { setCollapsed(false); setOpenGroups((g) => ({ ...g, [n.id]: true })); navigate(n.children[0].to); return; }
+                  if (collapsed) { setCollapsed(false); setOpenGroups((g) => ({ ...g, [n.id]: true })); navigate(n.children[0].to); handleNavClose(); return; }
                   setOpenGroups((g) => ({ ...g, [n.id]: !g[n.id] }));
                 }}
               >
@@ -398,7 +432,12 @@ const ManagementLayout = ({ user, logout, onSwitchToPortal, children }) => {
               <div className="nav-sub">
                 <div className="nav-sub-inner">
                   {n.children.map((c) => (
-                    <NavLink key={c.to} to={c.to} className={({ isActive }) => `nav-sub-link ${isActive ? 'active' : ''}`}>
+                    <NavLink
+                      key={c.to}
+                      to={c.to}
+                      className={({ isActive }) => `nav-sub-link ${isActive ? 'active' : ''}`}
+                      onClick={handleNavClose}
+                    >
                       <span className="dot" />{c.label}
                     </NavLink>
                   ))}
@@ -416,13 +455,18 @@ const ManagementLayout = ({ user, logout, onSwitchToPortal, children }) => {
             className="nav-item"
             title="Arbeitszeiten erfassen & Aufgabenverwaltung"
             style={{ textDecoration: 'none' }}
+            onClick={handleNavClose}
           >
             <Clock size={18} style={{ color: '#FF0055' }} /><span className="nav-label" style={{ fontWeight: 700 }}>Arbeitszeiten erfassen</span>
           </a>
-          <button className="nav-item" onClick={onSwitchToPortal} title="Open employee portal">
+          <button
+            className="nav-item"
+            onClick={() => { onSwitchToPortal(); handleNavClose(); }}
+            title="Open employee portal"
+          >
             <Smartphone size={18} /><span className="nav-label">Employee Portal</span>
           </button>
-          <button className="nav-item" onClick={() => setCollapsed((c) => !c)}>
+          <button className="nav-item desktop-only-action" onClick={() => setCollapsed((c) => !c)}>
             {collapsed ? <ChevronsRight size={18} /> : <ChevronsLeft size={18} />}<span className="nav-label">Collapse sidebar</span>
           </button>
         </div>
@@ -430,9 +474,25 @@ const ManagementLayout = ({ user, logout, onSwitchToPortal, children }) => {
 
       <div className="main-shell">
         <header className="topbar">
-          <div className="crumbs">
-            <span>Brünel OS</span>
-            {crumbs.map((c, i) => (<React.Fragment key={c}><ChevronRight size={14} />{i === crumbs.length - 1 ? <strong>{c}</strong> : <span>{c}</span>}</React.Fragment>))}
+          <div className="topbar-left">
+            <button
+              type="button"
+              className="mobile-nav-toggle"
+              onClick={() => setMobileNavOpen((o) => !o)}
+              aria-label="Toggle navigation drawer"
+              title="Navigation Menu"
+            >
+              <Menu size={20} />
+            </button>
+            <div className="crumbs">
+              <span className="crumb-root">Brünel OS</span>
+              {crumbs.map((c, i) => (
+                <React.Fragment key={c}>
+                  <ChevronRight size={14} className="crumb-sep" />
+                  {i === crumbs.length - 1 ? <strong className="crumb-active">{c}</strong> : <span className="crumb-parent">{c}</span>}
+                </React.Fragment>
+              ))}
+            </div>
           </div>
 
           <div className="topbar-actions" ref={menuRef}>
@@ -440,7 +500,7 @@ const ManagementLayout = ({ user, logout, onSwitchToPortal, children }) => {
               href="https://www.bruenel.de/timenet"
               target="_blank"
               rel="noopener noreferrer"
-              className="btn-secondary"
+              className="btn-secondary topbar-timenet-btn"
               title="Zur Arbeitszeiterfassung (bruenel.de/timenet) weiterleiten"
               style={{
                 display: 'inline-flex',
@@ -457,15 +517,17 @@ const ManagementLayout = ({ user, logout, onSwitchToPortal, children }) => {
               }}
             >
               <Clock size={14} style={{ color: '#FF0055' }} />
-              <span>Arbeitszeiten erfassen</span>
+              <span className="timenet-btn-text">Arbeitszeiten erfassen</span>
             </a>
 
-            <button className="search-trigger" onClick={() => setPaletteOpen(true)}>
+            <button className="search-trigger" onClick={() => setPaletteOpen(true)} title="Search or jump to… (⌘K)">
               <Search size={16} /><span>Search or jump to…</span><span className="kbd">⌘K</span>
             </button>
 
             <div className="popover-wrap">
-              <button className="btn-primary" onClick={() => setMenu(menu === 'create' ? null : 'create')}><Plus size={16} />Create</button>
+              <button className="btn-primary topbar-create-btn" onClick={() => setMenu(menu === 'create' ? null : 'create')} title="Quick actions">
+                <Plus size={16} /><span className="create-btn-label">Create</span>
+              </button>
               {menu === 'create' && (
                 <div className="popover">
                   <div className="popover-label">Quick actions</div>
@@ -498,7 +560,7 @@ const ManagementLayout = ({ user, logout, onSwitchToPortal, children }) => {
                   </div>
                   <hr />
                   <Link to="/settings" className="popover-item" style={{ textDecoration: 'none' }} onClick={() => setMenu(null)}><Settings size={16} />Account settings</Link>
-                  <button className="popover-item" onClick={onSwitchToPortal}><Smartphone size={16} />Open employee portal</button>
+                  <button className="popover-item" onClick={() => { onSwitchToPortal(); setMenu(null); }}><Smartphone size={16} />Open employee portal</button>
                   <button className="popover-item" onClick={logout}><LogOut size={16} />Sign out</button>
                 </div>
               )}
