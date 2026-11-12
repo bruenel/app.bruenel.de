@@ -542,19 +542,41 @@ class Address(Base):
     __tablename__ = "addresses"
 
     id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
-    projektnummer = Column(String(100), unique=True, nullable=False, index=True)  # e.g., "N4E241593436"
-    datum = Column(String(100), nullable=False)
+    adress_id = Column(String(100), nullable=True, index=True, default="")       # e.g., "ABW007413530"
+    projektnummer = Column(String(100), unique=True, nullable=False, index=True)  # e.g., "N4E241593436" (WE Nummer)
+    datum = Column(String(100), nullable=False)                                  # HBG Datum/Uhrzeit
     hausbegeher = Column(String(150), nullable=True)
+    team = Column(String(150), nullable=True, default="")                        # e.g., "Techno(Lorch)"
+    building_status = Column(String(100), nullable=True, default="Ausbau terminiert")  # Building Status
+    is_priority = Column(Boolean, nullable=True, default=False)                  # Priority Star
+    ausbau_typ = Column(String(100), nullable=True, default="Metalkanal")        # Metalkanal, Leerrohr-Kamin, etc.
+    ausbautermin = Column(String(50), nullable=True, default="")                 # AB-Termin (Calendar date)
+    restarbeit_termin = Column(String(50), nullable=True, default="")            # Restarbeit Termin (Calendar date)
     plz = Column(String(20), nullable=False, index=True)                         # e.g., "73547"
-    ort = Column(String(150), nullable=False)                                    # e.g., "Lorch"
+    ort = Column(String(150), nullable=False)                                    # e.g., "Lorch" (Gemeinde)
     strasse = Column(String(200), nullable=False)                                # e.g., "AUSTRABE"
     hausnummer = Column(String(50), nullable=False)                              # e.g., "71"
     owner_name = Column(String(200), nullable=True)
     owner_telefon = Column(String(100), nullable=True)
     owner_email = Column(String(200), nullable=True)
-    total_we = Column(Integer, nullable=False, default=1)                        # Number of units
+    total_we = Column(Integer, nullable=False, default=1)                        # Number of units (Einheiten)
     ne3_status = Column(String(150), nullable=True)                              # Checkbox extraction result
     loesungsoption = Column(String(255), nullable=True)                          # e.g., "kabelkanal"
+
+    # Whole-Building Technical & Billing Checkboxes (selective for whole building, not Wohnungen)
+    flexrohr = Column(Boolean, nullable=True, default=False)
+    huep_installiert = Column(Boolean, nullable=True, default=False)
+    spleissen_fertig = Column(Boolean, nullable=True, default=False)
+    upload_done = Column(Boolean, nullable=True, default=False)
+    genehmigt = Column(Boolean, nullable=True, default=False)
+    rechnung_erstellt = Column(Boolean, nullable=True, default=False)
+    rechnung_bezahlt = Column(Boolean, nullable=True, default=False)
+
+    # Stored Original PDF Document & Building Comments / Activity Updates
+    pdf_filename = Column(String(255), nullable=True)
+    pdf_base64 = Column(Text, nullable=True)
+    comments = Column(JSON, nullable=True, default=list)
+
     created_at = Column(DateTime, default=datetime.utcnow)
 
     units = relationship(
@@ -577,13 +599,17 @@ class Unit(Base):
         index=True,
     )
     etage = Column(String(50), nullable=False)                                   # e.g., "EG", "OG1"
-    unit_id = Column(String(50), nullable=False)                                 # e.g., "001", "002"
+    unit_id = Column(String(50), nullable=False)                                 # e.g., "001", "002" (Wohnung)
     status = Column(
         Enum(UnitStatusEnum, native_enum=False),
         nullable=False,
         default=UnitStatusEnum.OFFEN,
     )
+    # Per-Wohnung selections: only TA Installation, Reserve, and Ohne
+    we_ausbau_art = Column(String(50), nullable=True, default="TA Installation") # "TA Installation", "Reserve", "Ohne"
     ta_installiert = Column(Boolean, nullable=False, default=False)
+    reserve = Column(Boolean, nullable=True, default=False)
+    ohne = Column(Boolean, nullable=True, default=False)
     spleissen_fertig = Column(Boolean, nullable=False, default=False)
     flexrohr = Column(Boolean, nullable=False, default=False)
 

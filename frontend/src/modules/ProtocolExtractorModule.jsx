@@ -5,8 +5,8 @@ import {
   Upload,
   CheckCircle2,
   AlertTriangle,
-  ChevronDown,
   ChevronRight,
+  ArrowLeft,
   Plus,
   Trash2,
   Download,
@@ -23,19 +23,75 @@ import {
   RefreshCw,
   Edit3,
   X,
-  Check,
+  Star,
+  Eye,
+  MessageSquare,
+  Calendar,
   Filter,
+  ExternalLink,
+  Check,
+  Send,
 } from 'lucide-react';
 import { API_URL, fetchWithToken, getToken } from '../core/api';
 
-const UNIT_STATUS_OPTIONS = [
+export const AUSBAU_TYP_OPTIONS = [
+  'Metalkanal',
+  'Leerrohr-Kamin',
+  'Kabelkanal',
+  'Fassade',
+  'Bestand',
+];
+
+export const BUILDING_STATUS_OPTIONS = [
+  'Ausbau terminiert',
+  'Offen',
+  'In Bearbeitung',
+  'Restarbeiten',
+  'Abgeschlossen',
+];
+
+export const UNIT_STATUS_OPTIONS = [
   'Offen',
   'In Bearbeitung',
   'Restarbeit',
   'Abgeschlossen',
 ];
 
-const STATUS_BADGE_STYLES = {
+export const WE_AUSBAU_ART_OPTIONS = [
+  'TA Installation',
+  'Reserve',
+  'Ohne',
+];
+
+const BUILDING_STATUS_PILL = {
+  'Ausbau terminiert': {
+    background: 'rgba(168, 85, 247, 0.16)',
+    color: '#7e22ce',
+    border: '1px solid rgba(168, 85, 247, 0.35)',
+  },
+  Offen: {
+    background: 'rgba(107, 114, 128, 0.14)',
+    color: '#374151',
+    border: '1px solid rgba(107, 114, 128, 0.3)',
+  },
+  'In Bearbeitung': {
+    background: 'rgba(37, 99, 235, 0.14)',
+    color: '#1d4ed8',
+    border: '1px solid rgba(37, 99, 235, 0.32)',
+  },
+  Restarbeiten: {
+    background: 'rgba(234, 88, 12, 0.16)',
+    color: '#c2410c',
+    border: '1px solid rgba(234, 88, 12, 0.35)',
+  },
+  Abgeschlossen: {
+    background: 'rgba(22, 163, 74, 0.16)',
+    color: '#15803d',
+    border: '1px solid rgba(22, 163, 74, 0.35)',
+  },
+};
+
+const UNIT_STATUS_BADGE = {
   Offen: {
     background: 'rgba(107, 114, 128, 0.12)',
     color: '#374151',
@@ -86,66 +142,108 @@ const getUnitRowStyle = (status) => {
   };
 };
 
+/** Extracts YYYY-MM from German date "15.11.2026 08:01" or ISO "2026-11-15" */
+function extractYearMonths(addr) {
+  const candidates = [
+    addr.ausbautermin,
+    addr.restarbeit_termin,
+    addr.datum,
+    addr.created_at ? String(addr.created_at).slice(0, 10) : '',
+  ];
+  const months = new Set();
+  candidates.forEach((raw) => {
+    if (!raw) return;
+    const str = String(raw).trim();
+    // ISO YYYY-MM-DD
+    const isoMatch = str.match(/^(\d{4})-(\d{2})/);
+    if (isoMatch) {
+      months.add(`${isoMatch[1]}-${isoMatch[2]}`);
+    }
+    // German DD.MM.YYYY or DD.MM.YY
+    const deMatch = str.match(/(\d{1,2})\.(\d{1,2})\.(\d{2,4})/);
+    if (deMatch) {
+      const mm = deMatch[2].padStart(2, '0');
+      let yyyy = deMatch[3];
+      if (yyyy.length === 2) yyyy = `20${yyyy}`;
+      months.add(`${yyyy}-${mm}`);
+    }
+  });
+  return Array.from(months);
+}
+
+function formatGermanDateDisplay(val) {
+  if (!val) return '—';
+  const str = String(val).trim();
+  const iso = str.match(/^(\d{4})-(\d{2})-(\d{2})(.*)$/);
+  if (iso) {
+    return `${iso[3]}.${iso[2]}.${iso[1]}${iso[4] || ''}`;
+  }
+  return str;
+}
+
 /* =============================================================================
    CLIENT-SIDE CSV (UTF-8 BOM FOR EXCEL) FALLBACK HELPER
 ============================================================================= */
-function exportAddressesToCsv(addresses, filename = 'UGG_Hausbegehungsprotokolle.csv') {
+function exportAddressesToCsv(addresses, filename = 'UGG_Ausbau_Tracking.csv') {
   const headers = [
-    'Projektnummer',
-    'Datum',
-    'Hausbegeher',
+    'Ausbau-Typ',
+    'Status',
+    'AB-Termin',
+    'Restarbeit Termin',
+    'Adress ID2',
+    'WE Nummer',
     'PLZ',
     'Ort',
     'Straße',
-    'Hausnummer',
-    'Eigentümer Name',
-    'Eigentümer Telefon',
-    'Eigentümer E-Mail',
-    'Gesamt WE',
-    'NE3 Status',
-    'Lösungsoption',
     'Etage',
-    'Unit-ID',
-    'Unit Status',
-    'TA installiert',
-    'Spleißen fertig',
+    'Wohnung',
+    'TA Installation',
+    'Reserve',
+    'Ohne',
     'Flexrohr',
+    'HÜP installiert',
+    'Spleißen fertig',
+    'Upload',
+    'Genehmigt',
+    'Rechnung erstellt',
+    'Rechnung bezahlt',
   ];
 
   const rows = [];
   addresses.forEach((addr) => {
     const units = addr.units && addr.units.length > 0 ? addr.units : [null];
     units.forEach((u) => {
+      const weArt = u
+        ? u.we_ausbau_art ||
+          (u.ta_installiert ? 'TA Installation' : u.reserve ? 'Reserve' : 'Ohne')
+        : 'Ohne';
       rows.push([
+        addr.ausbau_typ || 'Metalkanal',
+        addr.building_status || 'Ausbau terminiert',
+        addr.ausbautermin || '',
+        addr.restarbeit_termin || '',
+        addr.adress_id || '',
         addr.projektnummer || '',
-        addr.datum || '',
-        addr.hausbegeher || '',
         addr.plz || '',
         addr.ort || '',
-        addr.strasse || '',
-        addr.hausnummer || '',
-        addr.owner_name || '',
-        addr.owner_telefon || '',
-        addr.owner_email || '',
-        addr.total_we ?? '',
-        addr.ne3_status || '',
-        addr.loesungsoption || '',
+        `${addr.strasse || ''} ${addr.hausnummer || ''}`.trim(),
         u ? u.etage : '-',
         u ? u.unit_id : '-',
-        u ? u.status : 'Offen',
-        u ? (u.ta_installiert ? 'Ja' : 'Nein') : 'Nein',
-        u ? (u.spleissen_fertig ? 'Ja' : 'Nein') : 'Nein',
-        u ? (u.flexrohr ? 'Ja' : 'Nein') : 'Nein',
+        weArt === 'TA Installation' ? 'Ja' : 'Nein',
+        weArt === 'Reserve' ? 'Ja' : 'Nein',
+        weArt === 'Ohne' ? 'Ja' : 'Nein',
+        addr.flexrohr ? 'Ja' : 'Nein',
+        addr.huep_installiert ? 'Ja' : 'Nein',
+        addr.spleissen_fertig ? 'Ja' : 'Nein',
+        addr.upload_done ? 'Ja' : 'Nein',
+        addr.genehmigt ? 'Ja' : 'Nein',
+        addr.rechnung_erstellt ? 'Ja' : 'Nein',
+        addr.rechnung_bezahlt ? 'Ja' : 'Nein',
       ]);
     });
   });
 
-  const escapeCell = (val) => {
-    const str = String(val ?? '').replace(/"/g, '""');
-    return `"${str}"`;
-  };
-
-  // Use semicolon delimiter for German Excel regional settings + UTF-8 BOM
+  const escapeCell = (val) => `"${String(val ?? '').replace(/"/g, '""')}"`;
   const csvContent =
     '\uFEFF' +
     [headers.map(escapeCell).join(';'), ...rows.map((r) => r.map(escapeCell).join(';'))].join('\r\n');
@@ -182,10 +280,10 @@ export const ProtocolUploadZone = ({ onExtracted, onLoadSample, uploading, setUp
     setUploadStep('Lese PDF-Dokument lokal im Arbeitsspeicher (DSGVO-konform)…');
 
     const stepTimer1 = setTimeout(() => {
-      setUploadStep('Extrahiere Objekt-Adresse, Eigentümer & UGG-Projektnummer…');
+      setUploadStep('Extrahiere Adress-ID, Objekt-Adresse, Eigentümer & UGG-Projektnummer…');
     }, 350);
     const stepTimer2 = setTimeout(() => {
-      setUploadStep('Analysiere Zählung-Tabelle (Etagen / WE) & NE3-Status…');
+      setUploadStep('Analysiere Zählung-Tabelle (Wohnungen) & speichere Original-PDF…');
     }, 700);
 
     try {
@@ -224,9 +322,9 @@ export const ProtocolUploadZone = ({ onExtracted, onLoadSample, uploading, setUp
     <div
       className="glass-panel"
       style={{
-        padding: 24,
+        padding: 20,
         borderRadius: 16,
-        background: 'linear-gradient(135deg, rgba(255,255,255,0.92) 0%, rgba(246,246,248,0.82) 100%)',
+        background: 'linear-gradient(135deg, rgba(255,255,255,0.94) 0%, rgba(246,246,248,0.85) 100%)',
         border: dragActive ? '2px dashed #FF6B00' : '1px solid var(--border)',
         boxShadow: dragActive
           ? '0 12px 36px rgba(255, 107, 0, 0.16)'
@@ -241,15 +339,15 @@ export const ProtocolUploadZone = ({ onExtracted, onLoadSample, uploading, setUp
           justifyContent: 'space-between',
           flexWrap: 'wrap',
           gap: 12,
-          marginBottom: 16,
+          marginBottom: 14,
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <div
             style={{
-              width: 42,
-              height: 42,
-              borderRadius: 12,
+              width: 40,
+              height: 40,
+              borderRadius: 11,
               background: 'linear-gradient(135deg, #1f2937 0%, #111827 100%)',
               color: '#FF6B00',
               display: 'grid',
@@ -257,12 +355,12 @@ export const ProtocolUploadZone = ({ onExtracted, onLoadSample, uploading, setUp
               boxShadow: '0 6px 16px rgba(17, 24, 39, 0.18)',
             }}
           >
-            <Sparkles size={20} />
+            <Sparkles size={19} />
           </div>
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>
-                AI-Powered PDF Extractor — UGG Hausbegehungsprotokoll
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>
+                UGG Hausbegehungsprotokoll (PDF) Drag & Drop Import
               </h3>
               <span
                 style={{
@@ -275,11 +373,11 @@ export const ProtocolUploadZone = ({ onExtracted, onLoadSample, uploading, setUp
                   border: '1px solid rgba(22, 163, 74, 0.25)',
                 }}
               >
-                100% On-Premise • DSGVO-konform
+                Original-PDF wird am Gebäude gespeichert
               </span>
             </div>
-            <p style={{ margin: '2px 0 0', fontSize: 13, color: 'var(--text-muted)' }}>
-              Laden Sie ein standardisiertes UGG Hausbegehungsprotokoll (PDF) hoch. Die Daten werden lokal extrahiert und vor dem Speichern zur Prüfung vorgelegt.
+            <p style={{ margin: '2px 0 0', fontSize: 12, color: 'var(--text-muted)' }}>
+              Ziehen Sie das PDF-Protokoll hierher. Alle Gebäudedaten, Termine, Ausbau-Typ & Wohnungen werden extrahiert und das PDF dauerhaft am Objekt hinterlegt.
             </p>
           </div>
         </div>
@@ -290,14 +388,13 @@ export const ProtocolUploadZone = ({ onExtracted, onLoadSample, uploading, setUp
             className="btn-secondary btn-sm"
             onClick={onLoadSample}
             disabled={uploading}
-            title="Lädt ein standardisiertes UGG Muster-PDF direkt in den Extraktor"
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
           >
             <Sparkles size={14} style={{ color: '#FF6B00' }} />
             <span>Muster-Protokoll testen</span>
           </button>
           <a
-            href={`${API_URL}/api/v1/protocol/sample-pdf?projektnummer=N4E241593436`}
+            href={`${API_URL}/api/v1/protocol/sample-pdf?projektnummer=N4E241593436&adress_id=ABW007413530`}
             target="_blank"
             rel="noopener noreferrer"
             className="btn-secondary btn-sm"
@@ -309,7 +406,6 @@ export const ProtocolUploadZone = ({ onExtracted, onLoadSample, uploading, setUp
         </div>
       </div>
 
-      {/* Drag & Drop Surface */}
       <div
         onDragEnter={(e) => {
           e.preventDefault();
@@ -329,16 +425,12 @@ export const ProtocolUploadZone = ({ onExtracted, onLoadSample, uploading, setUp
         onDrop={handleDrop}
         onClick={() => !uploading && fileInputRef.current?.click()}
         style={{
-          position: 'relative',
           border: dragActive ? '2px dashed #FF6B00' : '2px dashed #d4d4dc',
-          borderRadius: 14,
-          padding: '32px 24px',
+          borderRadius: 12,
+          padding: '22px 20px',
           textAlign: 'center',
           cursor: uploading ? 'wait' : 'pointer',
-          background: dragActive
-            ? 'rgba(255, 107, 0, 0.06)'
-            : 'rgba(255, 255, 255, 0.65)',
-          backdropFilter: 'blur(12px)',
+          background: dragActive ? 'rgba(255, 107, 0, 0.06)' : 'rgba(255, 255, 255, 0.7)',
           transition: 'all 200ms ease',
         }}
       >
@@ -356,43 +448,43 @@ export const ProtocolUploadZone = ({ onExtracted, onLoadSample, uploading, setUp
         />
 
         {uploading ? (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
             <div
               style={{
-                width: 48,
-                height: 48,
+                width: 40,
+                height: 40,
                 borderRadius: '50%',
                 border: '3px solid rgba(255, 107, 0, 0.2)',
                 borderTopColor: '#FF6B00',
                 animation: 'spin 0.85s linear infinite',
               }}
             />
-            <div style={{ fontWeight: 600, fontSize: 15, color: 'var(--text-main)' }}>
-              PDF wird lokal analysiert…
-            </div>
-            <div style={{ fontSize: 13, color: '#FF6B00', fontWeight: 500 }}>{uploadStep}</div>
+            <div style={{ fontWeight: 600, fontSize: 14 }}>PDF wird lokal analysiert…</div>
+            <div style={{ fontSize: 12, color: '#FF6B00', fontWeight: 500 }}>{uploadStep}</div>
           </div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 14, flexWrap: 'wrap' }}>
             <div
               style={{
-                width: 52,
-                height: 52,
-                borderRadius: 14,
+                width: 42,
+                height: 42,
+                borderRadius: 11,
                 background: 'rgba(255, 107, 0, 0.1)',
                 color: '#FF6B00',
                 display: 'grid',
                 placeItems: 'center',
               }}
             >
-              <Upload size={24} />
+              <Upload size={20} />
             </div>
-            <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-main)' }}>
-              UGG Hausbegehungsprotokoll PDF hierher ziehen oder{' '}
-              <span style={{ color: '#FF6B00', textDecoration: 'underline' }}>Datei auswählen</span>
-            </div>
-            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-              Unterstützt: Standardisierte UGG-Protokolle (.pdf) • Extrahiert Projektnummer, Eigentümer, Adresse, Zählung (WE) & NE3-Status
+            <div style={{ textAlign: 'left' }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-main)' }}>
+                UGG Hausbegehungsprotokoll PDF hierher ziehen oder{' '}
+                <span style={{ color: '#FF6B00', textDecoration: 'underline' }}>Datei auswählen</span>
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                Extrahiert Adress-ID, WE-Nummer, Ausbau-Typ (Metalkanal / Leerrohr-Kamin), Termine & Wohnungen (TA Installation / Reserve / Ohne)
+              </div>
             </div>
           </div>
         )}
@@ -401,19 +493,19 @@ export const ProtocolUploadZone = ({ onExtracted, onLoadSample, uploading, setUp
       {errorMsg && (
         <div
           style={{
-            marginTop: 12,
-            padding: '10px 14px',
+            marginTop: 10,
+            padding: '9px 12px',
             borderRadius: 10,
             background: 'rgba(220, 38, 38, 0.08)',
             border: '1px solid rgba(220, 38, 38, 0.25)',
             color: '#dc2626',
-            fontSize: 13,
+            fontSize: 12,
             display: 'flex',
             alignItems: 'center',
             gap: 8,
           }}
         >
-          <AlertTriangle size={16} />
+          <AlertTriangle size={15} />
           <span>{errorMsg}</span>
         </div>
       )}
@@ -422,7 +514,7 @@ export const ProtocolUploadZone = ({ onExtracted, onLoadSample, uploading, setUp
 };
 
 /* =============================================================================
-   COMPONENT 2: VERIFICATION MODAL (Human-in-the-Loop Inspection & Correction)
+   COMPONENT 2: VERIFICATION & BUILDING EDIT MODAL (Human-in-the-Loop)
 ============================================================================= */
 export const ProtocolVerificationModal = ({
   initialData,
@@ -433,9 +525,16 @@ export const ProtocolVerificationModal = ({
   onSaved,
 }) => {
   const [form, setForm] = useState(() => ({
+    adress_id: initialData?.adress_id || '',
     projektnummer: initialData?.projektnummer || '',
     datum: initialData?.datum || new Date().toLocaleDateString('de-DE'),
     hausbegeher: initialData?.hausbegeher || '',
+    team: initialData?.team || (initialData?.ort ? `Techno(${initialData.ort})` : 'Techno(Lorch)'),
+    building_status: initialData?.building_status || 'Ausbau terminiert',
+    is_priority: Boolean(initialData?.is_priority),
+    ausbau_typ: initialData?.ausbau_typ || 'Metalkanal',
+    ausbautermin: initialData?.ausbautermin || '',
+    restarbeit_termin: initialData?.restarbeit_termin || '',
     plz: initialData?.plz || '',
     ort: initialData?.ort || '',
     strasse: initialData?.strasse || '',
@@ -446,24 +545,41 @@ export const ProtocolVerificationModal = ({
     total_we: Number(initialData?.total_we || initialData?.units?.length || 1),
     ne3_status: initialData?.ne3_status || '',
     loesungsoption: initialData?.loesungsoption || '',
+    // Whole-building checkboxes
+    flexrohr: Boolean(initialData?.flexrohr),
+    huep_installiert: Boolean(initialData?.huep_installiert),
+    spleissen_fertig: Boolean(initialData?.spleissen_fertig),
+    upload_done: initialData?.upload_done !== undefined ? Boolean(initialData.upload_done) : true,
+    genehmigt: Boolean(initialData?.genehmigt),
+    rechnung_erstellt: Boolean(initialData?.rechnung_erstellt),
+    rechnung_bezahlt: Boolean(initialData?.rechnung_bezahlt),
+    pdf_filename: initialData?.pdf_filename || sourceFileName || null,
+    pdf_base64: initialData?.pdf_base64 || null,
     units:
       initialData?.units && initialData.units.length > 0
-        ? initialData.units.map((u) => ({
-            etage: u.etage || 'EG',
-            unit_id: u.unit_id || '001',
-            status: u.status || 'Offen',
-            ta_installiert: Boolean(u.ta_installiert),
-            spleissen_fertig: Boolean(u.spleissen_fertig),
-            flexrohr: Boolean(u.flexrohr),
-          }))
+        ? initialData.units.map((u) => {
+            const art =
+              u.we_ausbau_art ||
+              (u.reserve ? 'Reserve' : u.ohne ? 'Ohne' : 'TA Installation');
+            return {
+              etage: u.etage || 'EG',
+              unit_id: u.unit_id || '001',
+              status: u.status || 'Offen',
+              we_ausbau_art: art,
+              ta_installiert: art === 'TA Installation',
+              reserve: art === 'Reserve',
+              ohne: art === 'Ohne',
+            };
+          })
         : [
             {
               etage: 'EG',
               unit_id: '001',
               status: 'Offen',
-              ta_installiert: false,
-              spleissen_fertig: false,
-              flexrohr: false,
+              we_ausbau_art: 'TA Installation',
+              ta_installiert: true,
+              reserve: false,
+              ohne: false,
             },
           ],
   }));
@@ -478,7 +594,19 @@ export const ProtocolVerificationModal = ({
 
   const updateUnitRow = (idx, key, value) => {
     setForm((prev) => {
-      const nextUnits = prev.units.map((u, i) => (i === idx ? { ...u, [key]: value } : u));
+      const nextUnits = prev.units.map((u, i) => {
+        if (i !== idx) return u;
+        if (key === 'we_ausbau_art') {
+          return {
+            ...u,
+            we_ausbau_art: value,
+            ta_installiert: value === 'TA Installation',
+            reserve: value === 'Reserve',
+            ohne: value === 'Ohne',
+          };
+        }
+        return { ...u, [key]: value };
+      });
       return { ...prev, units: nextUnits };
     });
   };
@@ -490,9 +618,10 @@ export const ProtocolVerificationModal = ({
         etage: nextIdx === 1 ? 'EG' : `OG${nextIdx - 1}`,
         unit_id: String(nextIdx).padStart(3, '0'),
         status: 'Offen',
-        ta_installiert: false,
-        spleissen_fertig: false,
-        flexrohr: false,
+        we_ausbau_art: 'TA Installation',
+        ta_installiert: true,
+        reserve: false,
+        ohne: false,
       };
       const nextUnits = [...prev.units, nextUnit];
       return {
@@ -518,7 +647,7 @@ export const ProtocolVerificationModal = ({
   const handleConfirmSave = async (overwrite = false) => {
     setError('');
     if (!form.projektnummer.trim()) {
-      setError('Bitte geben Sie eine gültige UGG-Projektnummer ein.');
+      setError('Bitte geben Sie eine gültige WE-Nummer / UGG-Projektnummer ein.');
       return;
     }
     if (!form.plz.trim() || !form.ort.trim() || !form.strasse.trim() || !form.hausnummer.trim()) {
@@ -565,7 +694,7 @@ export const ProtocolVerificationModal = ({
         position: 'fixed',
         inset: 0,
         zIndex: 100,
-        background: 'rgba(17, 24, 39, 0.58)',
+        background: 'rgba(17, 24, 39, 0.62)',
         backdropFilter: 'blur(10px)',
         display: 'grid',
         placeItems: 'center',
@@ -577,20 +706,20 @@ export const ProtocolVerificationModal = ({
       <div
         className="glass-panel"
         style={{
-          width: 'min(920px, 100%)',
-          maxHeight: '90vh',
+          width: 'min(1020px, 100%)',
+          maxHeight: '92vh',
           overflowY: 'auto',
           borderRadius: 20,
           padding: 0,
-          background: 'rgba(255, 255, 255, 0.96)',
-          border: '1px solid rgba(255, 107, 0, 0.25)',
-          boxShadow: '0 28px 72px rgba(0, 0, 0, 0.28)',
+          background: 'rgba(255, 255, 255, 0.98)',
+          border: '1px solid rgba(255, 107, 0, 0.3)',
+          boxShadow: '0 28px 72px rgba(0, 0, 0, 0.32)',
         }}
       >
-        {/* Top Dark Glass Header */}
+        {/* Sticky Header */}
         <div
           style={{
-            padding: '20px 26px',
+            padding: '18px 24px',
             background: 'linear-gradient(135deg, #18181b 0%, #27272a 100%)',
             color: '#fff',
             borderBottom: '2px solid #FF6B00',
@@ -619,28 +748,28 @@ export const ProtocolVerificationModal = ({
               <ShieldCheck size={20} />
             </div>
             <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <h3 style={{ margin: 0, color: '#fff', fontSize: 17 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <h3 style={{ margin: 0, color: '#fff', fontSize: 16 }}>
                   {isEditMode
-                    ? 'Protokoll-Stammdaten bearbeiten'
-                    : 'Human-in-the-Loop Verifizierung — Extrahierte PDF-Daten'}
+                    ? 'Gebäude-Stammdaten & Ausbau-Details bearbeiten'
+                    : 'Human-in-the-Loop Verifizierung — Gebäude & Wohnungen'}
                 </h3>
-                {sourceFileName && (
+                {form.pdf_filename && (
                   <span
                     style={{
                       fontSize: 11,
                       padding: '2px 8px',
                       borderRadius: 6,
-                      background: 'rgba(255, 107, 0, 0.2)',
-                      color: '#ff984f',
+                      background: 'rgba(22, 163, 74, 0.25)',
+                      color: '#86efac',
                     }}
                   >
-                    {sourceFileName}
+                    PDF angehängt: {form.pdf_filename}
                   </span>
                 )}
               </div>
               <p style={{ margin: '2px 0 0', fontSize: 12, color: '#a1a1aa' }}>
-                Bitte überprüfen und korrigieren Sie eventuelle OCR-/Parsing-Abweichungen vor dem Speichern in PostgreSQL.
+                Prüfen Sie Adress-ID, Ausbau-Typ (Metalkanal / Leerrohr-Kamin), Termine, Gebäude-Checkliste und die Wohnungen (TA Installation / Reserve / Ohne).
               </p>
             </div>
           </div>
@@ -665,29 +794,8 @@ export const ProtocolVerificationModal = ({
           </button>
         </div>
 
-        {/* Form Body */}
-        <div style={{ padding: 26, display: 'flex', flexDirection: 'column', gap: 22 }}>
-          {initialData?.extraction_warnings?.length > 0 && (
-            <div
-              style={{
-                padding: '12px 16px',
-                borderRadius: 10,
-                background: 'rgba(245, 158, 11, 0.1)',
-                border: '1px solid rgba(245, 158, 11, 0.35)',
-                color: '#92400e',
-                fontSize: 13,
-              }}
-            >
-              <strong>Hinweise des lokalen PDF-Parsers:</strong>
-              <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
-                {initialData.extraction_warnings.map((w, i) => (
-                  <li key={i}>{w}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {/* Section 1: Projekt & Begehung */}
+        <div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 20 }}>
+          {/* 1. Identifikation, Ausbau-Typ & Kalender-Termine */}
           <div>
             <div
               style={{
@@ -702,124 +810,179 @@ export const ProtocolVerificationModal = ({
                 gap: 6,
               }}
             >
-              <FileText size={14} />
-              <span>1. UGG-Projekt & Begehungsdaten</span>
+              <Calendar size={14} />
+              <span>1. Adress-ID, Ausbau-Typ, Status & Termine (Kalenderauswahl)</span>
             </div>
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-                gap: 14,
-              }}
-            >
-              <div>
-                <label>UGG-Projektnummer *</label>
-                <input
-                  value={form.projektnummer}
-                  onChange={(e) => updateField('projektnummer', e.target.value)}
-                  placeholder="z.B. N4E241593436"
-                  style={{ fontWeight: 600 }}
-                />
-              </div>
-              <div>
-                <label>Datum / Uhrzeit</label>
-                <input
-                  value={form.datum}
-                  onChange={(e) => updateField('datum', e.target.value)}
-                  placeholder="z.B. 12.11.2026 14:30"
-                />
-              </div>
-              <div>
-                <label>Hausbegeher</label>
-                <input
-                  value={form.hausbegeher}
-                  onChange={(e) => updateField('hausbegeher', e.target.value)}
-                  placeholder="Name des Begehers"
-                />
-              </div>
-            </div>
-          </div>
 
-          {/* Section 2: Objekt-Adresse */}
-          <div>
-            <div
-              style={{
-                fontSize: 12,
-                fontWeight: 700,
-                textTransform: 'uppercase',
-                letterSpacing: '0.06em',
-                color: '#FF6B00',
-                marginBottom: 10,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-              }}
-            >
-              <MapPin size={14} />
-              <span>2. Objekt-Adresse & Wohneinheiten (WE)</span>
-            </div>
             <div
               style={{
                 display: 'grid',
-                gridTemplateColumns: '120px 1fr 1.2fr 110px 110px',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(185px, 1fr))',
                 gap: 12,
               }}
             >
               <div>
-                <label>PLZ *</label>
+                <label>Adress-ID (z.B. ABW007413530)</label>
                 <input
-                  value={form.plz}
-                  onChange={(e) => updateField('plz', e.target.value)}
-                  placeholder="73547"
+                  value={form.adress_id}
+                  onChange={(e) => updateField('adress_id', e.target.value)}
+                  placeholder="ABW007413530"
+                  style={{ fontFamily: 'monospace', fontWeight: 700, color: '#1d4ed8' }}
                 />
               </div>
+
               <div>
-                <label>Ort *</label>
+                <label>WE Nummer / Projektnummer *</label>
                 <input
-                  value={form.ort}
-                  onChange={(e) => updateField('ort', e.target.value)}
-                  placeholder="Lorch"
+                  value={form.projektnummer}
+                  onChange={(e) => updateField('projektnummer', e.target.value)}
+                  placeholder="N4E241593436"
+                  style={{ fontFamily: 'monospace', fontWeight: 600 }}
                 />
               </div>
+
               <div>
-                <label>Straße *</label>
+                <label>Ausbau-Typ *</label>
+                <select
+                  value={form.ausbau_typ}
+                  onChange={(e) => updateField('ausbau_typ', e.target.value)}
+                  style={{ fontWeight: 600 }}
+                >
+                  {AUSBAU_TYP_OPTIONS.map((opt) => (
+                    <option key={opt} value={opt}>
+                      {opt}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label>Gebäude-Status *</label>
+                <select
+                  value={form.building_status}
+                  onChange={(e) => updateField('building_status', e.target.value)}
+                  style={{ fontWeight: 600 }}
+                >
+                  {BUILDING_STATUS_OPTIONS.map((st) => (
+                    <option key={st} value={st}>
+                      {st}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label>Ausbautermin (AB-Termin) 📅</label>
                 <input
-                  value={form.strasse}
-                  onChange={(e) => updateField('strasse', e.target.value)}
-                  placeholder="AUSTRABE"
+                  type="date"
+                  value={form.ausbautermin ? String(form.ausbautermin).slice(0, 10) : ''}
+                  onChange={(e) => updateField('ausbautermin', e.target.value)}
                 />
               </div>
+
               <div>
-                <label>Hausnr. *</label>
+                <label>Restarbeit Termin 📅</label>
                 <input
-                  value={form.hausnummer}
-                  onChange={(e) => updateField('hausnummer', e.target.value)}
-                  placeholder="71"
+                  type="date"
+                  value={form.restarbeit_termin ? String(form.restarbeit_termin).slice(0, 10) : ''}
+                  onChange={(e) => updateField('restarbeit_termin', e.target.value)}
                 />
               </div>
+
               <div>
-                <label>Gesamt WE *</label>
+                <label>HBG Datum / Uhrzeit</label>
                 <input
-                  type="number"
-                  min={1}
-                  value={form.total_we}
-                  onChange={(e) => updateField('total_we', Number(e.target.value))}
+                  value={form.datum}
+                  onChange={(e) => updateField('datum', e.target.value)}
+                  placeholder="15.11.2026 08:01"
+                />
+              </div>
+
+              <div>
+                <label>Team / Auftragnehmer</label>
+                <input
+                  value={form.team}
+                  onChange={(e) => updateField('team', e.target.value)}
+                  placeholder="z.B. Techno(Lorch)"
                 />
               </div>
             </div>
           </div>
 
-          {/* Section 3: Eigentümer & NE3 */}
+          {/* 2. Objekt-Adresse & Eigentümer */}
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
-              gap: 18,
+              gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))',
+              gap: 16,
             }}
           >
             <div
               style={{
-                padding: 16,
+                padding: 14,
+                borderRadius: 12,
+                background: 'var(--surface-2)',
+                border: '1px solid var(--border)',
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 12,
+                  fontWeight: 700,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.06em',
+                  color: '#FF6B00',
+                  marginBottom: 10,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                }}
+              >
+                <MapPin size={14} />
+                <span>2. Objekt-Adresse & Einheiten</span>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '100px 1fr 75px', gap: 10, marginBottom: 10 }}>
+                <div>
+                  <label>PLZ *</label>
+                  <input value={form.plz} onChange={(e) => updateField('plz', e.target.value)} placeholder="73547" />
+                </div>
+                <div>
+                  <label>Gemeinde / Ort *</label>
+                  <input value={form.ort} onChange={(e) => updateField('ort', e.target.value)} placeholder="Lorch" />
+                </div>
+                <div>
+                  <label>WE *</label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={form.total_we}
+                    onChange={(e) => updateField('total_we', Number(e.target.value))}
+                  />
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 100px', gap: 10 }}>
+                <div>
+                  <label>Straße *</label>
+                  <input
+                    value={form.strasse}
+                    onChange={(e) => updateField('strasse', e.target.value)}
+                    placeholder="Zollgasse"
+                  />
+                </div>
+                <div>
+                  <label>Hausnr. *</label>
+                  <input
+                    value={form.hausnummer}
+                    onChange={(e) => updateField('hausnummer', e.target.value)}
+                    placeholder="2"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div
+              style={{
+                padding: 14,
                 borderRadius: 12,
                 background: 'var(--surface-2)',
                 border: '1px solid var(--border)',
@@ -839,15 +1002,15 @@ export const ProtocolVerificationModal = ({
                 }}
               >
                 <User size={14} />
-                <span>3. Eigentümer (Kundendaten)</span>
+                <span>3. Eigentümer & Kontakt</span>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 <div>
-                  <label>Vorname & Nachname</label>
+                  <label>Eigentümer (Name, Vorname)</label>
                   <input
                     value={form.owner_name}
                     onChange={(e) => updateField('owner_name', e.target.value)}
-                    placeholder="z.B. Thomas Schwaiger"
+                    placeholder="Burgstaller-Pflüger, Heiko"
                   />
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
@@ -856,7 +1019,7 @@ export const ProtocolVerificationModal = ({
                     <input
                       value={form.owner_telefon}
                       onChange={(e) => updateField('owner_telefon', e.target.value)}
-                      placeholder="+49 ..."
+                      placeholder="071729349333"
                     />
                   </div>
                   <div>
@@ -864,59 +1027,94 @@ export const ProtocolVerificationModal = ({
                     <input
                       value={form.owner_email}
                       onChange={(e) => updateField('owner_email', e.target.value)}
-                      placeholder="name@domain.de"
+                      placeholder="hb@km-hausverwaltung.de"
                     />
                   </div>
                 </div>
               </div>
             </div>
+          </div>
+
+          {/* 4. Whole-Building Checkboxes (Flexrohr, HÜP, Spleißen, Upload, Genehmigt, Rechnung erstellt, Rechnung bezahlt) */}
+          <div
+            style={{
+              padding: 16,
+              borderRadius: 14,
+              background: 'linear-gradient(135deg, rgba(24,24,27,0.03) 0%, rgba(255,107,0,0.05) 100%)',
+              border: '1px solid var(--border)',
+            }}
+          >
+            <div
+              style={{
+                fontSize: 12,
+                fontWeight: 700,
+                textTransform: 'uppercase',
+                letterSpacing: '0.06em',
+                color: '#18181b',
+                marginBottom: 12,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: 8,
+              }}
+            >
+              <span>4. Gebäude-Status & Abrechnung (Gilt für das gesamte Gebäude)</span>
+              <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 500, textTransform: 'none' }}>
+                Flexrohr, HÜP, Spleißen, Upload, Genehmigt & Rechnungen werden zentral für das Gebäude ausgewählt
+              </span>
+            </div>
 
             <div
               style={{
-                padding: 16,
-                borderRadius: 12,
-                background: 'var(--surface-2)',
-                border: '1px solid var(--border)',
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(135px, 1fr))',
+                gap: 10,
               }}
             >
-              <div
-                style={{
-                  fontSize: 12,
-                  fontWeight: 700,
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.06em',
-                  color: '#FF6B00',
-                  marginBottom: 10,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 6,
-                }}
-              >
-                <Layers size={14} />
-                <span>4. NE3-Status & Lösungsoption 1</span>
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                <div>
-                  <label>NE3 Status (Checkbox-Ergebnis)</label>
-                  <input
-                    value={form.ne3_status}
-                    onChange={(e) => updateField('ne3_status', e.target.value)}
-                    placeholder="z.B. Vorhanden / Geklärt"
-                  />
-                </div>
-                <div>
-                  <label>Lösungsoption 1 (Leitungsweg)</label>
-                  <input
-                    value={form.loesungsoption}
-                    onChange={(e) => updateField('loesungsoption', e.target.value)}
-                    placeholder="z.B. kabelkanal"
-                  />
-                </div>
-              </div>
+              {[
+                { key: 'flexrohr', label: 'Flexrohr', groupColor: '#dc2626', bg: 'rgba(220,38,38,0.08)' },
+                { key: 'huep_installiert', label: 'HÜP installiert', groupColor: '#dc2626', bg: 'rgba(220,38,38,0.08)' },
+                { key: 'spleissen_fertig', label: 'Spleißen fertig', groupColor: '#dc2626', bg: 'rgba(220,38,38,0.08)' },
+                { key: 'upload_done', label: 'Upload', groupColor: '#ea580c', bg: 'rgba(234,88,12,0.09)' },
+                { key: 'genehmigt', label: 'Genehmigt', groupColor: '#ea580c', bg: 'rgba(234,88,12,0.09)' },
+                { key: 'rechnung_erstellt', label: 'Rechnung erstellt', groupColor: '#0284c7', bg: 'rgba(2,132,199,0.09)' },
+                { key: 'rechnung_bezahlt', label: 'Rechnung bezahlt', groupColor: '#0284c7', bg: 'rgba(2,132,199,0.09)' },
+              ].map((item) => {
+                const checked = Boolean(form[item.key]);
+                return (
+                  <label
+                    key={item.key}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      padding: '10px 12px',
+                      borderRadius: 10,
+                      cursor: 'pointer',
+                      userSelect: 'none',
+                      background: checked ? item.bg : '#fff',
+                      border: checked ? `1.5px solid ${item.groupColor}` : '1px solid var(--border)',
+                      color: checked ? item.groupColor : 'var(--text-main)',
+                      fontWeight: 600,
+                      fontSize: 12,
+                      transition: 'all 150ms ease',
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={(e) => updateField(item.key, e.target.checked)}
+                      style={{ width: 16, height: 16, cursor: 'pointer' }}
+                    />
+                    <span>{item.label}</span>
+                  </label>
+                );
+              })}
             </div>
           </div>
 
-          {/* Section 5: Zählung Table (Units) */}
+          {/* 5. Wohnungen (Units) Table — ONLY TA Installation, Reserve, and Ohne per Wohnung */}
           {!isEditMode && (
             <div>
               <div
@@ -925,6 +1123,8 @@ export const ProtocolVerificationModal = ({
                   alignItems: 'center',
                   justifyContent: 'space-between',
                   marginBottom: 10,
+                  flexWrap: 'wrap',
+                  gap: 8,
                 }}
               >
                 <div
@@ -940,7 +1140,9 @@ export const ProtocolVerificationModal = ({
                   }}
                 >
                   <Building2 size={14} />
-                  <span>5. Extrahierte Zählung-Tabelle ({form.units.length} Wohneinheiten)</span>
+                  <span>
+                    5. Wohnungen unter diesem Gebäude ({form.units.length} WE) — Nur TA Installation / Reserve / Ohne
+                  </span>
                 </div>
                 <button
                   type="button"
@@ -949,13 +1151,13 @@ export const ProtocolVerificationModal = ({
                   style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
                 >
                   <Plus size={14} />
-                  <span>Wohneinheit (WE) hinzufügen</span>
+                  <span>Wohnung hinzufügen</span>
                 </button>
               </div>
 
               <div
                 style={{
-                  maxHeight: 240,
+                  maxHeight: 250,
                   overflowY: 'auto',
                   border: '1px solid var(--border)',
                   borderRadius: 12,
@@ -974,90 +1176,103 @@ export const ProtocolVerificationModal = ({
                       }}
                     >
                       <th style={{ padding: '10px 12px' }}>Etage</th>
-                      <th style={{ padding: '10px 12px' }}>Unit-ID</th>
-                      <th style={{ padding: '10px 12px' }}>Initial-Status</th>
-                      <th style={{ padding: '10px 12px', textAlign: 'center' }}>TA installiert</th>
-                      <th style={{ padding: '10px 12px', textAlign: 'center' }}>Spleißen fertig</th>
-                      <th style={{ padding: '10px 12px', textAlign: 'center' }}>Flexrohr</th>
-                      <th style={{ padding: '10px 12px', width: 50 }} />
+                      <th style={{ padding: '10px 12px' }}>Wohnung (Unit-ID)</th>
+                      <th style={{ padding: '10px 12px', textAlign: 'center', background: '#991b1b' }}>
+                        TA Installation
+                      </th>
+                      <th style={{ padding: '10px 12px', textAlign: 'center', background: '#991b1b' }}>
+                        Reserve
+                      </th>
+                      <th style={{ padding: '10px 12px', textAlign: 'center', background: '#374151' }}>
+                        Ohne
+                      </th>
+                      <th style={{ padding: '10px 12px' }}>WE-Status</th>
+                      <th style={{ padding: '10px 12px', width: 46 }} />
                     </tr>
                   </thead>
                   <tbody>
-                    {form.units.map((u, idx) => (
-                      <tr
-                        key={idx}
-                        style={{
-                          borderBottom: '1px solid var(--border)',
-                          ...getUnitRowStyle(u.status),
-                        }}
-                      >
-                        <td style={{ padding: '8px 10px' }}>
-                          <input
-                            value={u.etage}
-                            onChange={(e) => updateUnitRow(idx, 'etage', e.target.value)}
-                            placeholder="EG / OG1"
-                            style={{ padding: '6px 8px' }}
-                          />
-                        </td>
-                        <td style={{ padding: '8px 10px' }}>
-                          <input
-                            value={u.unit_id}
-                            onChange={(e) => updateUnitRow(idx, 'unit_id', e.target.value)}
-                            placeholder="001"
-                            style={{ padding: '6px 8px', fontFamily: 'monospace', fontWeight: 600 }}
-                          />
-                        </td>
-                        <td style={{ padding: '8px 10px' }}>
-                          <select
-                            value={u.status}
-                            onChange={(e) => updateUnitRow(idx, 'status', e.target.value)}
-                            style={{ padding: '6px 8px' }}
-                          >
-                            {UNIT_STATUS_OPTIONS.map((st) => (
-                              <option key={st} value={st}>
-                                {st}
-                              </option>
-                            ))}
-                          </select>
-                        </td>
-                        <td style={{ padding: '8px 10px', textAlign: 'center' }}>
-                          <input
-                            type="checkbox"
-                            checked={u.ta_installiert}
-                            onChange={(e) => updateUnitRow(idx, 'ta_installiert', e.target.checked)}
-                            style={{ width: 16, height: 16, cursor: 'pointer' }}
-                          />
-                        </td>
-                        <td style={{ padding: '8px 10px', textAlign: 'center' }}>
-                          <input
-                            type="checkbox"
-                            checked={u.spleissen_fertig}
-                            onChange={(e) => updateUnitRow(idx, 'spleissen_fertig', e.target.checked)}
-                            style={{ width: 16, height: 16, cursor: 'pointer' }}
-                          />
-                        </td>
-                        <td style={{ padding: '8px 10px', textAlign: 'center' }}>
-                          <input
-                            type="checkbox"
-                            checked={u.flexrohr}
-                            onChange={(e) => updateUnitRow(idx, 'flexrohr', e.target.checked)}
-                            style={{ width: 16, height: 16, cursor: 'pointer' }}
-                          />
-                        </td>
-                        <td style={{ padding: '8px 10px', textAlign: 'center' }}>
-                          <button
-                            type="button"
-                            className="btn-ghost btn-sm"
-                            onClick={() => removeUnitRow(idx)}
-                            disabled={form.units.length <= 1}
-                            title="Wohneinheit entfernen"
-                            style={{ color: '#dc2626', padding: 4 }}
-                          >
-                            <Trash2 size={15} />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                    {form.units.map((u, idx) => {
+                      const art =
+                        u.we_ausbau_art ||
+                        (u.reserve ? 'Reserve' : u.ohne ? 'Ohne' : 'TA Installation');
+                      return (
+                        <tr
+                          key={idx}
+                          style={{
+                            borderBottom: '1px solid var(--border)',
+                            ...getUnitRowStyle(u.status),
+                          }}
+                        >
+                          <td style={{ padding: '7px 10px' }}>
+                            <input
+                              value={u.etage}
+                              onChange={(e) => updateUnitRow(idx, 'etage', e.target.value)}
+                              placeholder="EG / OG1"
+                              style={{ padding: '6px 8px' }}
+                            />
+                          </td>
+                          <td style={{ padding: '7px 10px' }}>
+                            <input
+                              value={u.unit_id}
+                              onChange={(e) => updateUnitRow(idx, 'unit_id', e.target.value)}
+                              placeholder="001"
+                              style={{ padding: '6px 8px', fontFamily: 'monospace', fontWeight: 700 }}
+                            />
+                          </td>
+                          <td style={{ padding: '7px 10px', textAlign: 'center' }}>
+                            <input
+                              type="radio"
+                              name={`modal-we-art-${idx}`}
+                              checked={art === 'TA Installation'}
+                              onChange={() => updateUnitRow(idx, 'we_ausbau_art', 'TA Installation')}
+                              style={{ width: 17, height: 17, cursor: 'pointer' }}
+                            />
+                          </td>
+                          <td style={{ padding: '7px 10px', textAlign: 'center' }}>
+                            <input
+                              type="radio"
+                              name={`modal-we-art-${idx}`}
+                              checked={art === 'Reserve'}
+                              onChange={() => updateUnitRow(idx, 'we_ausbau_art', 'Reserve')}
+                              style={{ width: 17, height: 17, cursor: 'pointer' }}
+                            />
+                          </td>
+                          <td style={{ padding: '7px 10px', textAlign: 'center' }}>
+                            <input
+                              type="radio"
+                              name={`modal-we-art-${idx}`}
+                              checked={art === 'Ohne'}
+                              onChange={() => updateUnitRow(idx, 'we_ausbau_art', 'Ohne')}
+                              style={{ width: 17, height: 17, cursor: 'pointer' }}
+                            />
+                          </td>
+                          <td style={{ padding: '7px 10px' }}>
+                            <select
+                              value={u.status}
+                              onChange={(e) => updateUnitRow(idx, 'status', e.target.value)}
+                              style={{ padding: '6px 8px' }}
+                            >
+                              {UNIT_STATUS_OPTIONS.map((st) => (
+                                <option key={st} value={st}>
+                                  {st}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+                          <td style={{ padding: '7px 10px', textAlign: 'center' }}>
+                            <button
+                              type="button"
+                              className="btn-ghost btn-sm"
+                              onClick={() => removeUnitRow(idx)}
+                              disabled={form.units.length <= 1}
+                              style={{ color: '#dc2626', padding: 4 }}
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -1091,13 +1306,12 @@ export const ProtocolVerificationModal = ({
                   onClick={() => handleConfirmSave(true)}
                   disabled={saving}
                 >
-                  Bestehendes Protokoll überschreiben & aktualisieren
+                  Bestehendes Gebäude überschreiben & aktualisieren
                 </button>
               )}
             </div>
           )}
 
-          {/* Footer Actions */}
           <div
             style={{
               display: 'flex',
@@ -1126,10 +1340,10 @@ export const ProtocolVerificationModal = ({
               <CheckCircle2 size={17} />
               <span>
                 {saving
-                  ? 'Speichert in Datenbank…'
+                  ? 'Speichert…'
                   : isEditMode
                   ? 'Änderungen speichern'
-                  : 'Confirm & Save (Bestätigen & Speichern)'}
+                  : 'Confirm & Save (Gebäude + PDF speichern)'}
               </span>
             </button>
           </div>
@@ -1140,567 +1354,894 @@ export const ProtocolVerificationModal = ({
 };
 
 /* =============================================================================
-   COMPONENT 3: MASTER-DETAIL LIST VIEW (The Accordion with Sticky Headers)
+   COMPONENT 3: DEDICATED BUILDING DETAIL VIEW (Entered when clicking a building)
 ============================================================================= */
-export const ProtocolMasterDetailAccordion = ({
-  addresses,
-  expandedIds,
-  onToggleExpand,
+export const BuildingDetailView = ({
+  building,
+  user,
+  onBack,
+  onPatchBuilding,
   onUnitChange,
   onAddUnit,
   onDeleteUnit,
-  onEditAddress,
-  onDeleteAddress,
+  onAddComment,
+  onDeleteComment,
+  onUploadPdf,
+  onEditModal,
+  onDeleteBuilding,
   onExportSingleExcel,
 }) => {
-  const [newUnitForms, setNewUnitForms] = useState({});
+  const [commentText, setCommentText] = useState('');
+  const [submittingComment, setSubmittingComment] = useState(false);
+  const [showPdfPreview, setShowPdfPreview] = useState(false);
+  const [uploadingPdf, setUploadingPdf] = useState(false);
+  const [newUnit, setNewUnit] = useState({
+    etage: `OG${building.units?.length || 1}`,
+    unit_id: String((building.units?.length || 0) + 1).padStart(3, '0'),
+    we_ausbau_art: 'TA Installation',
+  });
+  const pdfInputRef = useRef(null);
 
-  const handleQuickAddUnit = async (addr) => {
-    const draft = newUnitForms[addr.id] || {
-      etage: `OG${(addr.units?.length || 0)}`,
-      unit_id: String((addr.units?.length || 0) + 1).padStart(3, '0'),
-    };
-    await onAddUnit(addr.id, {
-      etage: draft.etage || 'EG',
-      unit_id: draft.unit_id || '001',
-      status: 'Offen',
-      ta_installiert: false,
-      spleissen_fertig: false,
-      flexrohr: false,
-    });
-    setNewUnitForms((prev) => ({
-      ...prev,
-      [addr.id]: {
-        etage: `OG${(addr.units?.length || 0) + 1}`,
-        unit_id: String((addr.units?.length || 0) + 2).padStart(3, '0'),
-      },
-    }));
+  const units = building.units || [];
+  const comments = building.comments || [];
+  const pdfViewUrl = `${API_URL}/api/v1/protocol/addresses/${building.id}/pdf?download=false`;
+  const pdfDownloadUrl = `${API_URL}/api/v1/protocol/addresses/${building.id}/pdf?download=true`;
+
+  const handleSubmitComment = async (e) => {
+    e.preventDefault();
+    if (!commentText.trim()) return;
+    setSubmittingComment(true);
+    try {
+      await onAddComment(building.id, commentText.trim(), user?.email || 'Brünel Team');
+      setCommentText('');
+    } finally {
+      setSubmittingComment(false);
+    }
   };
 
-  if (!addresses || addresses.length === 0) {
-    return (
+  const handlePdfFileSelect = async (file) => {
+    if (!file) return;
+    setUploadingPdf(true);
+    try {
+      await onUploadPdf(building.id, file);
+    } finally {
+      setUploadingPdf(false);
+    }
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      {/* Top Action & Back Bar */}
       <div
         className="glass-panel"
         style={{
-          padding: 48,
-          textAlign: 'center',
+          padding: '16px 22px',
           borderRadius: 16,
-          color: 'var(--text-muted)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: 14,
+          background: 'linear-gradient(135deg, #18181b 0%, #27272a 100%)',
+          color: '#fff',
         }}
       >
-        <Building2 size={36} style={{ color: '#FF6B00', opacity: 0.7, marginBottom: 10 }} />
-        <h3 style={{ marginBottom: 6, color: 'var(--text-main)' }}>
-          Noch keine UGG Hausbegehungsprotokolle vorhanden
-        </h3>
-        <p style={{ maxWidth: 520, margin: '0 auto', fontSize: 13 }}>
-          Laden Sie oben ein UGG Hausbegehungsprotokoll als PDF hoch oder klicken Sie auf{' '}
-          <strong>„Muster-Protokoll testen“</strong>, um den Human-in-the-Loop Workflow und die Master-Detail Ansicht zu starten.
-        </p>
-      </div>
-    );
-  }
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      {addresses.map((addr) => {
-        const isExpanded = Boolean(expandedIds[addr.id]);
-        const units = addr.units || [];
-        const completedCount = units.filter((u) => u.status === 'Abgeschlossen').length;
-        const totalCount = Math.max(units.length, addr.total_we || 1);
-        const pct = Math.round((completedCount / totalCount) * 100);
-        const allCompleted = units.length > 0 && completedCount === units.length;
-
-        return (
-          <div
-            key={addr.id}
-            className="glass-panel"
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            onClick={onBack}
             style={{
-              borderRadius: 16,
-              overflow: 'hidden',
-              border: isExpanded
-                ? '1px solid rgba(255, 107, 0, 0.45)'
-                : allCompleted
-                ? '1px solid rgba(22, 163, 74, 0.4)'
-                : '1px solid var(--border)',
-              boxShadow: isExpanded
-                ? '0 12px 32px rgba(22, 22, 26, 0.09)'
-                : '0 2px 10px rgba(22, 22, 26, 0.04)',
-              transition: 'all 250ms cubic-bezier(0.22, 1, 0.36, 1)',
-              background: allCompleted
-                ? 'linear-gradient(90deg, rgba(22, 163, 74, 0.06) 0%, rgba(255, 255, 255, 0.95) 35%)'
-                : 'var(--surface)',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '8px 14px',
+              borderRadius: 10,
+              background: 'rgba(255,255,255,0.1)',
+              border: '1px solid rgba(255,255,255,0.2)',
+              color: '#fff',
+              cursor: 'pointer',
+              fontWeight: 600,
+              fontSize: 13,
             }}
           >
-            {/* Master Row Header (Clickable Accordion Trigger) */}
+            <ArrowLeft size={16} />
+            <span>Zurück zur Übersicht</span>
+          </button>
+
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={() => onPatchBuilding(building.id, { is_priority: !building.is_priority })}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  cursor: 'pointer',
+                  padding: 0,
+                  color: building.is_priority ? '#facc15' : '#71717a',
+                }}
+                title="Priorität umschalten"
+              >
+                <Star size={20} fill={building.is_priority ? '#facc15' : 'none'} />
+              </button>
+              <span
+                style={{
+                  fontFamily: 'monospace',
+                  fontSize: 13,
+                  fontWeight: 700,
+                  padding: '3px 10px',
+                  borderRadius: 6,
+                  background: 'rgba(59, 130, 246, 0.22)',
+                  color: '#93c5fd',
+                  border: '1px solid rgba(59, 130, 246, 0.4)',
+                }}
+              >
+                {building.adress_id || 'ABW—'}
+              </span>
+              <span
+                style={{
+                  fontFamily: 'monospace',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  padding: '3px 9px',
+                  borderRadius: 6,
+                  background: 'rgba(255, 107, 0, 0.22)',
+                  color: '#fdba74',
+                }}
+              >
+                WE-Nr: {building.projektnummer}
+              </span>
+              <h2 style={{ margin: 0, color: '#fff', fontSize: 19 }}>
+                {building.strasse} {building.hausnummer}, {building.plz} {building.ort}
+              </h2>
+            </div>
+            <div style={{ fontSize: 12, color: '#a1a1aa', marginTop: 4 }}>
+              Eigentümer: <strong style={{ color: '#e4e4e7' }}>{building.owner_name || '—'}</strong> • Tel:{' '}
+              {building.owner_telefon || '—'} • E-Mail: {building.owner_email || '—'} • Team:{' '}
+              <strong style={{ color: '#fdba74' }}>{building.team || '—'}</strong>
+            </div>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          {building.has_pdf && (
+            <>
+              <button
+                type="button"
+                className="btn-secondary btn-sm"
+                onClick={() => setShowPdfPreview((p) => !p)}
+                style={{
+                  background: 'rgba(255,255,255,0.12)',
+                  color: '#fff',
+                  borderColor: 'rgba(255,255,255,0.2)',
+                }}
+              >
+                <Eye size={14} />
+                <span>{showPdfPreview ? 'PDF-Vorschau schließen' : 'PDF ansehen'}</span>
+              </button>
+              <a
+                href={pdfDownloadUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn-secondary btn-sm"
+                style={{
+                  background: 'rgba(22, 163, 74, 0.25)',
+                  color: '#86efac',
+                  borderColor: 'rgba(22, 163, 74, 0.45)',
+                  textDecoration: 'none',
+                }}
+              >
+                <Download size={14} />
+                <span>PDF Download</span>
+              </a>
+            </>
+          )}
+          <button
+            type="button"
+            className="btn-secondary btn-sm"
+            onClick={() => onExportSingleExcel(building)}
+            style={{
+              background: '#16a34a',
+              color: '#fff',
+              borderColor: '#16a34a',
+            }}
+          >
+            <FileSpreadsheet size={14} />
+            <span>Excel Export (.xlsx)</span>
+          </button>
+          <button
+            type="button"
+            className="btn-secondary btn-sm"
+            onClick={() => onEditModal(building)}
+            style={{
+              background: 'rgba(255,255,255,0.12)',
+              color: '#fff',
+              borderColor: 'rgba(255,255,255,0.2)',
+            }}
+          >
+            <Edit3 size={14} />
+            <span>Alle Felder bearbeiten</span>
+          </button>
+          <button
+            type="button"
+            className="btn-danger btn-sm"
+            onClick={() => onDeleteBuilding(building)}
+          >
+            <Trash2 size={14} />
+          </button>
+        </div>
+      </div>
+
+      {/* Inline Embedded PDF Viewer (when toggled) */}
+      {showPdfPreview && building.has_pdf && (
+        <div className="glass-panel" style={{ padding: 18, borderRadius: 16 }}>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              marginBottom: 12,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <FileText size={18} style={{ color: '#FF6B00' }} />
+              <strong>Gespeichertes Original-PDF: {building.pdf_filename || 'UGG_Protokoll.pdf'}</strong>
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <a
+                href={pdfDownloadUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn-primary btn-sm"
+                style={{ textDecoration: 'none' }}
+              >
+                <Download size={14} />
+                <span>Herunterladen</span>
+              </a>
+              <button
+                type="button"
+                className="btn-secondary btn-sm"
+                onClick={() => setShowPdfPreview(false)}
+              >
+                Schließen
+              </button>
+            </div>
+          </div>
+          <iframe
+            src={pdfViewUrl}
+            title="UGG Hausbegehungsprotokoll PDF"
+            style={{
+              width: '100%',
+              height: 560,
+              border: '1px solid var(--border)',
+              borderRadius: 12,
+              background: '#f8fafc',
+            }}
+          />
+        </div>
+      )}
+
+      {/* Row 1: Building Controls (Ausbau-Typ, Status, Calendar Dates) + Whole-Building Checkboxes */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))',
+          gap: 18,
+        }}
+      >
+        {/* Left Card: Ausbau-Typ, Status, AB-Termin & Restarbeit Termin Calendar Pickers */}
+        <div className="glass-panel" style={{ padding: 20, borderRadius: 16 }}>
+          <h3 style={{ fontSize: 15, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Calendar size={17} style={{ color: '#FF6B00' }} />
+            <span>Gebäude-Steuerung: Ausbau-Typ & Kalender-Termine</span>
+          </h3>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+            <div>
+              <label>Adress-ID</label>
+              <input
+                value={building.adress_id || ''}
+                onChange={(e) => onPatchBuilding(building.id, { adress_id: e.target.value })}
+                placeholder="ABW007413530"
+                style={{ fontFamily: 'monospace', fontWeight: 700, color: '#1d4ed8' }}
+              />
+            </div>
+
+            <div>
+              <label>Ausbau-Typ (Metalkanal / Leerrohr-Kamin)</label>
+              <select
+                value={building.ausbau_typ || 'Metalkanal'}
+                onChange={(e) => onPatchBuilding(building.id, { ausbau_typ: e.target.value })}
+                style={{ fontWeight: 700, color: '#1e3a8a', background: 'rgba(30, 58, 138, 0.06)' }}
+              >
+                {AUSBAU_TYP_OPTIONS.map((opt) => (
+                  <option key={opt} value={opt}>
+                    {opt}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label>Ausbautermin (AB-Termin) 📅</label>
+              <input
+                type="date"
+                value={building.ausbautermin ? String(building.ausbautermin).slice(0, 10) : ''}
+                onChange={(e) => onPatchBuilding(building.id, { ausbautermin: e.target.value })}
+              />
+            </div>
+
+            <div>
+              <label>Restarbeit Termin 📅</label>
+              <input
+                type="date"
+                value={building.restarbeit_termin ? String(building.restarbeit_termin).slice(0, 10) : ''}
+                onChange={(e) => onPatchBuilding(building.id, { restarbeit_termin: e.target.value })}
+              />
+            </div>
+
+            <div>
+              <label>Gebäude-Status</label>
+              <select
+                value={building.building_status || 'Ausbau terminiert'}
+                onChange={(e) => onPatchBuilding(building.id, { building_status: e.target.value })}
+                style={{
+                  fontWeight: 700,
+                  ...(BUILDING_STATUS_PILL[building.building_status] || {}),
+                }}
+              >
+                {BUILDING_STATUS_OPTIONS.map((st) => (
+                  <option key={st} value={st}>
+                    {st}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label>Team / Auftragnehmer</label>
+              <input
+                value={building.team || ''}
+                onChange={(e) => onPatchBuilding(building.id, { team: e.target.value })}
+                placeholder="Techno(Lorch)"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Right Card: Whole-Building Selective Checkboxes (Flexrohr, HÜP, Spleißen, Upload, Genehmigt, Rechnung erstellt, Rechnung bezahlt) */}
+        <div className="glass-panel" style={{ padding: 20, borderRadius: 16 }}>
+          <h3 style={{ fontSize: 15, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Layers size={17} style={{ color: '#FF6B00' }} />
+            <span>Gebäude-Checkliste (Gilt für das gesamte Gebäude)</span>
+          </h3>
+          <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 14 }}>
+            Flexrohr, HÜP, Spleißen, Upload, Genehmigt sowie Rechnung erstellt & bezahlt werden hier direkt für das gesamte Gebäude geschaltet.
+          </p>
+
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+              gap: 10,
+            }}
+          >
+            {[
+              { key: 'flexrohr', label: 'Flexrohr', color: '#dc2626', bg: 'rgba(220,38,38,0.1)' },
+              { key: 'huep_installiert', label: 'HÜP installiert', color: '#dc2626', bg: 'rgba(220,38,38,0.1)' },
+              { key: 'spleissen_fertig', label: 'Spleißen fertig', color: '#dc2626', bg: 'rgba(220,38,38,0.1)' },
+              { key: 'upload_done', label: 'Upload', color: '#ea580c', bg: 'rgba(234,88,12,0.12)' },
+              { key: 'genehmigt', label: 'Genehmigt', color: '#ea580c', bg: 'rgba(234,88,12,0.12)' },
+              { key: 'rechnung_erstellt', label: 'Rechnung erstellt', color: '#0284c7', bg: 'rgba(2,132,199,0.12)' },
+              { key: 'rechnung_bezahlt', label: 'Rechnung bezahlt', color: '#0284c7', bg: 'rgba(2,132,199,0.12)' },
+            ].map((item) => {
+              const active = Boolean(building[item.key]);
+              return (
+                <label
+                  key={item.key}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    padding: '11px 13px',
+                    borderRadius: 11,
+                    cursor: 'pointer',
+                    userSelect: 'none',
+                    background: active ? item.bg : 'var(--surface-2)',
+                    border: active ? `2px solid ${item.color}` : '1px solid var(--border)',
+                    color: active ? item.color : 'var(--text-main)',
+                    fontWeight: 700,
+                    fontSize: 13,
+                    transition: 'all 160ms ease',
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={active}
+                    onChange={(e) =>
+                      onPatchBuilding(building.id, { [item.key]: e.target.checked })
+                    }
+                    style={{ width: 17, height: 17, cursor: 'pointer' }}
+                  />
+                  <span>{item.label}</span>
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* Row 2: Wohnungen (Units) Table — ONLY TA Installation, Reserve, and Ohne per Wohnung */}
+      <div className="glass-panel" style={{ padding: 22, borderRadius: 16 }}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: 12,
+            marginBottom: 14,
+          }}
+        >
+          <div>
+            <h3 style={{ margin: 0, fontSize: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Building2 size={18} style={{ color: '#FF6B00' }} />
+              <span>Wohnungen im Gebäude ({units.length} Einheiten)</span>
+            </h3>
+            <p style={{ margin: '2px 0 0', fontSize: 12, color: 'var(--text-muted)' }}>
+              Pro Wohnung wird ausschließlich zwischen <strong>TA Installation</strong>, <strong>Reserve</strong> und <strong>Ohne</strong> gewählt.
+            </p>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <input
+              placeholder="Etage (z.B. OG2)"
+              value={newUnit.etage}
+              onChange={(e) => setNewUnit((p) => ({ ...p, etage: e.target.value }))}
+              style={{ width: 110, padding: '7px 10px', fontSize: 12 }}
+            />
+            <input
+              placeholder="Wohnung (z.B. 005)"
+              value={newUnit.unit_id}
+              onChange={(e) => setNewUnit((p) => ({ ...p, unit_id: e.target.value }))}
+              style={{ width: 120, padding: '7px 10px', fontSize: 12, fontFamily: 'monospace' }}
+            />
+            <select
+              value={newUnit.we_ausbau_art}
+              onChange={(e) => setNewUnit((p) => ({ ...p, we_ausbau_art: e.target.value }))}
+              style={{ width: 150, padding: '7px 10px', fontSize: 12 }}
+            >
+              {WE_AUSBAU_ART_OPTIONS.map((art) => (
+                <option key={art} value={art}>
+                  {art}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className="btn-primary btn-sm"
+              onClick={async () => {
+                await onAddUnit(building.id, {
+                  etage: newUnit.etage || 'EG',
+                  unit_id: newUnit.unit_id || '001',
+                  we_ausbau_art: newUnit.we_ausbau_art,
+                  ta_installiert: newUnit.we_ausbau_art === 'TA Installation',
+                  reserve: newUnit.we_ausbau_art === 'Reserve',
+                  ohne: newUnit.we_ausbau_art === 'Ohne',
+                  status: 'Offen',
+                });
+                setNewUnit({
+                  etage: `OG${units.length + 1}`,
+                  unit_id: String(units.length + 2).padStart(3, '0'),
+                  we_ausbau_art: 'TA Installation',
+                });
+              }}
+            >
+              <Plus size={14} />
+              <span>Wohnung hinzufügen</span>
+            </button>
+          </div>
+        </div>
+
+        <div
+          style={{
+            maxHeight: 420,
+            overflowY: 'auto',
+            borderRadius: 12,
+            border: '1px solid var(--border)',
+          }}
+        >
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead>
+              <tr
+                style={{
+                  position: 'sticky',
+                  top: 0,
+                  zIndex: 10,
+                  background: '#1f4e78',
+                  color: '#fff',
+                  textAlign: 'left',
+                }}
+              >
+                <th style={{ padding: '11px 14px' }}>Etage</th>
+                <th style={{ padding: '11px 14px' }}>Wohnung (Unit-ID)</th>
+                <th style={{ padding: '11px 14px', background: '#dc2626', textAlign: 'center' }}>
+                  TA Installation
+                </th>
+                <th style={{ padding: '11px 14px', background: '#dc2626', textAlign: 'center' }}>
+                  Reserve
+                </th>
+                <th style={{ padding: '11px 14px', background: '#374151', textAlign: 'center' }}>
+                  Ohne
+                </th>
+                <th style={{ padding: '11px 14px', background: '#ca8a04', color: '#fff' }}>
+                  WE-Status
+                </th>
+                <th style={{ padding: '11px 14px', textAlign: 'right' }}>Aktion</th>
+              </tr>
+            </thead>
+            <tbody>
+              {units.map((u) => {
+                const currentArt =
+                  u.we_ausbau_art ||
+                  (u.reserve ? 'Reserve' : u.ohne ? 'Ohne' : 'TA Installation');
+                return (
+                  <tr
+                    key={u.id}
+                    style={{
+                      borderBottom: '1px solid var(--border)',
+                      ...getUnitRowStyle(u.status),
+                    }}
+                  >
+                    <td style={{ padding: '10px 14px', fontWeight: 700 }}>{u.etage}</td>
+                    <td
+                      style={{
+                        padding: '10px 14px',
+                        fontFamily: 'monospace',
+                        fontWeight: 700,
+                        fontSize: 13,
+                      }}
+                    >
+                      WE-{u.unit_id}
+                    </td>
+
+                    {/* TA Installation */}
+                    <td style={{ padding: '10px 14px', textAlign: 'center' }}>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onUnitChange(building.id, u.id, {
+                            we_ausbau_art: 'TA Installation',
+                            ta_installiert: true,
+                            reserve: false,
+                            ohne: false,
+                          })
+                        }
+                        style={{
+                          padding: '6px 14px',
+                          borderRadius: 8,
+                          cursor: 'pointer',
+                          fontWeight: 700,
+                          fontSize: 12,
+                          border:
+                            currentArt === 'TA Installation'
+                              ? '2px solid #dc2626'
+                              : '1px solid var(--border)',
+                          background:
+                            currentArt === 'TA Installation'
+                              ? 'rgba(220, 38, 38, 0.14)'
+                              : 'var(--surface)',
+                          color: currentArt === 'TA Installation' ? '#b91c1c' : 'var(--text-muted)',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 6,
+                        }}
+                      >
+                        {currentArt === 'TA Installation' && <Check size={14} />}
+                        <span>TA Installation</span>
+                      </button>
+                    </td>
+
+                    {/* Reserve */}
+                    <td style={{ padding: '10px 14px', textAlign: 'center' }}>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onUnitChange(building.id, u.id, {
+                            we_ausbau_art: 'Reserve',
+                            ta_installiert: false,
+                            reserve: true,
+                            ohne: false,
+                          })
+                        }
+                        style={{
+                          padding: '6px 14px',
+                          borderRadius: 8,
+                          cursor: 'pointer',
+                          fontWeight: 700,
+                          fontSize: 12,
+                          border:
+                            currentArt === 'Reserve'
+                              ? '2px solid #d97706'
+                              : '1px solid var(--border)',
+                          background:
+                            currentArt === 'Reserve'
+                              ? 'rgba(245, 158, 11, 0.16)'
+                              : 'var(--surface)',
+                          color: currentArt === 'Reserve' ? '#b45309' : 'var(--text-muted)',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 6,
+                        }}
+                      >
+                        {currentArt === 'Reserve' && <Check size={14} />}
+                        <span>Reserve</span>
+                      </button>
+                    </td>
+
+                    {/* Ohne */}
+                    <td style={{ padding: '10px 14px', textAlign: 'center' }}>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onUnitChange(building.id, u.id, {
+                            we_ausbau_art: 'Ohne',
+                            ta_installiert: false,
+                            reserve: false,
+                            ohne: true,
+                          })
+                        }
+                        style={{
+                          padding: '6px 14px',
+                          borderRadius: 8,
+                          cursor: 'pointer',
+                          fontWeight: 700,
+                          fontSize: 12,
+                          border:
+                            currentArt === 'Ohne'
+                              ? '2px solid #374151'
+                              : '1px solid var(--border)',
+                          background:
+                            currentArt === 'Ohne'
+                              ? 'rgba(55, 65, 81, 0.14)'
+                              : 'var(--surface)',
+                          color: currentArt === 'Ohne' ? '#1f2937' : 'var(--text-muted)',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 6,
+                        }}
+                      >
+                        {currentArt === 'Ohne' && <Check size={14} />}
+                        <span>Ohne</span>
+                      </button>
+                    </td>
+
+                    <td style={{ padding: '10px 14px', minWidth: 165 }}>
+                      <select
+                        value={u.status}
+                        onChange={(e) =>
+                          onUnitChange(building.id, u.id, { status: e.target.value })
+                        }
+                        style={{
+                          padding: '6px 10px',
+                          fontWeight: 600,
+                          fontSize: 12,
+                          borderRadius: 8,
+                          width: 'auto',
+                          minWidth: 155,
+                          cursor: 'pointer',
+                          ...(UNIT_STATUS_BADGE[u.status] || {}),
+                        }}
+                      >
+                        {UNIT_STATUS_OPTIONS.map((st) => (
+                          <option key={st} value={st}>
+                            {st}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+
+                    <td style={{ padding: '10px 14px', textAlign: 'right' }}>
+                      <button
+                        type="button"
+                        className="btn-ghost btn-sm"
+                        onClick={() => onDeleteUnit(building.id, u.id)}
+                        style={{ color: '#dc2626', padding: '4px 8px' }}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Row 3: Saved PDF Document Card + Building Comments & Updates Feed */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))',
+          gap: 18,
+        }}
+      >
+        {/* PDF Object Attachment Card */}
+        <div className="glass-panel" style={{ padding: 20, borderRadius: 16 }}>
+          <h3 style={{ fontSize: 15, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <FileText size={17} style={{ color: '#FF6B00' }} />
+            <span>Hinterlegtes UGG Hausbegehungsprotokoll (PDF)</span>
+          </h3>
+
+          {building.has_pdf ? (
             <div
-              onClick={() => onToggleExpand(addr.id)}
               style={{
-                padding: '16px 20px',
-                cursor: 'pointer',
+                padding: 16,
+                borderRadius: 12,
+                background: 'rgba(22, 163, 74, 0.08)',
+                border: '1px solid rgba(22, 163, 74, 0.3)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
                 flexWrap: 'wrap',
-                gap: 16,
-                userSelect: 'none',
-                background: isExpanded ? 'rgba(255, 107, 0, 0.04)' : 'transparent',
-                borderBottom: isExpanded ? '1px solid var(--border)' : 'none',
-                transition: 'background 200ms ease',
+                gap: 12,
+                marginBottom: 14,
               }}
             >
-              {/* Left: Chevron + Address & Projektnummer */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 14, minWidth: 260, flex: 1 }}>
-                <div
-                  style={{
-                    width: 34,
-                    height: 34,
-                    borderRadius: 10,
-                    background: isExpanded ? '#FF6B00' : 'var(--surface-2)',
-                    color: isExpanded ? '#fff' : 'var(--text-main)',
-                    display: 'grid',
-                    placeItems: 'center',
-                    transition: 'all 220ms ease',
-                    flexShrink: 0,
-                  }}
-                >
-                  <ChevronRight
-                    size={18}
-                    style={{
-                      transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
-                      transition: 'transform 240ms cubic-bezier(0.22, 1, 0.36, 1)',
-                    }}
-                  />
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 14, color: '#15803d' }}>
+                  {building.pdf_filename || `UGG_${building.projektnummer}.pdf`}
                 </div>
-
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    <span
-                      style={{
-                        fontFamily: 'monospace',
-                        fontSize: 12,
-                        fontWeight: 700,
-                        padding: '2px 8px',
-                        borderRadius: 6,
-                        background: '#18181b',
-                        color: '#FF6B00',
-                      }}
-                    >
-                      {addr.projektnummer}
-                    </span>
-                    <strong style={{ fontSize: 15, color: 'var(--text-main)' }}>
-                      {addr.strasse} {addr.hausnummer}, {addr.plz} {addr.ort}
-                    </strong>
-                    {addr.loesungsoption && (
-                      <span
-                        style={{
-                          fontSize: 11,
-                          fontWeight: 600,
-                          padding: '2px 8px',
-                          borderRadius: 999,
-                          background: 'rgba(255, 107, 0, 0.1)',
-                          color: '#FF6B00',
-                        }}
-                      >
-                        Lösungsoption: {addr.loesungsoption}
-                      </span>
-                    )}
-                    {addr.ne3_status && (
-                      <span
-                        style={{
-                          fontSize: 11,
-                          fontWeight: 500,
-                          padding: '2px 8px',
-                          borderRadius: 999,
-                          background: 'var(--surface-2)',
-                          color: 'var(--text-muted)',
-                        }}
-                      >
-                        NE3: {addr.ne3_status}
-                      </span>
-                    )}
-                  </div>
-
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 16,
-                      flexWrap: 'wrap',
-                      marginTop: 5,
-                      fontSize: 12,
-                      color: 'var(--text-muted)',
-                    }}
-                  >
-                    {addr.owner_name && (
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                        <User size={12} /> {addr.owner_name}
-                      </span>
-                    )}
-                    {addr.owner_telefon && (
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                        <Phone size={12} /> {addr.owner_telefon}
-                      </span>
-                    )}
-                    {addr.owner_email && (
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                        <Mail size={12} /> {addr.owner_email}
-                      </span>
-                    )}
-                    {addr.datum && <span>Datum: {addr.datum}</span>}
-                    {addr.hausbegeher && <span>Begeher: {addr.hausbegeher}</span>}
-                  </div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                  Original-PDF dauerhaft an diesem Gebäude gespeichert
                 </div>
               </div>
-
-              {/* Right: Progress & Quick Row Actions */}
-              <div
-                style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div style={{ minWidth: 140, textAlign: 'right' }}>
-                  <div
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      fontSize: 12,
-                      fontWeight: 600,
-                      marginBottom: 4,
-                    }}
-                  >
-                    <span style={{ color: 'var(--text-muted)' }}>
-                      {completedCount} / {units.length} WE fertig
-                    </span>
-                    <span style={{ color: pct === 100 ? '#16a34a' : '#FF6B00' }}>{pct}%</span>
-                  </div>
-                  <div
-                    style={{
-                      width: 140,
-                      height: 7,
-                      borderRadius: 999,
-                      background: 'var(--surface-2)',
-                      overflow: 'hidden',
-                    }}
-                  >
-                    <div
-                      style={{
-                        width: `${pct}%`,
-                        height: '100%',
-                        background: pct === 100 ? '#16a34a' : '#FF6B00',
-                        transition: 'width 320ms ease',
-                      }}
-                    />
-                  </div>
-                </div>
-
+              <div style={{ display: 'flex', gap: 8 }}>
                 <button
                   type="button"
                   className="btn-secondary btn-sm"
-                  onClick={() => onExportSingleExcel(addr)}
-                  title="Dieses Gebäudeprotokoll als Excel (.xlsx) exportieren"
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}
+                  onClick={() => setShowPdfPreview((p) => !p)}
                 >
-                  <FileSpreadsheet size={14} style={{ color: '#16a34a' }} />
-                  <span>Excel</span>
+                  <Eye size={14} />
+                  <span>{showPdfPreview ? 'Vorschau ausblenden' : 'Ansehen'}</span>
                 </button>
-
-                <button
-                  type="button"
-                  className="btn-secondary btn-sm"
-                  onClick={() => onEditAddress(addr)}
-                  title="Stammdaten bearbeiten"
+                <a
+                  href={pdfDownloadUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn-primary btn-sm"
+                  style={{ textDecoration: 'none' }}
                 >
-                  <Edit3 size={14} />
-                </button>
-
-                <button
-                  type="button"
-                  className="btn-danger btn-sm"
-                  onClick={() => onDeleteAddress(addr)}
-                  title="Protokoll löschen"
-                >
-                  <Trash2 size={14} />
-                </button>
+                  <Download size={14} />
+                  <span>Download</span>
+                </a>
               </div>
             </div>
-
-            {/* Accordion Animated Detail Body: Sticky-Header Units Data Table */}
+          ) : (
             <div
               style={{
-                display: 'grid',
-                gridTemplateRows: isExpanded ? '1fr' : '0fr',
-                transition: 'grid-template-rows 300ms cubic-bezier(0.22, 1, 0.36, 1)',
+                padding: 14,
+                borderRadius: 12,
+                background: 'var(--surface-2)',
+                color: 'var(--text-muted)',
+                fontSize: 13,
+                marginBottom: 14,
               }}
             >
-              <div style={{ overflow: 'hidden' }}>
-                <div style={{ padding: '16px 20px 20px', background: 'rgba(249, 250, 251, 0.65)' }}>
-                  {/* Sticky-Header Scroll Container */}
-                  <div
-                    style={{
-                      maxHeight: 340,
-                      overflowY: 'auto',
-                      borderRadius: 12,
-                      border: '1px solid var(--border)',
-                      background: 'var(--surface)',
-                      boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.03)',
-                    }}
-                  >
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                      <thead>
-                        <tr
-                          style={{
-                            position: 'sticky',
-                            top: 0,
-                            zIndex: 10,
-                            background: '#18181b',
-                            color: '#ffffff',
-                            textAlign: 'left',
-                            boxShadow: '0 2px 6px rgba(0,0,0,0.12)',
-                          }}
-                        >
-                          <th style={{ padding: '11px 14px', fontWeight: 600 }}>Etage</th>
-                          <th style={{ padding: '11px 14px', fontWeight: 600 }}>Unit-ID (WE)</th>
-                          <th style={{ padding: '11px 14px', fontWeight: 600 }}>Status</th>
-                          <th style={{ padding: '11px 14px', fontWeight: 600, textAlign: 'center' }}>
-                            TA installiert
-                          </th>
-                          <th style={{ padding: '11px 14px', fontWeight: 600, textAlign: 'center' }}>
-                            Spleißen fertig
-                          </th>
-                          <th style={{ padding: '11px 14px', fontWeight: 600, textAlign: 'center' }}>
-                            Flexrohr
-                          </th>
-                          <th style={{ padding: '11px 14px', fontWeight: 600, textAlign: 'right' }}>
-                            Aktion
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {units.map((unit) => {
-                          const isDone = unit.status === 'Abgeschlossen';
-                          return (
-                            <tr
-                              key={unit.id}
-                              style={{
-                                borderBottom: '1px solid var(--border)',
-                                ...getUnitRowStyle(unit.status),
-                              }}
-                            >
-                              <td style={{ padding: '10px 14px', fontWeight: 600 }}>
-                                <span
-                                  style={{
-                                    display: 'inline-block',
-                                    padding: '2px 8px',
-                                    borderRadius: 6,
-                                    background: isDone
-                                      ? 'rgba(22, 163, 74, 0.18)'
-                                      : 'var(--surface-2)',
-                                    color: isDone ? '#14532d' : 'var(--text-main)',
-                                    fontSize: 12,
-                                  }}
-                                >
-                                  {unit.etage}
-                                </span>
-                              </td>
-
-                              <td
-                                style={{
-                                  padding: '10px 14px',
-                                  fontFamily: 'monospace',
-                                  fontWeight: 700,
-                                  fontSize: 13,
-                                }}
-                              >
-                                WE-{unit.unit_id}
-                              </td>
-
-                              <td style={{ padding: '10px 14px', minWidth: 180 }}>
-                                <select
-                                  value={unit.status}
-                                  onChange={(e) =>
-                                    onUnitChange(addr.id, unit.id, { status: e.target.value })
-                                  }
-                                  style={{
-                                    padding: '6px 10px',
-                                    fontWeight: 600,
-                                    fontSize: 12,
-                                    borderRadius: 8,
-                                    width: 'auto',
-                                    minWidth: 165,
-                                    cursor: 'pointer',
-                                    ...(STATUS_BADGE_STYLES[unit.status] || {}),
-                                  }}
-                                >
-                                  {UNIT_STATUS_OPTIONS.map((st) => (
-                                    <option key={st} value={st}>
-                                      {st}
-                                    </option>
-                                  ))}
-                                </select>
-                              </td>
-
-                              <td style={{ padding: '10px 14px', textAlign: 'center' }}>
-                                <label
-                                  style={{
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: 6,
-                                    cursor: 'pointer',
-                                    color: unit.ta_installiert ? '#15803d' : 'var(--text-muted)',
-                                    fontWeight: unit.ta_installiert ? 600 : 400,
-                                  }}
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={Boolean(unit.ta_installiert)}
-                                    onChange={(e) =>
-                                      onUnitChange(addr.id, unit.id, {
-                                        ta_installiert: e.target.checked,
-                                      })
-                                    }
-                                    style={{ width: 17, height: 17, cursor: 'pointer' }}
-                                  />
-                                  <span>{unit.ta_installiert ? 'Ja' : 'Nein'}</span>
-                                </label>
-                              </td>
-
-                              <td style={{ padding: '10px 14px', textAlign: 'center' }}>
-                                <label
-                                  style={{
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: 6,
-                                    cursor: 'pointer',
-                                    color: unit.spleissen_fertig ? '#15803d' : 'var(--text-muted)',
-                                    fontWeight: unit.spleissen_fertig ? 600 : 400,
-                                  }}
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={Boolean(unit.spleissen_fertig)}
-                                    onChange={(e) =>
-                                      onUnitChange(addr.id, unit.id, {
-                                        spleissen_fertig: e.target.checked,
-                                      })
-                                    }
-                                    style={{ width: 17, height: 17, cursor: 'pointer' }}
-                                  />
-                                  <span>{unit.spleissen_fertig ? 'Ja' : 'Nein'}</span>
-                                </label>
-                              </td>
-
-                              <td style={{ padding: '10px 14px', textAlign: 'center' }}>
-                                <label
-                                  style={{
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: 6,
-                                    cursor: 'pointer',
-                                    color: unit.flexrohr ? '#15803d' : 'var(--text-muted)',
-                                    fontWeight: unit.flexrohr ? 600 : 400,
-                                  }}
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={Boolean(unit.flexrohr)}
-                                    onChange={(e) =>
-                                      onUnitChange(addr.id, unit.id, {
-                                        flexrohr: e.target.checked,
-                                      })
-                                    }
-                                    style={{ width: 17, height: 17, cursor: 'pointer' }}
-                                  />
-                                  <span>{unit.flexrohr ? 'Ja' : 'Nein'}</span>
-                                </label>
-                              </td>
-
-                              <td style={{ padding: '10px 14px', textAlign: 'right' }}>
-                                <button
-                                  type="button"
-                                  className="btn-ghost btn-sm"
-                                  onClick={() => onDeleteUnit(addr.id, unit.id)}
-                                  title="Wohneinheit löschen"
-                                  style={{ color: '#dc2626', padding: '4px 8px' }}
-                                >
-                                  <Trash2 size={14} />
-                                </button>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  {/* Quick Add Unit Bar inside Accordion */}
-                  <div
-                    style={{
-                      marginTop: 12,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      flexWrap: 'wrap',
-                      gap: 10,
-                    }}
-                  >
-                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                      Tipp: Wenn der Status einer Einheit auf <strong>„Abgeschlossen“</strong> gesetzt wird, färbt sich die Zeile automatisch grün.
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <input
-                        placeholder="Etage (z.B. OG3)"
-                        value={
-                          newUnitForms[addr.id]?.etage ??
-                          `OG${addr.units?.length || 1}`
-                        }
-                        onChange={(e) =>
-                          setNewUnitForms((prev) => ({
-                            ...prev,
-                            [addr.id]: {
-                              ...(prev[addr.id] || {
-                                unit_id: String((addr.units?.length || 0) + 1).padStart(3, '0'),
-                              }),
-                              etage: e.target.value,
-                            },
-                          }))
-                        }
-                        style={{ width: 120, padding: '6px 10px', fontSize: 12 }}
-                      />
-                      <input
-                        placeholder="Unit-ID (z.B. 005)"
-                        value={
-                          newUnitForms[addr.id]?.unit_id ??
-                          String((addr.units?.length || 0) + 1).padStart(3, '0')
-                        }
-                        onChange={(e) =>
-                          setNewUnitForms((prev) => ({
-                            ...prev,
-                            [addr.id]: {
-                              ...(prev[addr.id] || {
-                                etage: `OG${addr.units?.length || 1}`,
-                              }),
-                              unit_id: e.target.value,
-                            },
-                          }))
-                        }
-                        style={{ width: 110, padding: '6px 10px', fontSize: 12, fontFamily: 'monospace' }}
-                      />
-                      <button
-                        type="button"
-                        className="btn-secondary btn-sm"
-                        onClick={() => handleQuickAddUnit(addr)}
-                        style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
-                      >
-                        <Plus size={14} style={{ color: '#FF6B00' }} />
-                        <span>WE hinzufügen</span>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
+              Noch kein PDF für dieses Gebäude hinterlegt.
             </div>
+          )}
+
+          <input
+            ref={pdfInputRef}
+            type="file"
+            accept=".pdf,application/pdf"
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              if (e.target.files?.[0]) {
+                handlePdfFileSelect(e.target.files[0]);
+                e.target.value = '';
+              }
+            }}
+          />
+          <button
+            type="button"
+            className="btn-secondary btn-sm"
+            disabled={uploadingPdf}
+            onClick={() => pdfInputRef.current?.click()}
+            style={{ width: '100%' }}
+          >
+            <Upload size={14} />
+            <span>
+              {uploadingPdf
+                ? 'Lädt PDF hoch…'
+                : building.has_pdf
+                ? 'Neues / Aktualisiertes PDF hochladen & ersetzen'
+                : 'PDF-Datei jetzt anhängen'}
+            </span>
+          </button>
+        </div>
+
+        {/* Building Comments & Updates Card */}
+        <div className="glass-panel" style={{ padding: 20, borderRadius: 16 }}>
+          <h3 style={{ fontSize: 15, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <MessageSquare size={17} style={{ color: '#FF6B00' }} />
+            <span>Kommentare & Updates zum Gebäude ({comments.length})</span>
+          </h3>
+
+          <form
+            onSubmit={handleSubmitComment}
+            style={{ display: 'flex', gap: 8, marginBottom: 14 }}
+          >
+            <input
+              value={commentText}
+              onChange={(e) => setCommentText(e.target.value)}
+              placeholder="Kommentar, Notiz oder Bau-Update für dieses Gebäude schreiben…"
+              style={{ flex: 1 }}
+            />
+            <button
+              type="submit"
+              className="btn-primary btn-sm"
+              disabled={submittingComment || !commentText.trim()}
+            >
+              <Send size={14} />
+              <span>Posten</span>
+            </button>
+          </form>
+
+          <div
+            style={{
+              maxHeight: 220,
+              overflowY: 'auto',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 8,
+            }}
+          >
+            {comments.length === 0 ? (
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', padding: '8px 0' }}>
+                Noch keine Kommentare vorhanden. Schreiben Sie oben das erste Update.
+              </div>
+            ) : (
+              comments.map((c) => (
+                <div
+                  key={c.id}
+                  style={{
+                    padding: '10px 12px',
+                    borderRadius: 10,
+                    background: 'var(--surface-2)',
+                    border: '1px solid var(--border)',
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    justifyContent: 'space-between',
+                    gap: 10,
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 2 }}>
+                      <strong style={{ color: 'var(--text-main)' }}>{c.author || 'Team'}</strong> •{' '}
+                      {c.created_at}
+                    </div>
+                    <div style={{ fontSize: 13, color: 'var(--text-main)', whiteSpace: 'pre-wrap' }}>
+                      {c.text}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn-ghost btn-sm"
+                    onClick={() => onDeleteComment(building.id, c.id)}
+                    style={{ color: '#dc2626', padding: 4 }}
+                    title="Kommentar löschen"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              ))
+            )}
           </div>
-        );
-      })}
+        </div>
+      </div>
     </div>
   );
 };
@@ -1708,7 +2249,7 @@ export const ProtocolMasterDetailAccordion = ({
 /* =============================================================================
    MAIN MODULE CONTAINER: ProtocolExtractorModule
 ============================================================================= */
-export function ProtocolExtractorModule() {
+export function ProtocolExtractorModule({ user }) {
   const { section } = useParams();
   const navigate = useNavigate();
   const activeTab = section || 'manager';
@@ -1717,13 +2258,34 @@ export function ProtocolExtractorModule() {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [exportingExcel, setExportingExcel] = useState(false);
-  const [expandedIds, setExpandedIds] = useState({});
-  const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState('ALL');
+  const [selectedBuildingId, setSelectedBuildingId] = useState(null);
   const [toast, setToast] = useState(null);
 
-  // Verification modal state
+  // Modals
   const [verificationModal, setVerificationModal] = useState(null);
+  const [quickCommentBuilding, setQuickCommentBuilding] = useState(null);
+  const [quickCommentText, setQuickCommentText] = useState('');
+  const [quickPdfBuilding, setQuickPdfBuilding] = useState(null);
+
+  // Comprehensive Filters (Top Bar + Column Filters)
+  const [globalSearch, setGlobalSearch] = useState('');
+  const [onlyPriority, setOnlyPriority] = useState(false);
+  const [monthFilter, setMonthFilter] = useState('ALL');
+  const [ausbauTypFilter, setAusbauTypFilter] = useState('ALL');
+  const [statusFilter, setStatusFilter] = useState('ALL');
+  const [teamFilter, setTeamFilter] = useState('ALL');
+  const [ortFilter, setOrtFilter] = useState('ALL');
+  const [buildingFlagFilter, setBuildingFlagFilter] = useState('ALL');
+
+  // Column-specific inline filters (matching Image 2)
+  const [colAdressId, setColAdressId] = useState('');
+  const [colGemeinde, setColGemeinde] = useState('');
+  const [colStrasse, setColStrasse] = useState('');
+  const [colHausVon, setColHausVon] = useState('');
+  const [colHausBis, setColHausBis] = useState('');
+  const [colEmail, setColEmail] = useState('');
+  const [colOwner, setColOwner] = useState('');
+  const [colDateSearch, setColDateSearch] = useState('');
 
   const showToast = (msg, type = 'success') => {
     setToast({ msg, type });
@@ -1735,51 +2297,207 @@ export function ProtocolExtractorModule() {
     try {
       const data = await fetchWithToken('/api/v1/protocol/addresses');
       setAddresses(Array.isArray(data) ? data : []);
-      if (Array.isArray(data) && data.length > 0 && Object.keys(expandedIds).length === 0) {
-        setExpandedIds({ [data[0].id]: true });
-      }
     } catch (err) {
       console.error('Failed to load protocol addresses:', err);
     } finally {
       setLoading(false);
     }
-  }, [expandedIds]);
+  }, []);
 
   useEffect(() => {
     loadAddresses();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [loadAddresses]);
 
-  const handleToggleExpand = (addressId) => {
-    setExpandedIds((prev) => ({ ...prev, [addressId]: !prev[addressId] }));
+  const resetAllFilters = () => {
+    setGlobalSearch('');
+    setOnlyPriority(false);
+    setMonthFilter('ALL');
+    setAusbauTypFilter('ALL');
+    setStatusFilter('ALL');
+    setTeamFilter('ALL');
+    setOrtFilter('ALL');
+    setBuildingFlagFilter('ALL');
+    setColAdressId('');
+    setColGemeinde('');
+    setColStrasse('');
+    setColHausVon('');
+    setColHausBis('');
+    setColEmail('');
+    setColOwner('');
+    setColDateSearch('');
   };
 
-  const handleExpandAll = (expand) => {
-    if (!expand) {
-      setExpandedIds({});
-      return;
-    }
-    const next = {};
+  // Dynamic options for Team, Ort, and Month dropdowns
+  const filterOptions = useMemo(() => {
+    const teams = new Set();
+    const orte = new Set();
+    const months = new Set();
+
     addresses.forEach((a) => {
-      next[a.id] = true;
+      if (a.team) teams.add(a.team);
+      if (a.ort) orte.add(a.ort);
+      extractYearMonths(a).forEach((m) => months.add(m));
     });
-    setExpandedIds(next);
-  };
 
-  // Load sample UGG protocol directly into the Human-in-the-loop Verification Modal
+    // Always include all 12 months of 2026 so user can filter by any month immediately
+    for (let m = 1; m <= 12; m += 1) {
+      months.add(`2026-${String(m).padStart(2, '0')}`);
+    }
+
+    return {
+      teams: Array.from(teams).sort(),
+      orte: Array.from(orte).sort(),
+      months: Array.from(months).sort(),
+    };
+  }, [addresses]);
+
+  // Filtered buildings
+  const filteredAddresses = useMemo(() => {
+    return addresses.filter((addr) => {
+      if (onlyPriority && !addr.is_priority) return false;
+      if (ausbauTypFilter !== 'ALL' && (addr.ausbau_typ || 'Metalkanal') !== ausbauTypFilter) {
+        return false;
+      }
+      if (
+        statusFilter !== 'ALL' &&
+        (addr.building_status || 'Ausbau terminiert') !== statusFilter
+      ) {
+        return false;
+      }
+      if (teamFilter !== 'ALL' && (addr.team || '') !== teamFilter) return false;
+      if (ortFilter !== 'ALL' && (addr.ort || '') !== ortFilter) return false;
+
+      if (monthFilter !== 'ALL') {
+        const addrMonths = extractYearMonths(addr);
+        if (!addrMonths.includes(monthFilter)) return false;
+      }
+
+      if (buildingFlagFilter !== 'ALL') {
+        if (buildingFlagFilter === 'HAS_PDF' && !addr.has_pdf) return false;
+        if (buildingFlagFilter === 'FLEXROHR_YES' && !addr.flexrohr) return false;
+        if (buildingFlagFilter === 'FLEXROHR_NO' && addr.flexrohr) return false;
+        if (buildingFlagFilter === 'HUEP_YES' && !addr.huep_installiert) return false;
+        if (buildingFlagFilter === 'HUEP_NO' && addr.huep_installiert) return false;
+        if (buildingFlagFilter === 'SPLEISSEN_YES' && !addr.spleissen_fertig) return false;
+        if (buildingFlagFilter === 'SPLEISSEN_NO' && addr.spleissen_fertig) return false;
+        if (buildingFlagFilter === 'UPLOAD_YES' && !addr.upload_done) return false;
+        if (buildingFlagFilter === 'GENEHMIGT_YES' && !addr.genehmigt) return false;
+        if (buildingFlagFilter === 'RECHNUNG_ERSTELLT_YES' && !addr.rechnung_erstellt) return false;
+        if (buildingFlagFilter === 'RECHNUNG_BEZAHLT_YES' && !addr.rechnung_bezahlt) return false;
+        if (buildingFlagFilter === 'RECHNUNG_OFFEN' && addr.rechnung_bezahlt) return false;
+      }
+
+      // Column-level filters
+      if (colAdressId.trim()) {
+        const q = colAdressId.trim().toLowerCase();
+        if (
+          !(addr.adress_id || '').toLowerCase().includes(q) &&
+          !(addr.projektnummer || '').toLowerCase().includes(q)
+        ) {
+          return false;
+        }
+      }
+      if (colGemeinde.trim()) {
+        const q = colGemeinde.trim().toLowerCase();
+        if (
+          !(addr.ort || '').toLowerCase().includes(q) &&
+          !(addr.plz || '').toLowerCase().includes(q)
+        ) {
+          return false;
+        }
+      }
+      if (colStrasse.trim()) {
+        const q = colStrasse.trim().toLowerCase();
+        if (!(addr.strasse || '').toLowerCase().includes(q)) return false;
+      }
+      if (colHausVon.trim() || colHausBis.trim()) {
+        const num = parseInt(String(addr.hausnummer || '').replace(/\D/g, ''), 10);
+        if (!Number.isNaN(num)) {
+          if (colHausVon.trim() && num < parseInt(colHausVon.trim(), 10)) return false;
+          if (colHausBis.trim() && num > parseInt(colHausBis.trim(), 10)) return false;
+        }
+      }
+      if (colEmail.trim()) {
+        if (!(addr.owner_email || '').toLowerCase().includes(colEmail.trim().toLowerCase())) {
+          return false;
+        }
+      }
+      if (colOwner.trim()) {
+        if (!(addr.owner_name || '').toLowerCase().includes(colOwner.trim().toLowerCase())) {
+          return false;
+        }
+      }
+      if (colDateSearch.trim()) {
+        const q = colDateSearch.trim().toLowerCase();
+        const combinedDates = `${addr.datum || ''} ${addr.ausbautermin || ''} ${addr.restarbeit_termin || ''}`.toLowerCase();
+        if (!combinedDates.includes(q)) return false;
+      }
+
+      // Global search
+      if (globalSearch.trim()) {
+        const q = globalSearch.trim().toLowerCase();
+        const hay = [
+          addr.adress_id,
+          addr.projektnummer,
+          addr.plz,
+          addr.ort,
+          addr.strasse,
+          addr.hausnummer,
+          addr.owner_name,
+          addr.owner_email,
+          addr.owner_telefon,
+          addr.team,
+          addr.ausbau_typ,
+          addr.building_status,
+          addr.ausbautermin,
+          addr.restarbeit_termin,
+          ...(addr.comments || []).map((c) => c.text),
+        ]
+          .join(' ')
+          .toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+
+      return true;
+    });
+  }, [
+    addresses,
+    onlyPriority,
+    ausbauTypFilter,
+    statusFilter,
+    teamFilter,
+    ortFilter,
+    monthFilter,
+    buildingFlagFilter,
+    colAdressId,
+    colGemeinde,
+    colStrasse,
+    colHausVon,
+    colHausBis,
+    colEmail,
+    colOwner,
+    colDateSearch,
+    globalSearch,
+  ]);
+
+  // Sample protocol loader
   const handleLoadSampleProtocol = async () => {
     setUploading(true);
     try {
       const randomSuffix = Math.floor(100000 + Math.random() * 900000);
       const sampleProjekt =
         addresses.length === 0 ? 'N4E241593436' : `N4E24${randomSuffix}`;
+      const sampleAdrId =
+        addresses.length === 0 ? 'ABW007413530' : `ABW00${randomSuffix}`;
       const pdfRes = await fetch(
-        `${API_URL}/api/v1/protocol/sample-pdf?projektnummer=${encodeURIComponent(sampleProjekt)}`
+        `${API_URL}/api/v1/protocol/sample-pdf?projektnummer=${encodeURIComponent(
+          sampleProjekt
+        )}&adress_id=${encodeURIComponent(sampleAdrId)}`
       );
       const pdfBlob = await pdfRes.blob();
       const sampleFile = new File(
         [pdfBlob],
-        `UGG_Hausbegehungsprotokoll_${sampleProjekt}.pdf`,
+        `UGG_Hausbegehungsprotokoll_${sampleAdrId}.pdf`,
         { type: 'application/pdf' }
       );
 
@@ -1803,7 +2521,24 @@ export function ProtocolExtractorModule() {
     }
   };
 
-  // Optimistic live update for unit status & checkboxes
+  // Building PATCH handler
+  const handlePatchBuilding = async (addressId, patch) => {
+    setAddresses((prev) =>
+      prev.map((a) => (a.id === addressId ? { ...a, ...patch } : a))
+    );
+    try {
+      const updated = await fetchWithToken(`/api/v1/protocol/addresses/${addressId}`, {
+        method: 'PATCH',
+        body: JSON.stringify(patch),
+      });
+      setAddresses((prev) => prev.map((a) => (a.id === addressId ? updated : a)));
+    } catch (err) {
+      showToast(err.message || 'Gebäude-Update fehlgeschlagen', 'error');
+      loadAddresses();
+    }
+  };
+
+  // Unit PATCH handler
   const handleUnitChange = async (addressId, unitId, patch) => {
     setAddresses((prev) =>
       prev.map((addr) => {
@@ -1830,7 +2565,7 @@ export function ProtocolExtractorModule() {
         })
       );
     } catch (err) {
-      showToast(err.message || 'Aktualisierung fehlgeschlagen', 'error');
+      showToast(err.message || 'Wohnung-Update fehlgeschlagen', 'error');
       loadAddresses();
     }
   };
@@ -1852,9 +2587,9 @@ export function ProtocolExtractorModule() {
           };
         })
       );
-      showToast(`Wohneinheit WE-${created.unit_id} hinzugefügt`);
+      showToast(`Wohnung WE-${created.unit_id} hinzugefügt`);
     } catch (err) {
-      showToast(err.message || 'Fehler beim Hinzufügen der Wohneinheit', 'error');
+      showToast(err.message || 'Fehler beim Hinzufügen der Wohnung', 'error');
     }
   };
 
@@ -1870,16 +2605,57 @@ export function ProtocolExtractorModule() {
           };
         })
       );
-      showToast('Wohneinheit gelöscht');
+      showToast('Wohnung gelöscht');
     } catch (err) {
       showToast(err.message || 'Löschen fehlgeschlagen', 'error');
+    }
+  };
+
+  const handleAddComment = async (addressId, text, author) => {
+    try {
+      const updated = await fetchWithToken(`/api/v1/protocol/addresses/${addressId}/comments`, {
+        method: 'POST',
+        body: JSON.stringify({ text, author }),
+      });
+      setAddresses((prev) => prev.map((a) => (a.id === addressId ? updated : a)));
+      showToast('Kommentar gespeichert');
+    } catch (err) {
+      showToast(err.message || 'Kommentar konnte nicht gespeichert werden', 'error');
+    }
+  };
+
+  const handleDeleteComment = async (addressId, commentId) => {
+    try {
+      const updated = await fetchWithToken(
+        `/api/v1/protocol/addresses/${addressId}/comments/${commentId}`,
+        { method: 'DELETE' }
+      );
+      setAddresses((prev) => prev.map((a) => (a.id === addressId ? updated : a)));
+      showToast('Kommentar gelöscht');
+    } catch (err) {
+      showToast(err.message || 'Kommentar konnte nicht gelöscht werden', 'error');
+    }
+  };
+
+  const handleUploadBuildingPdf = async (addressId, file) => {
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const updated = await fetchWithToken(`/api/v1/protocol/addresses/${addressId}/pdf`, {
+        method: 'POST',
+        body: fd,
+      });
+      setAddresses((prev) => prev.map((a) => (a.id === addressId ? updated : a)));
+      showToast(`PDF "${file.name}" am Gebäude gespeichert!`);
+    } catch (err) {
+      showToast(err.message || 'PDF-Upload fehlgeschlagen', 'error');
     }
   };
 
   const handleDeleteAddress = async (addr) => {
     if (
       !window.confirm(
-        `Protokoll "${addr.projektnummer}" (${addr.strasse} ${addr.hausnummer}, ${addr.ort}) inklusive aller Wohneinheiten wirklich löschen?`
+        `Gebäude "${addr.adress_id || addr.projektnummer}" (${addr.strasse} ${addr.hausnummer}, ${addr.ort}) inklusive aller Wohnungen wirklich löschen?`
       )
     ) {
       return;
@@ -1887,13 +2663,15 @@ export function ProtocolExtractorModule() {
     try {
       await fetchWithToken(`/api/v1/protocol/addresses/${addr.id}`, { method: 'DELETE' });
       setAddresses((prev) => prev.filter((a) => a.id !== addr.id));
-      showToast(`Protokoll ${addr.projektnummer} wurde gelöscht`);
+      if (selectedBuildingId === addr.id) {
+        setSelectedBuildingId(null);
+      }
+      showToast(`Gebäude ${addr.adress_id || addr.projektnummer} gelöscht`);
     } catch (err) {
       showToast(err.message || 'Löschen fehlgeschlagen', 'error');
     }
   };
 
-  // Server-side multi-sheet .xlsx download (with automatic fallback)
   const handleDownloadExcelWorkbook = async (singleAddress = null) => {
     setExportingExcel(true);
     try {
@@ -1909,20 +2687,19 @@ export function ProtocolExtractorModule() {
       a.href = url;
       const dateStamp = new Date().toISOString().slice(0, 10);
       a.download = singleAddress
-        ? `UGG_Protokoll_${singleAddress.projektnummer}_${dateStamp}.xlsx`
-        : `UGG_Hausbegehungsprotokolle_${dateStamp}.xlsx`;
+        ? `UGG_Gebaeude_${singleAddress.adress_id || singleAddress.projektnummer}_${dateStamp}.xlsx`
+        : `UGG_Ausbau_Tracking_${dateStamp}.xlsx`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
       showToast('Excel-Arbeitsmappe (.xlsx) erfolgreich heruntergeladen');
     } catch (err) {
-      // Fallback to CSV if offline
       exportAddressesToCsv(
         singleAddress ? [singleAddress] : filteredAddresses,
         singleAddress
-          ? `UGG_Protokoll_${singleAddress.projektnummer}.csv`
-          : 'UGG_Hausbegehungsprotokolle.csv'
+          ? `UGG_Gebaeude_${singleAddress.adress_id || singleAddress.projektnummer}.csv`
+          : 'UGG_Ausbau_Tracking.csv'
       );
       showToast('Export als CSV-Datei für Excel heruntergeladen');
     } finally {
@@ -1930,66 +2707,85 @@ export function ProtocolExtractorModule() {
     }
   };
 
-  // Filtered addresses
-  const filteredAddresses = useMemo(() => {
-    return addresses.filter((addr) => {
-      const q = searchQuery.trim().toLowerCase();
-      const matchesSearch =
-        !q ||
-        (addr.projektnummer || '').toLowerCase().includes(q) ||
-        (addr.strasse || '').toLowerCase().includes(q) ||
-        (addr.ort || '').toLowerCase().includes(q) ||
-        (addr.plz || '').toLowerCase().includes(q) ||
-        (addr.owner_name || '').toLowerCase().includes(q) ||
-        (addr.loesungsoption || '').toLowerCase().includes(q);
+  const selectedBuilding = useMemo(
+    () => addresses.find((a) => a.id === selectedBuildingId) || null,
+    [addresses, selectedBuildingId]
+  );
 
-      if (!matchesSearch) return false;
-      if (statusFilter === 'ALL') return true;
+  // If a building is clicked, show the full BuildingDetailView
+  if (selectedBuilding) {
+    return (
+      <>
+        {toast && (
+          <div
+            style={{
+              position: 'fixed',
+              bottom: 24,
+              right: 24,
+              zIndex: 120,
+              padding: '12px 18px',
+              borderRadius: 12,
+              background: toast.type === 'error' ? '#dc2626' : '#18181b',
+              color: '#fff',
+              borderLeft: `4px solid ${toast.type === 'error' ? '#fca5a5' : '#FF6B00'}`,
+              boxShadow: '0 16px 40px rgba(0,0,0,0.22)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              fontSize: 13,
+              fontWeight: 500,
+            }}
+          >
+            <CheckCircle2 size={16} style={{ color: '#FF6B00' }} />
+            <span>{toast.msg}</span>
+          </div>
+        )}
 
-      const units = addr.units || [];
-      if (statusFilter === 'COMPLETED_BUILDING') {
-        return units.length > 0 && units.every((u) => u.status === 'Abgeschlossen');
-      }
-      return units.some((u) => u.status === statusFilter);
-    });
-  }, [addresses, searchQuery, statusFilter]);
+        <BuildingDetailView
+          building={selectedBuilding}
+          user={user}
+          onBack={() => setSelectedBuildingId(null)}
+          onPatchBuilding={handlePatchBuilding}
+          onUnitChange={handleUnitChange}
+          onAddUnit={handleAddUnit}
+          onDeleteUnit={handleDeleteUnit}
+          onAddComment={handleAddComment}
+          onDeleteComment={handleDeleteComment}
+          onUploadPdf={handleUploadBuildingPdf}
+          onEditModal={(b) =>
+            setVerificationModal({
+              data: b,
+              fileName: b.pdf_filename || b.projektnummer,
+              isEditMode: true,
+              editAddressId: b.id,
+            })
+          }
+          onDeleteBuilding={handleDeleteAddress}
+          onExportSingleExcel={(b) => handleDownloadExcelWorkbook(b)}
+        />
 
-  // KPI metrics
-  const kpis = useMemo(() => {
-    let totalUnits = 0;
-    let completedUnits = 0;
-    let inProgressUnits = 0;
-    let restarbeitUnits = 0;
-    let taInstalled = 0;
-    let spliced = 0;
-
-    addresses.forEach((a) => {
-      const uList = a.units || [];
-      totalUnits += uList.length;
-      uList.forEach((u) => {
-        if (u.status === 'Abgeschlossen') completedUnits += 1;
-        if (u.status === 'In Bearbeitung') inProgressUnits += 1;
-        if (u.status === 'Restarbeit') restarbeitUnits += 1;
-        if (u.ta_installiert) taInstalled += 1;
-        if (u.spleissen_fertig) spliced += 1;
-      });
-    });
-
-    const completionRate = totalUnits > 0 ? Math.round((completedUnits / totalUnits) * 100) : 0;
-    return {
-      totalAddresses: addresses.length,
-      totalUnits,
-      completedUnits,
-      inProgressUnits,
-      restarbeitUnits,
-      taInstalled,
-      spliced,
-      completionRate,
-    };
-  }, [addresses]);
+        {verificationModal && (
+          <ProtocolVerificationModal
+            initialData={verificationModal.data}
+            sourceFileName={verificationModal.fileName}
+            isEditMode={verificationModal.isEditMode}
+            editAddressId={verificationModal.editAddressId}
+            onClose={() => setVerificationModal(null)}
+            onSaved={(savedAddr) => {
+              setVerificationModal(null);
+              setAddresses((prev) =>
+                prev.map((a) => (a.id === savedAddr.id ? savedAddr : a))
+              );
+              showToast('Gebäudedaten aktualisiert!');
+            }}
+          />
+        )}
+      </>
+    );
+  }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
       {/* Toast Notification */}
       {toast && (
         <div
@@ -2016,22 +2812,22 @@ export function ProtocolExtractorModule() {
         </div>
       )}
 
-      {/* Top Module Header & Sub-Navigation */}
+      {/* Top Module Bar */}
       <div
         className="glass-panel"
         style={{
-          padding: '18px 24px',
+          padding: '16px 22px',
           borderRadius: 16,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
           flexWrap: 'wrap',
-          gap: 16,
+          gap: 14,
         }}
       >
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <h2 style={{ margin: 0 }}>UGG Hausbegehungsprotokoll & Master-Detail Manager</h2>
+            <h2 style={{ margin: 0 }}>UGG Ausbau-Manager & KI-Protokoll Extraktor</h2>
             <span
               style={{
                 fontSize: 11,
@@ -2042,11 +2838,11 @@ export function ProtocolExtractorModule() {
                 color: '#FF6B00',
               }}
             >
-              Brünel AI Extractor v2.0
+              {filteredAddresses.length} / {addresses.length} Gebäude
             </span>
           </div>
-          <p style={{ margin: '4px 0 0', fontSize: 13 }}>
-            Lokale PDF-Datenextraktion (PyMuPDF), Human-in-the-Loop Verifizierung, Master-Detail Einheitenverwaltung & Excel-Export (.xlsx)
+          <p style={{ margin: '3px 0 0', fontSize: 12 }}>
+            Klicken Sie auf ein Gebäude in der Liste, um die vollständige Gebäude-Detailansicht, Wohnungen (TA / Reserve / Ohne), Original-PDF & Kommentare zu öffnen.
           </p>
         </div>
 
@@ -2061,9 +2857,9 @@ export function ProtocolExtractorModule() {
             }}
           >
             {[
-              { id: 'manager', label: 'Master-Detail & Upload' },
+              { id: 'manager', label: 'Übersicht & Import' },
               { id: 'upload', label: 'PDF KI-Extraktor' },
-              { id: 'export', label: 'Excel Export Center' },
+              { id: 'export', label: 'Excel Export (.xlsx)' },
             ].map((tab) => (
               <button
                 key={tab.id}
@@ -2078,7 +2874,6 @@ export function ProtocolExtractorModule() {
                   cursor: 'pointer',
                   background: activeTab === tab.id ? '#FF6B00' : 'transparent',
                   color: activeTab === tab.id ? '#fff' : 'var(--text-muted)',
-                  transition: 'all 150ms ease',
                 }}
               >
                 {tab.label}
@@ -2096,69 +2891,16 @@ export function ProtocolExtractorModule() {
               borderColor: '#16a34a',
               display: 'inline-flex',
               alignItems: 'center',
-              gap: 8,
+              gap: 7,
             }}
           >
             <FileSpreadsheet size={16} />
-            <span>{exportingExcel ? 'Exportiert…' : 'Excel Export (.xlsx)'}</span>
+            <span>{exportingExcel ? 'Exportiert…' : 'Excel'}</span>
           </button>
         </div>
       </div>
 
-      {/* KPI Telemetry Bar */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(185px, 1fr))',
-          gap: 14,
-        }}
-      >
-        <div className="glass-panel" style={{ padding: 16, borderRadius: 14 }}>
-          <div style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 500 }}>
-            Erfasste Gebäude (Master)
-          </div>
-          <div style={{ fontSize: 24, fontWeight: 700, marginTop: 4 }}>{kpis.totalAddresses}</div>
-          <div style={{ fontSize: 11, color: '#FF6B00', marginTop: 2 }}>
-            Standardisierte UGG-Protokolle
-          </div>
-        </div>
-
-        <div className="glass-panel" style={{ padding: 16, borderRadius: 14 }}>
-          <div style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 500 }}>
-            Wohneinheiten Gesamt (Units)
-          </div>
-          <div style={{ fontSize: 24, fontWeight: 700, marginTop: 4 }}>{kpis.totalUnits}</div>
-          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
-            TA: {kpis.taInstalled} • Spleißen: {kpis.spliced}
-          </div>
-        </div>
-
-        <div className="glass-panel" style={{ padding: 16, borderRadius: 14 }}>
-          <div style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 500 }}>
-            Abgeschlossene Einheiten
-          </div>
-          <div style={{ fontSize: 24, fontWeight: 700, color: '#16a34a', marginTop: 4 }}>
-            {kpis.completedUnits}
-          </div>
-          <div style={{ fontSize: 11, color: '#15803d', marginTop: 2 }}>
-            {kpis.completionRate}% Abschlussquote
-          </div>
-        </div>
-
-        <div className="glass-panel" style={{ padding: 16, borderRadius: 14 }}>
-          <div style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 500 }}>
-            In Bearbeitung / Restarbeit
-          </div>
-          <div style={{ fontSize: 24, fontWeight: 700, color: '#d97706', marginTop: 4 }}>
-            {kpis.inProgressUnits + kpis.restarbeitUnits}
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
-            {kpis.inProgressUnits} aktiv • {kpis.restarbeitUnits} Restarbeit
-          </div>
-        </div>
-      </div>
-
-      {/* Component 1: Upload Zone (shown on 'manager' and 'upload' tabs) */}
+      {/* Component 1: Upload Zone */}
       {(activeTab === 'manager' || activeTab === 'upload') && (
         <ProtocolUploadZone
           uploading={uploading}
@@ -2174,213 +2916,1094 @@ export function ProtocolExtractorModule() {
         />
       )}
 
-      {/* Excel Export Center Tab */}
+      {/* Excel Export Info Panel when on 'export' tab */}
       {activeTab === 'export' && (
-        <div className="glass-panel" style={{ padding: 24, borderRadius: 16 }}>
+        <div className="glass-panel" style={{ padding: 22, borderRadius: 16 }}>
           <div
             style={{
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
               flexWrap: 'wrap',
-              gap: 16,
-              marginBottom: 20,
+              gap: 14,
             }}
           >
             <div>
               <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
                 <FileSpreadsheet size={20} style={{ color: '#16a34a' }} />
-                <span>Excel-Datenexport (.xlsx & .csv)</span>
+                <span>UGG Ausbau-Tracking Excel-Export (.xlsx & .csv)</span>
               </h3>
               <p style={{ margin: '4px 0 0', fontSize: 13 }}>
-                Exportieren Sie alle Master-Adressen und Detail-Wohneinheiten als mehrblättrige Excel-Arbeitsmappe (.xlsx) oder als CSV-Tabelle.
+                Exportiert alle Spalten exakt nach UGG-Standard: Ausbau-Typ, Status, AB-Termin, Restarbeit Termin, Adress ID2, WE Nummer, PLZ, Ort, Straße, Etage, Wohnung, TA Installation, Reserve, Ohne, Flexrohr, HÜP installiert, Spleißen fertig, Upload, Genehmigt, Rechnung erstellt & bezahlt.
               </p>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: 10 }}>
               <button
                 type="button"
                 className="btn-primary"
                 onClick={() => handleDownloadExcelWorkbook(null)}
-                disabled={exportingExcel || addresses.length === 0}
                 style={{ background: '#16a34a', borderColor: '#16a34a' }}
               >
                 <FileSpreadsheet size={16} />
-                <span>Komplette Excel-Arbeitsmappe (.xlsx) herunterladen</span>
+                <span>Excel-Arbeitsmappe (.xlsx) herunterladen</span>
               </button>
               <button
                 type="button"
                 className="btn-secondary"
                 onClick={() => exportAddressesToCsv(filteredAddresses)}
-                disabled={filteredAddresses.length === 0}
               >
                 <Download size={16} />
-                <span>Gefilterte Ansicht als Excel-CSV (.csv)</span>
+                <span>Gefilterte Liste als CSV</span>
               </button>
             </div>
           </div>
+        </div>
+      )}
 
+      {/* COMPREHENSIVE DARK FILTER BAR & OVERVIEW LIST (Matching Image 2) */}
+      <div
+        className="glass-panel"
+        style={{
+          borderRadius: 16,
+          overflow: 'hidden',
+          background: '#111827',
+          color: '#e5e7eb',
+          border: '1px solid #1f2937',
+          boxShadow: '0 16px 40px rgba(0, 0, 0, 0.2)',
+        }}
+      >
+        {/* Top Comprehensive Filter Toolbar */}
+        <div
+          style={{
+            padding: '14px 18px',
+            borderBottom: '1px solid #1f2937',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: 10,
+            background: '#0f172a',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', flex: 1 }}>
+            {/* Global Search */}
+            <div style={{ position: 'relative', minWidth: 220, flex: '1 1 220px', maxWidth: 320 }}>
+              <Search
+                size={14}
+                style={{
+                  position: 'absolute',
+                  left: 11,
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  color: '#9ca3af',
+                }}
+              />
+              <input
+                value={globalSearch}
+                onChange={(e) => setGlobalSearch(e.target.value)}
+                placeholder="Suchen (Adress-ID, WE-Nr, Straße, Eigentümer)…"
+                style={{
+                  padding: '7px 10px 7px 32px',
+                  fontSize: 12,
+                  background: '#1e293b',
+                  border: '1px solid #334155',
+                  color: '#f8fafc',
+                  borderRadius: 8,
+                }}
+              />
+            </div>
+
+            {/* ★ Priority Filter */}
+            <button
+              type="button"
+              onClick={() => setOnlyPriority((p) => !p)}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '7px 12px',
+                borderRadius: 8,
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: 'pointer',
+                background: onlyPriority ? 'rgba(250, 204, 21, 0.2)' : '#1e293b',
+                border: onlyPriority ? '1px solid #facc15' : '1px solid #334155',
+                color: onlyPriority ? '#facc15' : '#cbd5e1',
+              }}
+            >
+              <Star size={13} fill={onlyPriority ? '#facc15' : 'none'} />
+              <span>Priorität</span>
+            </button>
+
+            {/* Month Filter (Monatsfilter) */}
+            <select
+              value={monthFilter}
+              onChange={(e) => setMonthFilter(e.target.value)}
+              style={{
+                width: 'auto',
+                minWidth: 145,
+                padding: '7px 10px',
+                fontSize: 12,
+                background: monthFilter !== 'ALL' ? 'rgba(255, 107, 0, 0.2)' : '#1e293b',
+                border: monthFilter !== 'ALL' ? '1px solid #FF6B00' : '1px solid #334155',
+                color: '#f8fafc',
+                borderRadius: 8,
+              }}
+            >
+              <option value="ALL">📅 Monat: Alle</option>
+              {filterOptions.months.map((m) => (
+                <option key={m} value={m}>
+                  Monat: {m}
+                </option>
+              ))}
+            </select>
+
+            {/* Ausbau-Typ Filter */}
+            <select
+              value={ausbauTypFilter}
+              onChange={(e) => setAusbauTypFilter(e.target.value)}
+              style={{
+                width: 'auto',
+                minWidth: 145,
+                padding: '7px 10px',
+                fontSize: 12,
+                background: '#1e293b',
+                border: '1px solid #334155',
+                color: '#f8fafc',
+                borderRadius: 8,
+              }}
+            >
+              <option value="ALL">Ausbau-Typ: Alle</option>
+              {AUSBAU_TYP_OPTIONS.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+
+            {/* Status Filter */}
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              style={{
+                width: 'auto',
+                minWidth: 150,
+                padding: '7px 10px',
+                fontSize: 12,
+                background: '#1e293b',
+                border: '1px solid #334155',
+                color: '#f8fafc',
+                borderRadius: 8,
+              }}
+            >
+              <option value="ALL">Status: Alle</option>
+              {BUILDING_STATUS_OPTIONS.map((st) => (
+                <option key={st} value={st}>
+                  {st}
+                </option>
+              ))}
+            </select>
+
+            {/* Teams / Auftragnehmer Filter */}
+            <select
+              value={teamFilter}
+              onChange={(e) => setTeamFilter(e.target.value)}
+              style={{
+                width: 'auto',
+                minWidth: 145,
+                padding: '7px 10px',
+                fontSize: 12,
+                background: '#1e293b',
+                border: '1px solid #334155',
+                color: '#f8fafc',
+                borderRadius: 8,
+              }}
+            >
+              <option value="ALL">Teams: Alle</option>
+              {filterOptions.teams.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+
+            {/* Ortschaften Filter */}
+            <select
+              value={ortFilter}
+              onChange={(e) => setOrtFilter(e.target.value)}
+              style={{
+                width: 'auto',
+                minWidth: 145,
+                padding: '7px 10px',
+                fontSize: 12,
+                background: '#1e293b',
+                border: '1px solid #334155',
+                color: '#f8fafc',
+                borderRadius: 8,
+              }}
+            >
+              <option value="ALL">Ortschaften: Alle</option>
+              {filterOptions.orte.map((o) => (
+                <option key={o} value={o}>
+                  {o}
+                </option>
+              ))}
+            </select>
+
+            {/* Building Technical / Billing Flag Filter */}
+            <select
+              value={buildingFlagFilter}
+              onChange={(e) => setBuildingFlagFilter(e.target.value)}
+              style={{
+                width: 'auto',
+                minWidth: 165,
+                padding: '7px 10px',
+                fontSize: 12,
+                background: '#1e293b',
+                border: '1px solid #334155',
+                color: '#f8fafc',
+                borderRadius: 8,
+              }}
+            >
+              <option value="ALL">Gebäude-Filter: Alle</option>
+              <option value="FLEXROHR_YES">Flexrohr: Ja</option>
+              <option value="FLEXROHR_NO">Flexrohr: Nein</option>
+              <option value="HUEP_YES">HÜP installiert: Ja</option>
+              <option value="HUEP_NO">HÜP installiert: Nein</option>
+              <option value="SPLEISSEN_YES">Spleißen fertig: Ja</option>
+              <option value="SPLEISSEN_NO">Spleißen fertig: Nein</option>
+              <option value="UPLOAD_YES">Upload erledigt</option>
+              <option value="GENEHMIGT_YES">Genehmigt</option>
+              <option value="RECHNUNG_ERSTELLT_YES">Rechnung erstellt</option>
+              <option value="RECHNUNG_BEZAHLT_YES">Rechnung bezahlt</option>
+              <option value="RECHNUNG_OFFEN">Rechnung noch unbezahlt</option>
+              <option value="HAS_PDF">Mit gespeichertem PDF</option>
+            </select>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button
+              type="button"
+              onClick={resetAllFilters}
+              style={{
+                padding: '7px 11px',
+                borderRadius: 8,
+                fontSize: 12,
+                background: '#1e293b',
+                border: '1px solid #334155',
+                color: '#cbd5e1',
+                cursor: 'pointer',
+              }}
+            >
+              Filter zurücksetzen
+            </button>
+            <button
+              type="button"
+              onClick={loadAddresses}
+              style={{
+                padding: '7px 10px',
+                borderRadius: 8,
+                background: '#1e293b',
+                border: '1px solid #334155',
+                color: '#cbd5e1',
+                cursor: 'pointer',
+              }}
+              title="Aktualisieren"
+            >
+              <RefreshCw size={14} />
+            </button>
+          </div>
+        </div>
+
+        {/* Overview Table with Inline Column Filters (Matching Image 2) */}
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+            <thead>
+              <tr
+                style={{
+                  background: '#0f172a',
+                  color: '#94a3b8',
+                  textTransform: 'uppercase',
+                  fontSize: 11,
+                  letterSpacing: '0.05em',
+                  borderBottom: '1px solid #1e293b',
+                }}
+              >
+                <th style={{ padding: '10px 10px', width: 36, textAlign: 'center' }}>★</th>
+                <th style={{ padding: '10px 10px', textAlign: 'left' }}>Adress-ID / WE-Nr</th>
+                <th style={{ padding: '10px 10px', textAlign: 'left' }}>Gemeinde</th>
+                <th style={{ padding: '10px 10px', textAlign: 'left' }}>Strasse</th>
+                <th style={{ padding: '10px 10px', textAlign: 'center' }}>Haus</th>
+                <th style={{ padding: '10px 10px', textAlign: 'center' }}>Einheiten</th>
+                <th style={{ padding: '10px 10px', textAlign: 'left' }}>Ausbau-Typ</th>
+                <th style={{ padding: '10px 10px', textAlign: 'left' }}>E-Mail</th>
+                <th style={{ padding: '10px 10px', textAlign: 'left' }}>Eigentümer</th>
+                <th style={{ padding: '10px 10px', textAlign: 'left' }}>Teams</th>
+                <th style={{ padding: '10px 10px', textAlign: 'left' }}>Status</th>
+                <th style={{ padding: '10px 10px', textAlign: 'left' }}>HBG / Ausbau / Rest</th>
+                <th style={{ padding: '10px 10px', textAlign: 'left' }}>Gebäude-Checks</th>
+                <th style={{ padding: '10px 10px', textAlign: 'left' }}>Telefon</th>
+                <th style={{ padding: '10px 12px', textAlign: 'right' }}>Aktionen</th>
+              </tr>
+
+              {/* Column-Level Inline Filter Inputs Row */}
+              <tr style={{ background: '#162032', borderBottom: '1px solid #1e293b' }}>
+                <th style={{ padding: '6px 8px' }} />
+                <th style={{ padding: '6px 8px' }}>
+                  <input
+                    value={colAdressId}
+                    onChange={(e) => setColAdressId(e.target.value)}
+                    placeholder="ABW / N4E…"
+                    style={{
+                      padding: '5px 8px',
+                      fontSize: 11,
+                      background: '#0f172a',
+                      border: '1px solid #334155',
+                      color: '#f8fafc',
+                      borderRadius: 6,
+                    }}
+                  />
+                </th>
+                <th style={{ padding: '6px 8px' }}>
+                  <input
+                    value={colGemeinde}
+                    onChange={(e) => setColGemeinde(e.target.value)}
+                    placeholder="Ort / PLZ…"
+                    style={{
+                      padding: '5px 8px',
+                      fontSize: 11,
+                      background: '#0f172a',
+                      border: '1px solid #334155',
+                      color: '#f8fafc',
+                      borderRadius: 6,
+                    }}
+                  />
+                </th>
+                <th style={{ padding: '6px 8px' }}>
+                  <input
+                    value={colStrasse}
+                    onChange={(e) => setColStrasse(e.target.value)}
+                    placeholder="Straße…"
+                    style={{
+                      padding: '5px 8px',
+                      fontSize: 11,
+                      background: '#0f172a',
+                      border: '1px solid #334155',
+                      color: '#f8fafc',
+                      borderRadius: 6,
+                    }}
+                  />
+                </th>
+                <th style={{ padding: '6px 8px' }}>
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    <input
+                      value={colHausVon}
+                      onChange={(e) => setColHausVon(e.target.value)}
+                      placeholder="Von"
+                      style={{
+                        width: 44,
+                        padding: '5px 6px',
+                        fontSize: 11,
+                        background: '#0f172a',
+                        border: '1px solid #334155',
+                        color: '#f8fafc',
+                        borderRadius: 6,
+                      }}
+                    />
+                    <input
+                      value={colHausBis}
+                      onChange={(e) => setColHausBis(e.target.value)}
+                      placeholder="Bis"
+                      style={{
+                        width: 44,
+                        padding: '5px 6px',
+                        fontSize: 11,
+                        background: '#0f172a',
+                        border: '1px solid #334155',
+                        color: '#f8fafc',
+                        borderRadius: 6,
+                      }}
+                    />
+                  </div>
+                </th>
+                <th style={{ padding: '6px 8px' }} />
+                <th style={{ padding: '6px 8px' }}>
+                  <select
+                    value={ausbauTypFilter}
+                    onChange={(e) => setAusbauTypFilter(e.target.value)}
+                    style={{
+                      padding: '5px 6px',
+                      fontSize: 11,
+                      background: '#0f172a',
+                      border: '1px solid #334155',
+                      color: '#f8fafc',
+                      borderRadius: 6,
+                    }}
+                  >
+                    <option value="ALL">Alle</option>
+                    {AUSBAU_TYP_OPTIONS.map((t) => (
+                      <option key={t} value={t}>
+                        {t}
+                      </option>
+                    ))}
+                  </select>
+                </th>
+                <th style={{ padding: '6px 8px' }}>
+                  <input
+                    value={colEmail}
+                    onChange={(e) => setColEmail(e.target.value)}
+                    placeholder="E-Mail…"
+                    style={{
+                      padding: '5px 8px',
+                      fontSize: 11,
+                      background: '#0f172a',
+                      border: '1px solid #334155',
+                      color: '#f8fafc',
+                      borderRadius: 6,
+                    }}
+                  />
+                </th>
+                <th style={{ padding: '6px 8px' }}>
+                  <input
+                    value={colOwner}
+                    onChange={(e) => setColOwner(e.target.value)}
+                    placeholder="Eigentümer…"
+                    style={{
+                      padding: '5px 8px',
+                      fontSize: 11,
+                      background: '#0f172a',
+                      border: '1px solid #334155',
+                      color: '#f8fafc',
+                      borderRadius: 6,
+                    }}
+                  />
+                </th>
+                <th style={{ padding: '6px 8px' }}>
+                  <select
+                    value={teamFilter}
+                    onChange={(e) => setTeamFilter(e.target.value)}
+                    style={{
+                      padding: '5px 6px',
+                      fontSize: 11,
+                      background: '#0f172a',
+                      border: '1px solid #334155',
+                      color: '#f8fafc',
+                      borderRadius: 6,
+                    }}
+                  >
+                    <option value="ALL">Alle</option>
+                    {filterOptions.teams.map((t) => (
+                      <option key={t} value={t}>
+                        {t}
+                      </option>
+                    ))}
+                  </select>
+                </th>
+                <th style={{ padding: '6px 8px' }}>
+                  <select
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value)}
+                    style={{
+                      padding: '5px 6px',
+                      fontSize: 11,
+                      background: '#0f172a',
+                      border: '1px solid #334155',
+                      color: '#f8fafc',
+                      borderRadius: 6,
+                    }}
+                  >
+                    <option value="ALL">Alle</option>
+                    {BUILDING_STATUS_OPTIONS.map((st) => (
+                      <option key={st} value={st}>
+                        {st}
+                      </option>
+                    ))}
+                  </select>
+                </th>
+                <th style={{ padding: '6px 8px' }}>
+                  <input
+                    value={colDateSearch}
+                    onChange={(e) => setColDateSearch(e.target.value)}
+                    placeholder="📅 Zeitraum / Datum…"
+                    style={{
+                      padding: '5px 8px',
+                      fontSize: 11,
+                      background: '#0f172a',
+                      border: '1px solid #334155',
+                      color: '#f8fafc',
+                      borderRadius: 6,
+                    }}
+                  />
+                </th>
+                <th colSpan={3} style={{ padding: '6px 8px' }} />
+              </tr>
+            </thead>
+
+            <tbody>
+              {loading ? (
+                <tr>
+                  <td colSpan={15} style={{ padding: 36, textAlign: 'center', color: '#94a3b8' }}>
+                    Lade Gebäude-Übersicht…
+                  </td>
+                </tr>
+              ) : filteredAddresses.length === 0 ? (
+                <tr>
+                  <td colSpan={15} style={{ padding: 42, textAlign: 'center', color: '#94a3b8' }}>
+                    Keine Gebäude für die aktuellen Filter gefunden. Klicken Sie oben auf{' '}
+                    <strong style={{ color: '#FF6B00' }}>„Muster-Protokoll testen“</strong> oder laden Sie ein PDF hoch.
+                  </td>
+                </tr>
+              ) : (
+                filteredAddresses.map((addr) => {
+                  const units = addr.units || [];
+                  const commentsCount = (addr.comments || []).length;
+                  const bStatus = addr.building_status || 'Ausbau terminiert';
+
+                  return (
+                    <tr
+                      key={addr.id}
+                      onClick={() => setSelectedBuildingId(addr.id)}
+                      style={{
+                        borderBottom: '1px solid #1e293b',
+                        cursor: 'pointer',
+                        transition: 'background 150ms ease',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = 'rgba(255, 107, 0, 0.08)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = 'transparent';
+                      }}
+                    >
+                      {/* ★ Priority */}
+                      <td
+                        style={{ padding: '11px 10px', textAlign: 'center' }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handlePatchBuilding(addr.id, { is_priority: !addr.is_priority });
+                        }}
+                      >
+                        <Star
+                          size={15}
+                          style={{ color: addr.is_priority ? '#facc15' : '#475569' }}
+                          fill={addr.is_priority ? '#facc15' : 'none'}
+                        />
+                      </td>
+
+                      {/* Adress-ID & WE-Nr */}
+                      <td style={{ padding: '11px 10px' }}>
+                        <div
+                          style={{
+                            fontFamily: 'monospace',
+                            fontWeight: 700,
+                            color: '#38bdf8',
+                            fontSize: 12.5,
+                          }}
+                        >
+                          {addr.adress_id || 'ABW—'}
+                        </div>
+                        <div style={{ fontSize: 10.5, color: '#94a3b8', fontFamily: 'monospace' }}>
+                          {addr.projektnummer}
+                        </div>
+                      </td>
+
+                      {/* Gemeinde */}
+                      <td style={{ padding: '11px 10px', fontWeight: 500, color: '#f1f5f9' }}>
+                        <div>{addr.ort}</div>
+                        <div style={{ fontSize: 10.5, color: '#94a3b8' }}>{addr.plz}</div>
+                      </td>
+
+                      {/* Straße */}
+                      <td style={{ padding: '11px 10px', color: '#f1f5f9' }}>{addr.strasse}</td>
+
+                      {/* Haus */}
+                      <td style={{ padding: '11px 10px', textAlign: 'center', fontWeight: 600 }}>
+                        {addr.hausnummer}
+                      </td>
+
+                      {/* Einheiten */}
+                      <td style={{ padding: '11px 10px', textAlign: 'center', fontWeight: 700 }}>
+                        {addr.total_we || units.length}
+                      </td>
+
+                      {/* Ausbau-Typ */}
+                      <td style={{ padding: '11px 10px' }}>
+                        <span
+                          style={{
+                            padding: '3px 8px',
+                            borderRadius: 6,
+                            fontSize: 11,
+                            fontWeight: 600,
+                            background: 'rgba(30, 58, 138, 0.45)',
+                            color: '#93c5fd',
+                            border: '1px solid rgba(59, 130, 246, 0.35)',
+                          }}
+                        >
+                          {addr.ausbau_typ || 'Metalkanal'}
+                        </span>
+                      </td>
+
+                      {/* E-Mail */}
+                      <td
+                        style={{
+                          padding: '11px 10px',
+                          color: '#38bdf8',
+                          maxWidth: 165,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {addr.owner_email || '—'}
+                      </td>
+
+                      {/* Eigentümer */}
+                      <td
+                        style={{
+                          padding: '11px 10px',
+                          color: '#e2e8f0',
+                          maxWidth: 165,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {addr.owner_name || '—'}
+                      </td>
+
+                      {/* Teams */}
+                      <td style={{ padding: '11px 10px' }}>
+                        <span
+                          style={{
+                            padding: '3px 8px',
+                            borderRadius: 6,
+                            fontSize: 11,
+                            background: '#1e293b',
+                            border: '1px solid #334155',
+                            color: '#cbd5e1',
+                          }}
+                        >
+                          {addr.team || '—'}
+                        </span>
+                      </td>
+
+                      {/* Status */}
+                      <td style={{ padding: '11px 10px' }}>
+                        <span
+                          style={{
+                            padding: '3px 10px',
+                            borderRadius: 999,
+                            fontSize: 11,
+                            fontWeight: 700,
+                            whiteSpace: 'nowrap',
+                            background:
+                              bStatus === 'Ausbau terminiert'
+                                ? '#a855f7'
+                                : bStatus === 'Restarbeiten'
+                                ? '#f97316'
+                                : bStatus === 'Abgeschlossen'
+                                ? '#16a34a'
+                                : bStatus === 'In Bearbeitung'
+                                ? '#2563eb'
+                                : '#475569',
+                            color: '#fff',
+                          }}
+                        >
+                          {bStatus}
+                        </span>
+                      </td>
+
+                      {/* HBG / Ausbau / Restarbeit Dates */}
+                      <td style={{ padding: '11px 10px', fontSize: 11, whiteSpace: 'nowrap' }}>
+                        <div style={{ color: '#cbd5e1' }}>HBG: {addr.datum || '—'}</div>
+                        <div style={{ color: '#86efac' }}>
+                          AB: {formatGermanDateDisplay(addr.ausbautermin)}
+                        </div>
+                        {addr.restarbeit_termin && (
+                          <div style={{ color: '#fdba74' }}>
+                            Rest: {formatGermanDateDisplay(addr.restarbeit_termin)}
+                          </div>
+                        )}
+                      </td>
+
+                      {/* Whole-Building Checks Mini Badges */}
+                      <td
+                        style={{ padding: '11px 10px' }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', maxWidth: 210 }}>
+                          {[
+                            { k: 'flexrohr', short: 'Flex', c: '#ef4444' },
+                            { k: 'huep_installiert', short: 'HÜP', c: '#ef4444' },
+                            { k: 'spleissen_fertig', short: 'Spl', c: '#ef4444' },
+                            { k: 'upload_done', short: 'Upl', c: '#f97316' },
+                            { k: 'genehmigt', short: 'Gen', c: '#f97316' },
+                            { k: 'rechnung_erstellt', short: 'RE', c: '#38bdf8' },
+                            { k: 'rechnung_bezahlt', short: 'Bez', c: '#22c55e' },
+                          ].map((b) => {
+                            const on = Boolean(addr[b.k]);
+                            return (
+                              <button
+                                key={b.k}
+                                type="button"
+                                onClick={() =>
+                                  handlePatchBuilding(addr.id, { [b.k]: !on })
+                                }
+                                title={`${b.short} umschalten`}
+                                style={{
+                                  padding: '2px 5px',
+                                  fontSize: 10,
+                                  fontWeight: 700,
+                                  borderRadius: 4,
+                                  cursor: 'pointer',
+                                  border: on ? `1px solid ${b.c}` : '1px solid #334155',
+                                  background: on ? `${b.c}33` : '#0f172a',
+                                  color: on ? '#fff' : '#64748b',
+                                }}
+                              >
+                                {b.short}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </td>
+
+                      {/* Telefon */}
+                      <td style={{ padding: '11px 10px', color: '#38bdf8', fontSize: 11.5 }}>
+                        {addr.owner_telefon || '—'}
+                      </td>
+
+                      {/* Aktionen (Eye -> Building View, Comments with badge, PDF View/Download) */}
+                      <td
+                        style={{ padding: '11px 12px', textAlign: 'right', whiteSpace: 'nowrap' }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                          {/* Enter Building Details */}
+                          <button
+                            type="button"
+                            onClick={() => setSelectedBuildingId(addr.id)}
+                            title="Gebäude öffnen & Details anzeigen"
+                            style={{
+                              width: 30,
+                              height: 30,
+                              borderRadius: 7,
+                              background: '#1e293b',
+                              border: '1px solid #334155',
+                              color: '#e2e8f0',
+                              display: 'grid',
+                              placeItems: 'center',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            <Eye size={14} />
+                          </button>
+
+                          {/* Comments Modal Trigger with Counter Badge */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setQuickCommentBuilding(addr);
+                              setQuickCommentText('');
+                            }}
+                            title="Kommentare & Updates"
+                            style={{
+                              position: 'relative',
+                              width: 30,
+                              height: 30,
+                              borderRadius: 7,
+                              background: '#1e293b',
+                              border: '1px solid #334155',
+                              color: '#e2e8f0',
+                              display: 'grid',
+                              placeItems: 'center',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            <MessageSquare size={14} />
+                            {commentsCount > 0 && (
+                              <span
+                                style={{
+                                  position: 'absolute',
+                                  top: -5,
+                                  right: -5,
+                                  minWidth: 16,
+                                  height: 16,
+                                  padding: '0 4px',
+                                  borderRadius: 999,
+                                  background: '#3b82f6',
+                                  color: '#fff',
+                                  fontSize: 10,
+                                  fontWeight: 700,
+                                  display: 'grid',
+                                  placeItems: 'center',
+                                }}
+                              >
+                                {commentsCount}
+                              </span>
+                            )}
+                          </button>
+
+                          {/* PDF View / Download */}
+                          <button
+                            type="button"
+                            onClick={() => setQuickPdfBuilding(addr)}
+                            title={
+                              addr.has_pdf
+                                ? `Gespeichertes PDF ansehen / herunterladen (${addr.pdf_filename || 'PDF'})`
+                                : 'PDF für dieses Gebäude ansehen / hochladen'
+                            }
+                            style={{
+                              width: 30,
+                              height: 30,
+                              borderRadius: 7,
+                              background: addr.has_pdf
+                                ? 'rgba(22, 163, 74, 0.2)'
+                                : '#1e293b',
+                              border: addr.has_pdf
+                                ? '1px solid #22c55e'
+                                : '1px solid #334155',
+                              color: addr.has_pdf ? '#4ade80' : '#94a3b8',
+                              display: 'grid',
+                              placeItems: 'center',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            <FileText size={14} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Quick Comments & Updates Modal */}
+      {quickCommentBuilding && (
+        <div
+          className="modal-overlay"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 110,
+            background: 'rgba(15, 23, 42, 0.65)',
+            backdropFilter: 'blur(8px)',
+            display: 'grid',
+            placeItems: 'center',
+            padding: 16,
+          }}
+          onMouseDown={(e) => e.target === e.currentTarget && setQuickCommentBuilding(null)}
+        >
           <div
+            className="glass-panel"
             style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
-              gap: 14,
+              width: 'min(560px, 100%)',
+              borderRadius: 16,
+              padding: 22,
+              background: '#fff',
             }}
           >
             <div
               style={{
-                padding: 16,
-                borderRadius: 12,
-                background: 'var(--surface-2)',
-                border: '1px solid var(--border)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginBottom: 14,
               }}
             >
-              <strong>Tabellenblatt 1: Master-Detail Gesamtübersicht</strong>
-              <p style={{ fontSize: 12, marginTop: 4 }}>
-                Kombinierte Zeile pro Wohneinheit (Projektnummer, Adresse, Eigentümer, NE3-Status, Lösungsoption, Etage, Unit-ID, Status, TA, Spleißen, Flexrohr) inkl. grüner Farbcodierung für abgeschlossene Einheiten.
-              </p>
+              <div>
+                <h3 style={{ margin: 0, fontSize: 16 }}>
+                  Kommentare & Updates — {quickCommentBuilding.adress_id || quickCommentBuilding.projektnummer}
+                </h3>
+                <p style={{ margin: '2px 0 0', fontSize: 12 }}>
+                  {quickCommentBuilding.strasse} {quickCommentBuilding.hausnummer}, {quickCommentBuilding.ort}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="btn-ghost btn-sm"
+                onClick={() => setQuickCommentBuilding(null)}
+              >
+                <X size={16} />
+              </button>
             </div>
+
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (!quickCommentText.trim()) return;
+                await handleAddComment(
+                  quickCommentBuilding.id,
+                  quickCommentText.trim(),
+                  user?.email || 'Brünel Team'
+                );
+                setQuickCommentText('');
+                // Refresh modal reference from updated state
+                const refreshed = await fetchWithToken(
+                  `/api/v1/protocol/addresses/${quickCommentBuilding.id}`
+                );
+                setQuickCommentBuilding(refreshed);
+              }}
+              style={{ display: 'flex', gap: 8, marginBottom: 14 }}
+            >
+              <input
+                autoFocus
+                value={quickCommentText}
+                onChange={(e) => setQuickCommentText(e.target.value)}
+                placeholder="Neuen Kommentar oder Update eingeben…"
+              />
+              <button type="submit" className="btn-primary btn-sm">
+                Speichern
+              </button>
+            </form>
+
             <div
               style={{
-                padding: 16,
-                borderRadius: 12,
-                background: 'var(--surface-2)',
-                border: '1px solid var(--border)',
+                maxHeight: 260,
+                overflowY: 'auto',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 8,
               }}
             >
-              <strong>Tabellenblatt 2: Adressen (Master)</strong>
-              <p style={{ fontSize: 12, marginTop: 4 }}>
-                Alle Gebäude-Stammdaten, Eigentümer-Kontaktdaten, Gesamt-WE sowie prozentualer Baufortschritt pro Adresse.
-              </p>
-            </div>
-            <div
-              style={{
-                padding: 16,
-                borderRadius: 12,
-                background: 'var(--surface-2)',
-                border: '1px solid var(--border)',
-              }}
-            >
-              <strong>Tabellenblatt 3: Wohneinheiten (Units)</strong>
-              <p style={{ fontSize: 12, marginTop: 4 }}>
-                Reine Detail-Tabelle aller Wohneinheiten zur schnellen Weiterverarbeitung in Pivot-Tabellen oder UGG-Reporting-Listen.
-              </p>
+              {(quickCommentBuilding.comments || []).length === 0 ? (
+                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                  Noch keine Kommentare vorhanden.
+                </div>
+              ) : (
+                (quickCommentBuilding.comments || []).map((c) => (
+                  <div
+                    key={c.id}
+                    style={{
+                      padding: '10px 12px',
+                      borderRadius: 10,
+                      background: 'var(--surface-2)',
+                      border: '1px solid var(--border)',
+                    }}
+                  >
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                      <strong>{c.author}</strong> • {c.created_at}
+                    </div>
+                    <div style={{ fontSize: 13, marginTop: 2 }}>{c.text}</div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>
       )}
 
-      {/* Search, Filter & Accordion Controls */}
-      <div
-        className="glass-panel"
-        style={{
-          padding: '14px 18px',
-          borderRadius: 14,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          flexWrap: 'wrap',
-          gap: 12,
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 260 }}>
-          <div style={{ position: 'relative', flex: 1, maxWidth: 420 }}>
-            <Search
-              size={15}
+      {/* Quick PDF Preview & Download Modal */}
+      {quickPdfBuilding && (
+        <div
+          className="modal-overlay"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 110,
+            background: 'rgba(15, 23, 42, 0.65)',
+            backdropFilter: 'blur(8px)',
+            display: 'grid',
+            placeItems: 'center',
+            padding: 16,
+          }}
+          onMouseDown={(e) => e.target === e.currentTarget && setQuickPdfBuilding(null)}
+        >
+          <div
+            className="glass-panel"
+            style={{
+              width: 'min(860px, 100%)',
+              borderRadius: 18,
+              padding: 22,
+              background: '#fff',
+            }}
+          >
+            <div
               style={{
-                position: 'absolute',
-                left: 12,
-                top: '50%',
-                transform: 'translateY(-50%)',
-                color: 'var(--text-muted)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginBottom: 14,
+                flexWrap: 'wrap',
+                gap: 10,
               }}
-            />
-            <input
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Suche nach Projektnummer, Straße, PLZ, Ort, Eigentümer…"
-              style={{ paddingLeft: 34 }}
-            />
+            >
+              <div>
+                <h3 style={{ margin: 0, fontSize: 16 }}>
+                  PDF-Protokoll — {quickPdfBuilding.strasse} {quickPdfBuilding.hausnummer}, {quickPdfBuilding.ort}
+                </h3>
+                <p style={{ margin: '2px 0 0', fontSize: 12 }}>
+                  Datei: {quickPdfBuilding.pdf_filename || `UGG_${quickPdfBuilding.projektnummer}.pdf`}
+                </p>
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                {quickPdfBuilding.has_pdf && (
+                  <a
+                    href={`${API_URL}/api/v1/protocol/addresses/${quickPdfBuilding.id}/pdf?download=true`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn-primary btn-sm"
+                    style={{ textDecoration: 'none' }}
+                  >
+                    <Download size={14} />
+                    <span>PDF herunterladen</span>
+                  </a>
+                )}
+                <button
+                  type="button"
+                  className="btn-secondary btn-sm"
+                  onClick={() => setQuickPdfBuilding(null)}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+
+            {quickPdfBuilding.has_pdf ? (
+              <iframe
+                src={`${API_URL}/api/v1/protocol/addresses/${quickPdfBuilding.id}/pdf?download=false`}
+                title="UGG PDF Preview"
+                style={{
+                  width: '100%',
+                  height: 520,
+                  border: '1px solid var(--border)',
+                  borderRadius: 12,
+                }}
+              />
+            ) : (
+              <div style={{ padding: 32, textAlign: 'center' }}>
+                <p style={{ marginBottom: 14 }}>
+                  Für dieses Gebäude wurde noch keine PDF-Datei hinterlegt.
+                </p>
+                <label className="btn-primary btn-sm" style={{ cursor: 'pointer' }}>
+                  <Upload size={14} />
+                  <span>PDF jetzt auswählen & speichern</span>
+                  <input
+                    type="file"
+                    accept=".pdf,application/pdf"
+                    style={{ display: 'none' }}
+                    onChange={async (e) => {
+                      if (e.target.files?.[0]) {
+                        await handleUploadBuildingPdf(quickPdfBuilding.id, e.target.files[0]);
+                        const refreshed = await fetchWithToken(
+                          `/api/v1/protocol/addresses/${quickPdfBuilding.id}`
+                        );
+                        setQuickPdfBuilding(refreshed);
+                      }
+                    }}
+                  />
+                </label>
+              </div>
+            )}
           </div>
-
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            style={{ width: 'auto', minWidth: 190 }}
-          >
-            <option value="ALL">Alle Status ({addresses.length})</option>
-            <option value="Offen">Mit offenen Einheiten</option>
-            <option value="In Bearbeitung">In Bearbeitung</option>
-            <option value="Restarbeit">Mit Restarbeit</option>
-            <option value="Abgeschlossen">Mit abgeschlossenen WE</option>
-            <option value="COMPLETED_BUILDING">Komplett abgeschlossen (100%)</option>
-          </select>
         </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <button
-            type="button"
-            className="btn-secondary btn-sm"
-            onClick={() => handleExpandAll(true)}
-            disabled={filteredAddresses.length === 0}
-          >
-            Alle ausklappen
-          </button>
-          <button
-            type="button"
-            className="btn-secondary btn-sm"
-            onClick={() => handleExpandAll(false)}
-            disabled={filteredAddresses.length === 0}
-          >
-            Alle einklappen
-          </button>
-          <button
-            type="button"
-            className="btn-secondary btn-sm"
-            onClick={() => exportAddressesToCsv(filteredAddresses)}
-            disabled={filteredAddresses.length === 0}
-            title="Schneller CSV-Export für Excel"
-          >
-            <Download size={14} />
-            <span>CSV</span>
-          </button>
-          <button
-            type="button"
-            className="btn-secondary btn-sm"
-            onClick={loadAddresses}
-            title="Aktualisieren"
-          >
-            <RefreshCw size={14} />
-          </button>
-        </div>
-      </div>
-
-      {/* Component 3: Master-Detail Accordion List */}
-      {loading ? (
-        <div className="glass-panel" style={{ padding: 40, textAlign: 'center', borderRadius: 16 }}>
-          Lade UGG-Protokolle und Wohneinheiten…
-        </div>
-      ) : (
-        <ProtocolMasterDetailAccordion
-          addresses={filteredAddresses}
-          expandedIds={expandedIds}
-          onToggleExpand={handleToggleExpand}
-          onUnitChange={handleUnitChange}
-          onAddUnit={handleAddUnit}
-          onDeleteUnit={handleDeleteUnit}
-          onExportSingleExcel={(addr) => handleDownloadExcelWorkbook(addr)}
-          onEditAddress={(addr) =>
-            setVerificationModal({
-              data: addr,
-              fileName: addr.projektnummer,
-              isEditMode: true,
-              editAddressId: addr.id,
-            })
-          }
-          onDeleteAddress={handleDeleteAddress}
-        />
       )}
 
-      {/* Component 2: Human-in-the-Loop Verification Modal */}
+      {/* Verification Modal */}
       {verificationModal && (
         <ProtocolVerificationModal
           initialData={verificationModal.data}
@@ -2397,9 +4020,8 @@ export function ProtocolExtractorModule() {
               }
               return [savedAddr, ...prev];
             });
-            setExpandedIds((prev) => ({ ...prev, [savedAddr.id]: true }));
             showToast(
-              `Protokoll ${savedAddr.projektnummer} (${savedAddr.strasse} ${savedAddr.hausnummer}) erfolgreich gespeichert!`
+              `Gebäude ${savedAddr.adress_id || savedAddr.projektnummer} (${savedAddr.strasse} ${savedAddr.hausnummer}) inkl. PDF gespeichert!`
             );
             if (activeTab === 'upload') {
               navigate('/protocol/manager');
@@ -2410,4 +4032,5 @@ export function ProtocolExtractorModule() {
     </div>
   );
 }
+
 export default ProtocolExtractorModule;

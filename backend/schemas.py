@@ -365,16 +365,26 @@ class UnitProtocolSchema(BaseModel):
     etage: str = Field(..., description="Floor level, e.g., 'EG', 'OG1'")
     unit_id: str = Field(..., description="Unit identifier, e.g., '001', '002'")
     status: UnitStatusEnum = Field(default=UnitStatusEnum.OFFEN)
-    ta_installiert: bool = Field(default=False)
+    we_ausbau_art: Optional[str] = Field(default="TA Installation", description="TA Installation | Reserve | Ohne")
+    ta_installiert: bool = Field(default=True)
+    reserve: bool = Field(default=False)
+    ohne: bool = Field(default=False)
     spleissen_fertig: bool = Field(default=False)
     flexrohr: bool = Field(default=False)
 
 
 class ProtocolExtractedResponse(BaseModel):
     """Returned by POST /api/v1/protocol/upload for Human-in-the-Loop verification (not yet saved to DB)."""
-    projektnummer: str = Field(default="", description="UGG-Projektnummer, e.g., 'N4E241593436'")
-    datum: str = Field(default="", description="Datum/Uhrzeit of inspection")
+    adress_id: str = Field(default="", description="Address ID, e.g., 'ABW007413530'")
+    projektnummer: str = Field(default="", description="UGG-Projektnummer / WE Nummer, e.g., 'N4E241593436'")
+    datum: str = Field(default="", description="HBG Datum/Uhrzeit of inspection")
     hausbegeher: str = Field(default="", description="Name of field inspector")
+    team: str = Field(default="", description="Assigned team, e.g., 'Techno(Lorch)'")
+    building_status: str = Field(default="Ausbau terminiert", description="Building status")
+    is_priority: bool = Field(default=False)
+    ausbau_typ: str = Field(default="Metalkanal", description="Metalkanal | Leerrohr-Kamin | Kabelkanal")
+    ausbautermin: str = Field(default="", description="Ausbautermin (AB-Termin) from calendar")
+    restarbeit_termin: str = Field(default="", description="Restarbeit Termin from calendar")
     plz: str = Field(default="", description="Postal code, e.g., '73547'")
     ort: str = Field(default="", description="City/Town, e.g., 'Lorch'")
     strasse: str = Field(default="", description="Street name, e.g., 'AUSTRABE'")
@@ -384,16 +394,32 @@ class ProtocolExtractedResponse(BaseModel):
     owner_email: str = Field(default="", description="Owner email address")
     total_we: int = Field(default=1, ge=1, description="Total number of Wohneinheiten (WE)")
     ne3_status: str = Field(default="", description="Extracted checkbox status for NE3")
-    loesungsoption: str = Field(default="", description="Extracted text below Lösungsoption 1, e.g., 'kabelkanal'")
+    loesungsoption: str = Field(default="", description="Extracted text below Lösungsoption 1")
+    flexrohr: bool = Field(default=False)
+    huep_installiert: bool = Field(default=False)
+    spleissen_fertig: bool = Field(default=False)
+    upload_done: bool = Field(default=False)
+    genehmigt: bool = Field(default=False)
+    rechnung_erstellt: bool = Field(default=False)
+    rechnung_bezahlt: bool = Field(default=False)
+    pdf_filename: Optional[str] = Field(default=None)
+    pdf_base64: Optional[str] = Field(default=None)
     units: List[UnitProtocolSchema] = Field(default_factory=list, description="Extracted Zählung table rows")
     extraction_warnings: List[str] = Field(default_factory=list, description="Non-fatal parser warnings for operator attention")
 
 
 class ProtocolConfirmRequest(BaseModel):
     """Payload submitted to POST /api/v1/protocol/confirm after Human-in-the-Loop verification."""
+    adress_id: Optional[str] = Field(default="")
     projektnummer: str = Field(..., min_length=1)
     datum: str = Field(default="")
     hausbegeher: str = Field(default="")
+    team: Optional[str] = Field(default="")
+    building_status: Optional[str] = Field(default="Ausbau terminiert")
+    is_priority: Optional[bool] = Field(default=False)
+    ausbau_typ: Optional[str] = Field(default="Metalkanal")
+    ausbautermin: Optional[str] = Field(default="")
+    restarbeit_termin: Optional[str] = Field(default="")
     plz: str = Field(..., min_length=1)
     ort: str = Field(..., min_length=1)
     strasse: str = Field(..., min_length=1)
@@ -404,15 +430,64 @@ class ProtocolConfirmRequest(BaseModel):
     total_we: int = Field(..., ge=1)
     ne3_status: str = Field(default="")
     loesungsoption: str = Field(default="")
-    units: List[UnitProtocolSchema] = Field(..., min_length=1)
+    flexrohr: Optional[bool] = Field(default=False)
+    huep_installiert: Optional[bool] = Field(default=False)
+    spleissen_fertig: Optional[bool] = Field(default=False)
+    upload_done: Optional[bool] = Field(default=False)
+    genehmigt: Optional[bool] = Field(default=False)
+    rechnung_erstellt: Optional[bool] = Field(default=False)
+    rechnung_bezahlt: Optional[bool] = Field(default=False)
+    pdf_filename: Optional[str] = Field(default=None)
+    pdf_base64: Optional[str] = Field(default=None)
+    comments: Optional[List[Dict[str, Any]]] = Field(default=None)
+    units: List[UnitProtocolSchema] = Field(default_factory=list)
+
+
+class AddressPatchRequest(BaseModel):
+    """Partial update payload for a Master Building Address."""
+    adress_id: Optional[str] = None
+    projektnummer: Optional[str] = None
+    datum: Optional[str] = None
+    hausbegeher: Optional[str] = None
+    team: Optional[str] = None
+    building_status: Optional[str] = None
+    is_priority: Optional[bool] = None
+    ausbau_typ: Optional[str] = None
+    ausbautermin: Optional[str] = None
+    restarbeit_termin: Optional[str] = None
+    plz: Optional[str] = None
+    ort: Optional[str] = None
+    strasse: Optional[str] = None
+    hausnummer: Optional[str] = None
+    owner_name: Optional[str] = None
+    owner_telefon: Optional[str] = None
+    owner_email: Optional[str] = None
+    total_we: Optional[int] = None
+    ne3_status: Optional[str] = None
+    loesungsoption: Optional[str] = None
+    flexrohr: Optional[bool] = None
+    huep_installiert: Optional[bool] = None
+    spleissen_fertig: Optional[bool] = None
+    upload_done: Optional[bool] = None
+    genehmigt: Optional[bool] = None
+    rechnung_erstellt: Optional[bool] = None
+    rechnung_bezahlt: Optional[bool] = None
+
+
+class AddressCommentCreate(BaseModel):
+    text: str = Field(..., min_length=1)
+    author: Optional[str] = Field(default="Brünel Team")
 
 
 class UnitUpdateRequest(BaseModel):
-    """Payload for live interactive row updates in the Master-Detail Accordion table."""
+    """Payload for live interactive row updates in the Master-Detail Wohnung table."""
     etage: Optional[str] = None
     unit_id: Optional[str] = None
     status: Optional[UnitStatusEnum] = None
+    we_ausbau_art: Optional[str] = None
     ta_installiert: Optional[bool] = None
+    reserve: Optional[bool] = None
+    ohne: Optional[bool] = None
     spleissen_fertig: Optional[bool] = None
     flexrohr: Optional[bool] = None
 
@@ -423,9 +498,12 @@ class UnitOut(BaseModel):
     etage: str
     unit_id: str
     status: UnitStatusEnum
-    ta_installiert: bool
-    spleissen_fertig: bool
-    flexrohr: bool
+    we_ausbau_art: Optional[str] = "TA Installation"
+    ta_installiert: bool = False
+    reserve: Optional[bool] = False
+    ohne: Optional[bool] = False
+    spleissen_fertig: bool = False
+    flexrohr: bool = False
 
     class Config:
         from_attributes = True
@@ -433,9 +511,16 @@ class UnitOut(BaseModel):
 
 class AddressOut(BaseModel):
     id: UUID
+    adress_id: Optional[str] = ""
     projektnummer: str
     datum: str
     hausbegeher: Optional[str] = ""
+    team: Optional[str] = ""
+    building_status: Optional[str] = "Ausbau terminiert"
+    is_priority: Optional[bool] = False
+    ausbau_typ: Optional[str] = "Metalkanal"
+    ausbautermin: Optional[str] = ""
+    restarbeit_termin: Optional[str] = ""
     plz: str
     ort: str
     strasse: str
@@ -446,6 +531,17 @@ class AddressOut(BaseModel):
     total_we: int
     ne3_status: Optional[str] = ""
     loesungsoption: Optional[str] = ""
+    flexrohr: Optional[bool] = False
+    huep_installiert: Optional[bool] = False
+    spleissen_fertig: Optional[bool] = False
+    upload_done: Optional[bool] = False
+    genehmigt: Optional[bool] = False
+    rechnung_erstellt: Optional[bool] = False
+    rechnung_bezahlt: Optional[bool] = False
+    pdf_filename: Optional[str] = None
+    has_pdf: bool = False
+    comments: Optional[List[Dict[str, Any]]] = []
+    created_at: Optional[datetime] = None
     units: List[UnitOut] = []
 
     class Config:
