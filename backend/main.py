@@ -21,6 +21,7 @@ from routers import (
     calendar_mod,
     accounting,
     sales,
+    protocol,
 )
 from core.seed import seed_initial_erp_data
 
@@ -156,6 +157,7 @@ app.include_router(fleet.router, prefix="/api/v1/fleet", tags=["v1 Module 4: Veh
 app.include_router(calendar_mod.router, prefix="/api/v1/calendar", tags=["v1 Module 5: Master Interactive Calendar"])
 app.include_router(accounting.router, prefix="/api/v1/accounting", tags=["v1 Module 6: Accounting & Expenses"])
 app.include_router(sales.router, prefix="/api/v1/sales", tags=["v1 Module 7: Field Sales & Upselling"])
+app.include_router(protocol.router, prefix="/api/v1/protocol", tags=["v1 Module 8: AI PDF Extractor & Master-Detail Manager"])
 
 
 @app.get("/api/health")

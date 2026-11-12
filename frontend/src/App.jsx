@@ -13,7 +13,7 @@ import {
   LayoutDashboard, Building2, Users, Package, Truck, Calendar, Receipt, ShoppingBag,
   Briefcase, Mail, Lock, BarChart as BarChartIcon, Settings, ShieldCheck, LogOut,
   Smartphone, ChevronRight, ChevronsLeft, ChevronsRight, Search, Plus, Bell,
-  UserPlus, ClipboardList, ArrowRightLeft, FilePlus2, CornerDownLeft, Clock, Menu, X,
+  UserPlus, ClipboardList, ArrowRightLeft, FilePlus2, CornerDownLeft, Clock, Menu, X, Sparkles,
 } from 'lucide-react';
 
 import { useAuth, TIER_LABELS, fetchWithToken } from './core/api';
@@ -24,6 +24,7 @@ import { ExecutiveDashboard, HRManagementModule, ProjectsObjectsModule } from '.
 import {
   InventoryLedgerModule, FleetEquipmentModule, MasterCalendarModule, AccountingModule, FieldSalesAdminModule,
 } from './modules/ErpOperationsModules';
+import { ProtocolExtractorModule } from './modules/ProtocolExtractorModule';
 import { EmployeePortalPWA } from './portals/EmployeePortalPWA';
 
 /* -----------------------------------------------------------------------------
@@ -43,6 +44,14 @@ export const NAV = [
       { to: '/projects/teams', label: 'Field Teams' },
       { to: '/projects/projects', label: 'Projects & Regions' },
       { to: '/projects/delegation', label: 'Vertretung (Delegation)' },
+    ],
+  },
+  {
+    id: 'protocol', label: 'UGG Protokoll & AI', icon: Sparkles, base: '/protocol', mod: 'mod_protocol',
+    children: [
+      { to: '/protocol/manager', label: 'Master-Detail & Upload' },
+      { to: '/protocol/upload', label: 'PDF KI-Extraktor (Upload)' },
+      { to: '/protocol/export', label: 'Excel Export (.xlsx)' },
     ],
   },
   {
@@ -133,6 +142,7 @@ export const NAV = [
 
 const QUICK_ACTIONS = [
   { label: 'Arbeitszeiten erfassen', icon: Clock, href: 'https://www.bruenel.de/timenet', mod: null },
+  { label: 'UGG Protokoll PDF Extraktor', icon: Sparkles, to: '/protocol/manager', action: 'upload-protocol', mod: 'mod_protocol' },
   { label: 'New Employee', icon: UserPlus, to: '/hr/employees', action: 'add-employee', mod: 'mod_hr' },
   { label: 'Assign Task', icon: ClipboardList, to: '/projects/tasks', action: 'add-task', mod: 'mod_projects' },
   { label: 'New Building Object', icon: Building2, to: '/projects/objects', action: 'add-object', mod: 'mod_projects' },
@@ -281,7 +291,11 @@ const ManagementLayout = ({ user, logout, onSwitchToPortal, children }) => {
   const hasMod = (modKey) => {
     if (!modKey) return true;
     if (user.role_tier === 1 || user.role === 'Owner') return true;
-    return (user.effective_modules || user.allowed_modules || []).includes(modKey);
+    const mods = user.effective_modules || user.allowed_modules || [];
+    if (modKey === 'mod_protocol') {
+      return mods.includes('mod_protocol') || mods.includes('mod_projects');
+    }
+    return mods.includes(modKey);
   };
 
   const isActiveItem = (item) => {
@@ -668,6 +682,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<ExecutiveDashboard user={user} />} />
           <Route path="/projects/:section?" element={<ProjectsObjectsModule user={user} />} />
+          <Route path="/protocol/:section?" element={<ProtocolExtractorModule user={user} />} />
           <Route path="/hr/:section?" element={<HRManagementModule user={user} />} />
           <Route path="/inventory/:section?" element={<InventoryLedgerModule user={user} />} />
           <Route path="/fleet/:section?" element={<FleetEquipmentModule user={user} />} />

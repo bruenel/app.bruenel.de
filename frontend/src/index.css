@@ -873,3 +873,8 @@ tbody tr:hover { background: #fafafc; }
 .main-content > div > .kanban-board, .main-content > div > .grid { margin: 0 !important; }
 .main-content > div > [style*="margin-bottom: 24px"], .main-content > div > [style*="marginBottom: 24px"] { margin-bottom: 0 !important; }
 .main-content > div > .flex-between[style*="margin-bottom"] { margin-bottom: 0 !important; }
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+

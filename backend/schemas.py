@@ -1,7 +1,8 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from typing import List, Optional, Dict, Any
 from datetime import datetime, date
-from models import RoleEnum
+from uuid import UUID
+from models import RoleEnum, UnitStatusEnum
 
 # ==============================================================================
 # AUTH & USER MANAGEMENT SCHEMAS
@@ -354,3 +355,99 @@ class FieldSaleCreate(BaseModel):
     customer_unit: Optional[str] = None
     quantity: int = 1
     payment_method: str = "CARD"  # CASH, CARD
+
+
+# ==============================================================================
+# MODULE 8: UGG HAUSBEGEHUNGSPROTOKOLL (PDF EXTRACTOR & MASTER-DETAIL)
+# ==============================================================================
+
+class UnitProtocolSchema(BaseModel):
+    etage: str = Field(..., description="Floor level, e.g., 'EG', 'OG1'")
+    unit_id: str = Field(..., description="Unit identifier, e.g., '001', '002'")
+    status: UnitStatusEnum = Field(default=UnitStatusEnum.OFFEN)
+    ta_installiert: bool = Field(default=False)
+    spleissen_fertig: bool = Field(default=False)
+    flexrohr: bool = Field(default=False)
+
+
+class ProtocolExtractedResponse(BaseModel):
+    """Returned by POST /api/v1/protocol/upload for Human-in-the-Loop verification (not yet saved to DB)."""
+    projektnummer: str = Field(default="", description="UGG-Projektnummer, e.g., 'N4E241593436'")
+    datum: str = Field(default="", description="Datum/Uhrzeit of inspection")
+    hausbegeher: str = Field(default="", description="Name of field inspector")
+    plz: str = Field(default="", description="Postal code, e.g., '73547'")
+    ort: str = Field(default="", description="City/Town, e.g., 'Lorch'")
+    strasse: str = Field(default="", description="Street name, e.g., 'AUSTRABE'")
+    hausnummer: str = Field(default="", description="House number, e.g., '71'")
+    owner_name: str = Field(default="", description="Combined Vorname + Nachname of owner")
+    owner_telefon: str = Field(default="", description="Owner phone number")
+    owner_email: str = Field(default="", description="Owner email address")
+    total_we: int = Field(default=1, ge=1, description="Total number of Wohneinheiten (WE)")
+    ne3_status: str = Field(default="", description="Extracted checkbox status for NE3")
+    loesungsoption: str = Field(default="", description="Extracted text below Lösungsoption 1, e.g., 'kabelkanal'")
+    units: List[UnitProtocolSchema] = Field(default_factory=list, description="Extracted Zählung table rows")
+    extraction_warnings: List[str] = Field(default_factory=list, description="Non-fatal parser warnings for operator attention")
+
+
+class ProtocolConfirmRequest(BaseModel):
+    """Payload submitted to POST /api/v1/protocol/confirm after Human-in-the-Loop verification."""
+    projektnummer: str = Field(..., min_length=1)
+    datum: str = Field(default="")
+    hausbegeher: str = Field(default="")
+    plz: str = Field(..., min_length=1)
+    ort: str = Field(..., min_length=1)
+    strasse: str = Field(..., min_length=1)
+    hausnummer: str = Field(..., min_length=1)
+    owner_name: str = Field(default="")
+    owner_telefon: str = Field(default="")
+    owner_email: str = Field(default="")
+    total_we: int = Field(..., ge=1)
+    ne3_status: str = Field(default="")
+    loesungsoption: str = Field(default="")
+    units: List[UnitProtocolSchema] = Field(..., min_length=1)
+
+
+class UnitUpdateRequest(BaseModel):
+    """Payload for live interactive row updates in the Master-Detail Accordion table."""
+    etage: Optional[str] = None
+    unit_id: Optional[str] = None
+    status: Optional[UnitStatusEnum] = None
+    ta_installiert: Optional[bool] = None
+    spleissen_fertig: Optional[bool] = None
+    flexrohr: Optional[bool] = None
+
+
+class UnitOut(BaseModel):
+    id: UUID
+    address_id: UUID
+    etage: str
+    unit_id: str
+    status: UnitStatusEnum
+    ta_installiert: bool
+    spleissen_fertig: bool
+    flexrohr: bool
+
+    class Config:
+        from_attributes = True
+
+
+class AddressOut(BaseModel):
+    id: UUID
+    projektnummer: str
+    datum: str
+    hausbegeher: Optional[str] = ""
+    plz: str
+    ort: str
+    strasse: str
+    hausnummer: str
+    owner_name: Optional[str] = ""
+    owner_telefon: Optional[str] = ""
+    owner_email: Optional[str] = ""
+    total_we: int
+    ne3_status: Optional[str] = ""
+    loesungsoption: Optional[str] = ""
+    units: List[UnitOut] = []
+
+    class Config:
+        from_attributes = True
+

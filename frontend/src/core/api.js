@@ -10,6 +10,7 @@ export const API_URL = API_BASE.replace(/\/$/, "");
 export const MODULE_CATALOG = [
   { key: 'mod_dashboard', label: 'Executive & ERP Overview', desc: 'KPI telemetry across projects, workforce, inventory & sales' },
   { key: 'mod_projects', label: 'Projects, Objects & Tasks', desc: 'Regions (PLZ), Projects, Building Objects, Media & Delegation' },
+  { key: 'mod_protocol', label: 'UGG Protokoll & AI Extractor', desc: 'AI-Powered PDF Extractor (UGG Hausbegehungsprotokoll), Master-Detail Units & Excel Export' },
   { key: 'mod_hr', label: 'HR, Time, Leave & Payslips', desc: 'Employee profiles, working hours, Urlaub, Krankmeldung & Lohnabrechnung' },
   { key: 'mod_inventory', label: 'Inventory & Material Ledger', desc: 'Static & Vehicle Lagers, Materials, Buchen & Schwund audit' },
   { key: 'mod_fleet', label: 'Vehicles & Equipment Fleet', desc: 'Sprinter/Van fleet & exclusive tool possession tracking' },

@@ -1,6 +1,6 @@
 from sqlalchemy import (
     Column, Integer, String, Enum, ForeignKey, DateTime, Date, Text, JSON,
-    Boolean, Numeric, CheckConstraint, UniqueConstraint
+    Boolean, Numeric, CheckConstraint, UniqueConstraint, Uuid
 )
 from sqlalchemy.orm import relationship
 from database import Base
@@ -87,6 +87,7 @@ ALL_MODULE_KEYS = [
     "mod_dashboard",
     "mod_hr",
     "mod_projects",
+    "mod_protocol",
     "mod_inventory",
     "mod_fleet",
     "mod_calendar",
@@ -524,3 +525,67 @@ class AuditLog(Base):
     old_values = Column(JSON, nullable=True)
     new_values = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+# ==============================================================================
+# 9. UGG HAUSBEGEHUNGSPROTOKOLL (MASTER-DETAIL ARCHITECTURE)
+# ==============================================================================
+
+class UnitStatusEnum(str, enum.Enum):
+    OFFEN = "Offen"
+    IN_BEARBEITUNG = "In Bearbeitung"
+    RESTARBEIT = "Restarbeit"
+    ABGESCHLOSSEN = "Abgeschlossen"
+
+
+class Address(Base):
+    __tablename__ = "addresses"
+
+    id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    projektnummer = Column(String(100), unique=True, nullable=False, index=True)  # e.g., "N4E241593436"
+    datum = Column(String(100), nullable=False)
+    hausbegeher = Column(String(150), nullable=True)
+    plz = Column(String(20), nullable=False, index=True)                         # e.g., "73547"
+    ort = Column(String(150), nullable=False)                                    # e.g., "Lorch"
+    strasse = Column(String(200), nullable=False)                                # e.g., "AUSTRABE"
+    hausnummer = Column(String(50), nullable=False)                              # e.g., "71"
+    owner_name = Column(String(200), nullable=True)
+    owner_telefon = Column(String(100), nullable=True)
+    owner_email = Column(String(200), nullable=True)
+    total_we = Column(Integer, nullable=False, default=1)                        # Number of units
+    ne3_status = Column(String(150), nullable=True)                              # Checkbox extraction result
+    loesungsoption = Column(String(255), nullable=True)                          # e.g., "kabelkanal"
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    units = relationship(
+        "Unit",
+        back_populates="address",
+        cascade="all, delete-orphan",
+        order_by="Unit.unit_id",
+        lazy="selectin",
+    )
+
+
+class Unit(Base):
+    __tablename__ = "units"
+
+    id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    address_id = Column(
+        Uuid(as_uuid=True),
+        ForeignKey("addresses.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    etage = Column(String(50), nullable=False)                                   # e.g., "EG", "OG1"
+    unit_id = Column(String(50), nullable=False)                                 # e.g., "001", "002"
+    status = Column(
+        Enum(UnitStatusEnum, native_enum=False),
+        nullable=False,
+        default=UnitStatusEnum.OFFEN,
+    )
+    ta_installiert = Column(Boolean, nullable=False, default=False)
+    spleissen_fertig = Column(Boolean, nullable=False, default=False)
+    flexrohr = Column(Boolean, nullable=False, default=False)
+
+    address = relationship("Address", back_populates="units")
+

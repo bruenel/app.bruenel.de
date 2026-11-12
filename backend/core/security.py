@@ -36,15 +36,15 @@ ROLE_TO_TIER = {
 DEFAULT_TIER_MODULES = {
     1: models.ALL_MODULE_KEYS,  # Super Admin / Owner gets all modules
     2: [
-        "mod_dashboard", "mod_projects", "mod_inventory", "mod_fleet",
+        "mod_dashboard", "mod_projects", "mod_protocol", "mod_inventory", "mod_fleet",
         "mod_calendar", "mod_hr", "mod_sales", "mod_suppliers", "mod_mail"
     ],
     3: [
-        "mod_dashboard", "mod_hr", "mod_accounting", "mod_calendar",
+        "mod_dashboard", "mod_hr", "mod_protocol", "mod_accounting", "mod_calendar",
         "mod_sales", "mod_vault", "mod_mail"
     ],
     4: [
-        "mod_dashboard", "mod_projects", "mod_inventory", "mod_fleet",
+        "mod_dashboard", "mod_projects", "mod_protocol", "mod_inventory", "mod_fleet",
         "mod_calendar", "mod_sales"
     ],
     5: [],  # Tier 5 Field Employees use portal.bruenel.de unless explicitly granted modules on app.bruenel.de
