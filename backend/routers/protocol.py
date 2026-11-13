@@ -1095,6 +1095,7 @@ def generate_protocols_excel_bytes(addresses: List[models.Address]) -> bytes:
         "Genehmigt",
         "Rechnung erstellt",
         "Rechnung bezahlt",
+        "Letzter Kommentar",
     ]
     tracking_rows: List[List[Any]] = []
 
@@ -1123,7 +1124,8 @@ def generate_protocols_excel_bytes(addresses: List[models.Address]) -> bytes:
         "Genehmigt",
         "Rechnung erstellt",
         "Rechnung bezahlt",
-        "Kommentare",
+        "Letzter Kommentar",
+        "Alle Kommentare",
     ]
     building_rows: List[List[Any]] = []
 
@@ -1199,8 +1201,17 @@ def generate_protocols_excel_bytes(addresses: List[models.Address]) -> bytes:
         b_re_erstellt = "Ja" if getattr(addr, "rechnung_erstellt", False) else "Nein"
         b_re_bezahlt = "Ja" if getattr(addr, "rechnung_bezahlt", False) else "Nein"
 
-        comments_list = getattr(addr, "comments", None) or []
-        comments_str = " | ".join(f"{c.get('text', '')}" for c in comments_list if isinstance(c, dict))
+        comments_list = [
+            c for c in (getattr(addr, "comments", None) or [])
+            if isinstance(c, dict) and str(c.get("text", "")).strip()
+        ]
+        last_comment_str = ""
+        if comments_list:
+            latest_c = comments_list[0]
+            c_txt = str(latest_c.get("text", "")).strip()
+            c_dt = str(latest_c.get("created_at", "")).strip()
+            last_comment_str = f"{c_txt} ({c_dt})" if c_dt else c_txt
+        comments_str = " | ".join(f"{c.get('text', '')}" for c in comments_list)
 
         building_rows.append(
             [
@@ -1228,6 +1239,7 @@ def generate_protocols_excel_bytes(addresses: List[models.Address]) -> bytes:
                 b_genehmigt,
                 b_re_erstellt,
                 b_re_bezahlt,
+                last_comment_str,
                 comments_str,
             ]
         )
@@ -1271,6 +1283,7 @@ def generate_protocols_excel_bytes(addresses: List[models.Address]) -> bytes:
                         b_genehmigt,
                         b_re_erstellt,
                         b_re_bezahlt,
+                        last_comment_str,
                     ]
                 )
 
@@ -1316,6 +1329,7 @@ def generate_protocols_excel_bytes(addresses: List[models.Address]) -> bytes:
                     b_genehmigt,
                     b_re_erstellt,
                     b_re_bezahlt,
+                    last_comment_str,
                 ]
             )
 

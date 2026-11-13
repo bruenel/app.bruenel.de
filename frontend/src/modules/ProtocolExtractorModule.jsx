@@ -714,6 +714,30 @@ export const PercentLine = ({ addr, compact = false }) => {
 };
 
 /* =============================================================================
+   SORTING HELPERS FOR ALL VIEWS IN OBJECTS & PROPERTIES + ABRECHNUNG
+============================================================================= */
+export function dateValueForSort(val) {
+  if (!val) return 0;
+  const d = parseDdMmYyyyToDate(val);
+  if (d) return d.getTime();
+  const iso = new Date(val);
+  return Number.isNaN(iso.getTime()) ? 0 : iso.getTime();
+}
+
+export function getLastBuildingCommentText(addr) {
+  const comments = Array.isArray(addr?.comments) ? addr.comments : [];
+  if (comments.length === 0) return '';
+  const latest = comments[0];
+  if (!latest || typeof latest !== 'object') return '';
+  const txt = String(latest.text || '').trim();
+  if (!txt) return '';
+  const author = String(latest.author || '').trim();
+  const created = String(latest.created_at || '').trim();
+  const meta = [author, created].filter(Boolean).join(', ');
+  return meta ? `${txt} (${meta})` : txt;
+}
+
+/* =============================================================================
    CLIENT-SIDE CSV (UTF-8 BOM FOR EXCEL) FALLBACK HELPER
 ============================================================================= */
 function exportAddressesToCsv(addresses, filename = 'Objects_Properties_Export.csv') {
@@ -745,6 +769,7 @@ function exportAddressesToCsv(addresses, filename = 'Objects_Properties_Export.c
     'Genehmigt',
     'Rechnung erstellt',
     'Rechnung bezahlt',
+    'Letzter Kommentar',
   ];
 
   const rows = [];
@@ -752,6 +777,7 @@ function exportAddressesToCsv(addresses, filename = 'Objects_Properties_Export.c
     const units = addr.units && addr.units.length > 0 ? addr.units : [null];
     const { pct, totalWe, taCount, reserveCount, ohneCount } = calcBuildingProgress(addr);
     const normOrt = normalizeGemeinde(addr.ort, addr.plz);
+    const lastComment = getLastBuildingCommentText(addr);
     units.forEach((u) => {
       const weArt = u ? normalizeWeArt(u) : 'Ohne';
       rows.push([
@@ -782,6 +808,7 @@ function exportAddressesToCsv(addresses, filename = 'Objects_Properties_Export.c
         addr.genehmigt ? 'Ja' : 'Nein',
         addr.rechnung_erstellt ? 'Ja' : 'Nein',
         addr.rechnung_bezahlt ? 'Ja' : 'Nein',
+        lastComment,
       ]);
     });
   });
@@ -1696,6 +1723,9 @@ export const BuildingDetailView = ({
   const [showPdfPreview, setShowPdfPreview] = useState(false);
   const [uploadingPdf, setUploadingPdf] = useState(false);
   const [adressIdDraft, setAdressIdDraft] = useState(building.adress_id || '');
+  const [unitSortBy, setUnitSortBy] = useState('unit_id');
+  const [unitSortDir, setUnitSortDir] = useState('asc');
+  const [commentSortDir, setCommentSortDir] = useState('desc');
   const [newUnit, setNewUnit] = useState({
     etage: `OG${building.units?.length || 1}`,
     unit_id: String((building.units?.length || 0) + 1).padStart(3, '0'),
@@ -1709,6 +1739,41 @@ export const BuildingDetailView = ({
 
   const units = building.units || [];
   const comments = building.comments || [];
+
+  const sortedUnits = useMemo(() => {
+    const arr = [...units];
+    const dir = unitSortDir === 'asc' ? 1 : -1;
+    arr.sort((a, b) => {
+      if (unitSortBy === 'etage') {
+        return String(a.etage || '').localeCompare(String(b.etage || ''), 'de', { numeric: true }) * dir;
+      }
+      if (unitSortBy === 'we_ausbau_art') {
+        const order = { 'TA Installation': 1, Reserve: 2, Ohne: 3 };
+        const oa = order[normalizeWeArt(a)] || 9;
+        const ob = order[normalizeWeArt(b)] || 9;
+        if (oa !== ob) return (oa - ob) * dir;
+      }
+      return String(a.unit_id || '').localeCompare(String(b.unit_id || ''), 'de', { numeric: true }) * dir;
+    });
+    return arr;
+  }, [units, unitSortBy, unitSortDir]);
+
+  const sortedComments = useMemo(() => {
+    const arr = [...comments];
+    if (commentSortDir === 'asc') {
+      return arr.reverse();
+    }
+    return arr;
+  }, [comments, commentSortDir]);
+
+  const toggleUnitColumnSort = (colKey) => {
+    if (unitSortBy === colKey) {
+      setUnitSortDir((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setUnitSortBy(colKey);
+      setUnitSortDir('asc');
+    }
+  };
   const normOrt = normalizeGemeinde(building.ort, building.plz) || building.ort;
   const pdfViewUrl = `${API_URL}/api/v1/protocol/addresses/${building.id}/pdf?download=false`;
   const pdfDownloadUrl = `${API_URL}/api/v1/protocol/addresses/${building.id}/pdf?download=true`;
@@ -2167,11 +2232,47 @@ export const BuildingDetailView = ({
             marginBottom: 10,
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <Building2 size={16} style={{ color: '#FF6B00' }} />
             <strong style={{ fontSize: 14, color: '#0f172a' }}>
               Wohnungen im Gebäude ({units.length} WE)
             </strong>
+            <select
+              value={unitSortBy}
+              onChange={(e) => setUnitSortBy(e.target.value)}
+              style={{
+                width: 'auto',
+                padding: '4px 8px',
+                fontSize: 11.5,
+                fontWeight: 600,
+                background: '#f8fafc',
+                border: '1px solid #cbd5e1',
+                borderRadius: 6,
+                color: '#0f172a',
+              }}
+              title="Wohnungen sortieren nach"
+            >
+              <option value="unit_id">Sort: Wohnung (WE)</option>
+              <option value="etage">Sort: Etage</option>
+              <option value="we_ausbau_art">Sort: Ausbau-Art (TA/Res/Ohne)</option>
+            </select>
+            <button
+              type="button"
+              onClick={() => setUnitSortDir((p) => (p === 'asc' ? 'desc' : 'asc'))}
+              style={{
+                padding: '4px 8px',
+                borderRadius: 6,
+                border: '1px solid #cbd5e1',
+                background: '#ffffff',
+                color: '#0f172a',
+                fontSize: 11.5,
+                fontWeight: 700,
+                cursor: 'pointer',
+              }}
+              title={unitSortDir === 'asc' ? 'Aufsteigend sortiert' : 'Absteigend sortiert'}
+            >
+              {unitSortDir === 'asc' ? '↑ Aufsteigend' : '↓ Absteigend'}
+            </button>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
@@ -2229,16 +2330,41 @@ export const BuildingDetailView = ({
           <table className="no-min-width" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
             <thead>
               <tr style={{ background: '#f8fafc', color: '#475569', borderBottom: '1px solid #e2e8f0', textAlign: 'left' }}>
-                <th style={{ padding: '8px 12px' }}>Etage</th>
-                <th style={{ padding: '8px 12px' }}>Wohnung</th>
-                <th style={{ padding: '8px 12px', textAlign: 'center' }}>TA Installation</th>
-                <th style={{ padding: '8px 12px', textAlign: 'center' }}>Reserve</th>
-                <th style={{ padding: '8px 12px', textAlign: 'center' }}>Ohne</th>
+                <th
+                  style={{ padding: '8px 12px', cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => toggleUnitColumnSort('etage')}
+                >
+                  Etage {unitSortBy === 'etage' ? (unitSortDir === 'asc' ? '↑' : '↓') : '↕'}
+                </th>
+                <th
+                  style={{ padding: '8px 12px', cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => toggleUnitColumnSort('unit_id')}
+                >
+                  Wohnung {unitSortBy === 'unit_id' ? (unitSortDir === 'asc' ? '↑' : '↓') : '↕'}
+                </th>
+                <th
+                  style={{ padding: '8px 12px', textAlign: 'center', cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => toggleUnitColumnSort('we_ausbau_art')}
+                >
+                  TA Installation {unitSortBy === 'we_ausbau_art' ? (unitSortDir === 'asc' ? '↑' : '↓') : '↕'}
+                </th>
+                <th
+                  style={{ padding: '8px 12px', textAlign: 'center', cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => toggleUnitColumnSort('we_ausbau_art')}
+                >
+                  Reserve
+                </th>
+                <th
+                  style={{ padding: '8px 12px', textAlign: 'center', cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => toggleUnitColumnSort('we_ausbau_art')}
+                >
+                  Ohne
+                </th>
                 <th style={{ padding: '8px 12px', textAlign: 'right', width: 50 }} />
               </tr>
             </thead>
             <tbody>
-              {units.map((u) => {
+              {sortedUnits.map((u) => {
                 const currentArt = normalizeWeArt(u);
                 return (
                   <tr key={u.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
@@ -2315,11 +2441,40 @@ export const BuildingDetailView = ({
           border: '1px solid #e2e8f0',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-          <MessageSquare size={16} style={{ color: '#FF6B00' }} />
-          <strong style={{ fontSize: 14, color: '#0f172a' }}>
-            Kommentare & Bau-Updates ({comments.length})
-          </strong>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 8,
+            marginBottom: 10,
+            flexWrap: 'wrap',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <MessageSquare size={16} style={{ color: '#FF6B00' }} />
+            <strong style={{ fontSize: 14, color: '#0f172a' }}>
+              Kommentare & Bau-Updates ({comments.length})
+            </strong>
+          </div>
+          {comments.length > 1 && (
+            <button
+              type="button"
+              onClick={() => setCommentSortDir((p) => (p === 'desc' ? 'asc' : 'desc'))}
+              style={{
+                padding: '4px 10px',
+                borderRadius: 6,
+                border: '1px solid #cbd5e1',
+                background: '#f8fafc',
+                color: '#0f172a',
+                fontSize: 11.5,
+                fontWeight: 700,
+                cursor: 'pointer',
+              }}
+            >
+              {commentSortDir === 'desc' ? '↓ Neueste zuerst' : '↑ Älteste zuerst'}
+            </button>
+          )}
         </div>
 
         <form onSubmit={handleSubmitComment} style={{ display: 'flex', gap: 8, marginBottom: 12, width: '100%' }}>
@@ -2341,12 +2496,12 @@ export const BuildingDetailView = ({
         </form>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%' }}>
-          {comments.length === 0 ? (
+          {sortedComments.length === 0 ? (
             <div style={{ fontSize: 12, color: '#64748b', padding: '4px 0' }}>
               Noch keine Kommentare für dieses Gebäude vorhanden.
             </div>
           ) : (
-            comments.map((c) => (
+            sortedComments.map((c) => (
               <div
                 key={c.id}
                 style={{
@@ -2473,6 +2628,8 @@ export const AbrechnungView = ({
   const [projectFilter, setProjectFilter] = useState('ALL');
   const [ortFilter, setOrtFilter] = useState('ALL');
   const [statusFilter, setStatusFilter] = useState('ALL');
+  const [invSortBy, setInvSortBy] = useState('rechnungsdatum');
+  const [invSortDir, setInvSortDir] = useState('desc');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [expandedInvoiceId, setExpandedInvoiceId] = useState(null);
 
@@ -2497,6 +2654,8 @@ export const AbrechnungView = ({
   const [modalOrtFilter, setModalOrtFilter] = useState('ALL');
   const [modalOnlyUnbilled, setModalOnlyUnbilled] = useState(true);
   const [modalSearch, setModalSearch] = useState('');
+  const [modalSortBy, setModalSortBy] = useState('abgeschlossen_datum');
+  const [modalSortDir, setModalSortDir] = useState('desc');
   const [savingInv, setSavingInv] = useState(false);
   const [modalError, setModalError] = useState('');
 
@@ -2533,7 +2692,7 @@ export const AbrechnungView = ({
   }, [addresses, invoices]);
 
   const filteredInvoices = useMemo(() => {
-    return invoices.filter((inv) => {
+    const filtered = invoices.filter((inv) => {
       if (projectFilter !== 'ALL' && (inv.project_name || 'UGG') !== projectFilter) return false;
       if (ortFilter !== 'ALL' && (inv.gemeinde || '').toLowerCase() !== ortFilter.toLowerCase()) return false;
       if (statusFilter !== 'ALL') {
@@ -2560,10 +2719,47 @@ export const AbrechnungView = ({
       }
       return true;
     });
-  }, [invoices, projectFilter, ortFilter, statusFilter, search]);
+
+    const dir = invSortDir === 'asc' ? 1 : -1;
+    return [...filtered].sort((a, b) => {
+      if (invSortBy === 'rechnungsnummer') {
+        return String(a.rechnungsnummer || '').localeCompare(String(b.rechnungsnummer || ''), 'de', { numeric: true }) * dir;
+      }
+      if (invSortBy === 'titel') {
+        return String(a.titel || '').localeCompare(String(b.titel || ''), 'de') * dir;
+      }
+      if (invSortBy === 'project_name') {
+        return String(a.project_name || 'UGG').localeCompare(String(b.project_name || 'UGG'), 'de') * dir;
+      }
+      if (invSortBy === 'gemeinde') {
+        return String(a.gemeinde || '').localeCompare(String(b.gemeinde || ''), 'de') * dir;
+      }
+      if (invSortBy === 'total_objects') {
+        const ca = (a.addresses_summary || []).length;
+        const cb = (b.addresses_summary || []).length;
+        return (ca - cb) * dir;
+      }
+      if (invSortBy === 'total_we') {
+        return (Number(a.total_we || 0) - Number(b.total_we || 0)) * dir;
+      }
+      if (invSortBy === 'betrag_netto') {
+        return (Number(a.betrag_netto || 0) - Number(b.betrag_netto || 0)) * dir;
+      }
+      if (invSortBy === 'status') {
+        const pa = Boolean(a.bezahlt) || a.status === 'Paid' ? 1 : 0;
+        const pb = Boolean(b.bezahlt) || b.status === 'Paid' ? 1 : 0;
+        return (pa - pb) * dir;
+      }
+      // default: rechnungsdatum
+      const da = dateValueForSort(a.rechnungsdatum) || dateValueForSort(a.created_at);
+      const db = dateValueForSort(b.rechnungsdatum) || dateValueForSort(b.created_at);
+      if (da !== db) return (da - db) * dir;
+      return String(a.rechnungsnummer || '').localeCompare(String(b.rechnungsnummer || ''), 'de', { numeric: true }) * dir;
+    });
+  }, [invoices, projectFilter, ortFilter, statusFilter, search, invSortBy, invSortDir]);
 
   const selectableCompletedBuildings = useMemo(() => {
-    return completedBuildings.filter((b) => {
+    const filtered = completedBuildings.filter((b) => {
       const city = normalizeGemeinde(b.ort, b.plz);
       if (modalProjectFilter !== 'ALL' && (b.project_name || 'UGG') !== modalProjectFilter) return false;
       if (modalOrtFilter !== 'ALL' && city.toLowerCase() !== modalOrtFilter.toLowerCase()) return false;
@@ -2575,7 +2771,74 @@ export const AbrechnungView = ({
       }
       return true;
     });
-  }, [completedBuildings, modalProjectFilter, modalOrtFilter, modalOnlyUnbilled, modalSearch, newInv.selectedAddressIds]);
+
+    const dir = modalSortDir === 'asc' ? 1 : -1;
+    return [...filtered].sort((a, b) => {
+      const cityA = normalizeGemeinde(a.ort, a.plz) || a.ort || '';
+      const cityB = normalizeGemeinde(b.ort, b.plz) || b.ort || '';
+      if (modalSortBy === 'project_name') {
+        return String(a.project_name || 'UGG').localeCompare(String(b.project_name || 'UGG'), 'de') * dir;
+      }
+      if (modalSortBy === 'adress_id') {
+        return String(a.adress_id || a.projektnummer || '').localeCompare(
+          String(b.adress_id || b.projektnummer || ''),
+          'de',
+          { numeric: true }
+        ) * dir;
+      }
+      if (modalSortBy === 'ort') {
+        const cmp = cityA.localeCompare(cityB, 'de');
+        if (cmp !== 0) return cmp * dir;
+        return String(a.strasse || '').localeCompare(String(b.strasse || ''), 'de') * dir;
+      }
+      if (modalSortBy === 'strasse') {
+        return `${a.strasse || ''} ${a.hausnummer || ''}`.localeCompare(
+          `${b.strasse || ''} ${b.hausnummer || ''}`,
+          'de',
+          { numeric: true }
+        ) * dir;
+      }
+      if (modalSortBy === 'total_we') {
+        return (Number(a.total_we || 0) - Number(b.total_we || 0)) * dir;
+      }
+      if (modalSortBy === 'billing_status') {
+        const sa = a.rechnung_bezahlt ? 2 : a.rechnung_erstellt ? 1 : 0;
+        const sb = b.rechnung_bezahlt ? 2 : b.rechnung_erstellt ? 1 : 0;
+        return (sa - sb) * dir;
+      }
+      // default: abgeschlossen_datum
+      const da = dateValueForSort(a.abgeschlossen_datum);
+      const db = dateValueForSort(b.abgeschlossen_datum);
+      return (da - db) * dir;
+    });
+  }, [
+    completedBuildings,
+    modalProjectFilter,
+    modalOrtFilter,
+    modalOnlyUnbilled,
+    modalSearch,
+    newInv.selectedAddressIds,
+    modalSortBy,
+    modalSortDir,
+  ]);
+
+  const toggleInvColumnSort = (colKey) => {
+    if (invSortBy === colKey) {
+      setInvSortDir((p) => (p === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setInvSortBy(colKey);
+      setInvSortDir('asc');
+    }
+  };
+
+  const toggleModalColumnSort = (colKey) => {
+    if (modalSortBy === colKey) {
+      setModalSortDir((p) => (p === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setModalSortBy(colKey);
+      setModalSortDir('asc');
+    }
+  };
 
   const openNewRechnungModal = () => {
     const nextNum = `RE-${new Date().getFullYear()}-${String(invoices.length + 1).padStart(3, '0')}`;
@@ -2878,6 +3141,51 @@ export const AbrechnungView = ({
               <option value="WAITING">Waiting for Payment</option>
               <option value="PAID">Paid (Bezahlt)</option>
             </select>
+
+            <select
+              value={invSortBy}
+              onChange={(e) => setInvSortBy(e.target.value)}
+              style={{
+                width: 'auto',
+                minWidth: 165,
+                padding: '6px 9px',
+                fontSize: 12,
+                fontWeight: 600,
+                background: '#fff7ed',
+                border: '1px solid #FF6B00',
+                color: '#0f172a',
+                borderRadius: 7,
+              }}
+              title="Rechnungen sortieren nach"
+            >
+              <option value="rechnungsdatum">Sort: Rechnungsdatum</option>
+              <option value="rechnungsnummer">Sort: Rechnungs-Nr.</option>
+              <option value="titel">Sort: Titel</option>
+              <option value="project_name">Sort: Projekt</option>
+              <option value="gemeinde">Sort: Gemeinde</option>
+              <option value="total_objects">Sort: Objekte Anzahl</option>
+              <option value="total_we">Sort: WE Anzahl</option>
+              <option value="betrag_netto">Sort: Betrag (Netto)</option>
+              <option value="status">Sort: Zahlungsstatus</option>
+            </select>
+
+            <button
+              type="button"
+              onClick={() => setInvSortDir((p) => (p === 'asc' ? 'desc' : 'asc'))}
+              style={{
+                padding: '6px 10px',
+                borderRadius: 7,
+                border: '1px solid #cbd5e1',
+                background: '#ffffff',
+                color: '#0f172a',
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: 'pointer',
+              }}
+              title={invSortDir === 'asc' ? 'Aufsteigend sortiert' : 'Absteigend sortiert'}
+            >
+              {invSortDir === 'asc' ? '↑ Aufsteigend' : '↓ Absteigend'}
+            </button>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -2889,6 +3197,8 @@ export const AbrechnungView = ({
                 setProjectFilter('ALL');
                 setOrtFilter('ALL');
                 setStatusFilter('ALL');
+                setInvSortBy('rechnungsdatum');
+                setInvSortDir('desc');
               }}
               style={{ padding: '6px 10px', fontSize: 11.5 }}
             >
@@ -2921,14 +3231,54 @@ export const AbrechnungView = ({
                   borderBottom: '1px solid #e2e8f0',
                 }}
               >
-                <th style={{ padding: '10px 12px', textAlign: 'left' }}>Rechnungs-Nr.</th>
-                <th style={{ padding: '10px 10px', textAlign: 'left' }}>Titel / Notiz</th>
-                <th style={{ padding: '10px 10px', textAlign: 'left' }}>Projekt</th>
-                <th style={{ padding: '10px 10px', textAlign: 'left' }}>Gemeinde</th>
-                <th style={{ padding: '10px 10px', textAlign: 'left' }}>Rechnungsdatum</th>
-                <th style={{ padding: '10px 10px', textAlign: 'left' }}>Objekte (Abgeschlossen)</th>
-                <th style={{ padding: '10px 10px', textAlign: 'right' }}>Betrag (Netto)</th>
-                <th style={{ padding: '10px 10px', textAlign: 'left' }}>Status</th>
+                <th
+                  style={{ padding: '10px 12px', textAlign: 'left', cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => toggleInvColumnSort('rechnungsnummer')}
+                >
+                  Rechnungs-Nr. {invSortBy === 'rechnungsnummer' ? (invSortDir === 'asc' ? '↑' : '↓') : '↕'}
+                </th>
+                <th
+                  style={{ padding: '10px 10px', textAlign: 'left', cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => toggleInvColumnSort('titel')}
+                >
+                  Titel / Notiz {invSortBy === 'titel' ? (invSortDir === 'asc' ? '↑' : '↓') : '↕'}
+                </th>
+                <th
+                  style={{ padding: '10px 10px', textAlign: 'left', cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => toggleInvColumnSort('project_name')}
+                >
+                  Projekt {invSortBy === 'project_name' ? (invSortDir === 'asc' ? '↑' : '↓') : '↕'}
+                </th>
+                <th
+                  style={{ padding: '10px 10px', textAlign: 'left', cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => toggleInvColumnSort('gemeinde')}
+                >
+                  Gemeinde {invSortBy === 'gemeinde' ? (invSortDir === 'asc' ? '↑' : '↓') : '↕'}
+                </th>
+                <th
+                  style={{ padding: '10px 10px', textAlign: 'left', cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => toggleInvColumnSort('rechnungsdatum')}
+                >
+                  Rechnungsdatum {invSortBy === 'rechnungsdatum' ? (invSortDir === 'asc' ? '↑' : '↓') : '↕'}
+                </th>
+                <th
+                  style={{ padding: '10px 10px', textAlign: 'left', cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => toggleInvColumnSort('total_objects')}
+                >
+                  Objekte (Abgeschlossen) {invSortBy === 'total_objects' ? (invSortDir === 'asc' ? '↑' : '↓') : '↕'}
+                </th>
+                <th
+                  style={{ padding: '10px 10px', textAlign: 'right', cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => toggleInvColumnSort('betrag_netto')}
+                >
+                  Betrag (Netto) {invSortBy === 'betrag_netto' ? (invSortDir === 'asc' ? '↑' : '↓') : '↕'}
+                </th>
+                <th
+                  style={{ padding: '10px 10px', textAlign: 'left', cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => toggleInvColumnSort('status')}
+                >
+                  Status {invSortBy === 'status' ? (invSortDir === 'asc' ? '↑' : '↓') : '↕'}
+                </th>
                 <th style={{ padding: '10px 10px', textAlign: 'center' }}>Zahlung / Bezahlt</th>
                 <th style={{ padding: '10px 12px', textAlign: 'right' }}>Aktionen</th>
               </tr>
@@ -3353,6 +3703,42 @@ export const AbrechnungView = ({
                         </option>
                       ))}
                     </select>
+                    <select
+                      value={modalSortBy}
+                      onChange={(e) => setModalSortBy(e.target.value)}
+                      style={{
+                        width: 'auto',
+                        padding: '5px 8px',
+                        fontSize: 11.5,
+                        fontWeight: 600,
+                        background: '#fff7ed',
+                        border: '1px solid #FF6B00',
+                        borderRadius: 6,
+                      }}
+                    >
+                      <option value="abgeschlossen_datum">Sort: Abgeschlossen am</option>
+                      <option value="ort">Sort: Gemeinde</option>
+                      <option value="strasse">Sort: Straße</option>
+                      <option value="adress_id">Sort: Adress-ID / WE-Nr</option>
+                      <option value="total_we">Sort: WE / TA</option>
+                      <option value="project_name">Sort: Projekt</option>
+                      <option value="billing_status">Sort: Abrechnungs-Status</option>
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => setModalSortDir((p) => (p === 'asc' ? 'desc' : 'asc'))}
+                      style={{
+                        padding: '4px 8px',
+                        borderRadius: 6,
+                        border: '1px solid #cbd5e1',
+                        background: '#ffffff',
+                        fontSize: 11.5,
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {modalSortDir === 'asc' ? '↑' : '↓'}
+                    </button>
                     <label
                       style={{
                         display: 'inline-flex',
@@ -3400,12 +3786,42 @@ export const AbrechnungView = ({
                     <thead>
                       <tr style={{ background: '#f1f5f9', color: '#475569', textAlign: 'left', borderBottom: '1px solid #e2e8f0' }}>
                         <th style={{ padding: '7px 10px', width: 36, textAlign: 'center' }}>✓</th>
-                        <th style={{ padding: '7px 10px' }}>Projekt</th>
-                        <th style={{ padding: '7px 10px' }}>Adress-ID / WE-Nr</th>
-                        <th style={{ padding: '7px 10px' }}>Gemeinde & Straße</th>
-                        <th style={{ padding: '7px 10px' }}>WE / TA</th>
-                        <th style={{ padding: '7px 10px' }}>Abgeschlossen am</th>
-                        <th style={{ padding: '7px 10px' }}>Abrechnungs-Status</th>
+                        <th
+                          style={{ padding: '7px 10px', cursor: 'pointer', userSelect: 'none' }}
+                          onClick={() => toggleModalColumnSort('project_name')}
+                        >
+                          Projekt {modalSortBy === 'project_name' ? (modalSortDir === 'asc' ? '↑' : '↓') : '↕'}
+                        </th>
+                        <th
+                          style={{ padding: '7px 10px', cursor: 'pointer', userSelect: 'none' }}
+                          onClick={() => toggleModalColumnSort('adress_id')}
+                        >
+                          Adress-ID / WE-Nr {modalSortBy === 'adress_id' ? (modalSortDir === 'asc' ? '↑' : '↓') : '↕'}
+                        </th>
+                        <th
+                          style={{ padding: '7px 10px', cursor: 'pointer', userSelect: 'none' }}
+                          onClick={() => toggleModalColumnSort('ort')}
+                        >
+                          Gemeinde & Straße {modalSortBy === 'ort' ? (modalSortDir === 'asc' ? '↑' : '↓') : '↕'}
+                        </th>
+                        <th
+                          style={{ padding: '7px 10px', cursor: 'pointer', userSelect: 'none' }}
+                          onClick={() => toggleModalColumnSort('total_we')}
+                        >
+                          WE / TA {modalSortBy === 'total_we' ? (modalSortDir === 'asc' ? '↑' : '↓') : '↕'}
+                        </th>
+                        <th
+                          style={{ padding: '7px 10px', cursor: 'pointer', userSelect: 'none' }}
+                          onClick={() => toggleModalColumnSort('abgeschlossen_datum')}
+                        >
+                          Abgeschlossen am {modalSortBy === 'abgeschlossen_datum' ? (modalSortDir === 'asc' ? '↑' : '↓') : '↕'}
+                        </th>
+                        <th
+                          style={{ padding: '7px 10px', cursor: 'pointer', userSelect: 'none' }}
+                          onClick={() => toggleModalColumnSort('billing_status')}
+                        >
+                          Abrechnungs-Status {modalSortBy === 'billing_status' ? (modalSortDir === 'asc' ? '↑' : '↓') : '↕'}
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
@@ -3561,6 +3977,26 @@ export function ProtocolExtractorModule({ user, mode = 'objects' }) {
   const [colHausBis, setColHausBis] = useState('');
   const [colDateSearch, setColDateSearch] = useState('');
 
+  // Sorting state for main Objects & Properties overview
+  const [sortBy, setSortBy] = useState('created');
+  const [sortDir, setSortDir] = useState('desc');
+
+  const toggleColumnSort = (colKey) => {
+    if (sortBy === colKey) {
+      setSortDir((p) => (p === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortBy(colKey);
+      setSortDir('asc');
+    }
+  };
+
+  // Support deep-linking from Calendar view ("Im Objekt öffnen")
+  useEffect(() => {
+    if (location.state?.openAddressId) {
+      setSelectedBuildingId(location.state.openAddressId);
+    }
+  }, [location.state]);
+
   const showToast = (msg, type = 'success') => {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 3500);
@@ -3629,6 +4065,8 @@ export function ProtocolExtractorModule({ user, mode = 'objects' }) {
     setColHausVon('');
     setColHausBis('');
     setColDateSearch('');
+    setSortBy('created');
+    setSortDir('desc');
   };
 
   // Deduplicated options for Project, Team, Normalized City (Gemeinde), and Month dropdowns
@@ -3671,9 +4109,9 @@ export function ProtocolExtractorModule({ user, mode = 'objects' }) {
     };
   }, [addresses, fieldTeams, projects]);
 
-  // Filtered buildings
+  // Filtered & Sorted buildings
   const filteredAddresses = useMemo(() => {
-    return addresses.filter((addr) => {
+    const filtered = addresses.filter((addr) => {
       const canonicalCity = normalizeGemeinde(addr.ort, addr.plz);
       const addrProj = (addr.project_name || 'UGG').trim();
 
@@ -3780,6 +4218,95 @@ export function ProtocolExtractorModule({ user, mode = 'objects' }) {
 
       return true;
     });
+
+    const dir = sortDir === 'asc' ? 1 : -1;
+    return [...filtered].sort((a, b) => {
+      const cityA = normalizeGemeinde(a.ort, a.plz) || a.ort || '';
+      const cityB = normalizeGemeinde(b.ort, b.plz) || b.ort || '';
+      const progA = calcBuildingProgress(a);
+      const progB = calcBuildingProgress(b);
+
+      if (sortBy === 'priority') {
+        const pa = a.is_priority ? 1 : 0;
+        const pb = b.is_priority ? 1 : 0;
+        if (pa !== pb) return (pa - pb) * dir;
+      } else if (sortBy === 'project_name') {
+        const cmp = String(a.project_name || 'UGG').localeCompare(String(b.project_name || 'UGG'), 'de');
+        if (cmp !== 0) return cmp * dir;
+      } else if (sortBy === 'adress_id') {
+        const cmp = String(a.adress_id || a.projektnummer || '').localeCompare(
+          String(b.adress_id || b.projektnummer || ''),
+          'de',
+          { numeric: true }
+        );
+        if (cmp !== 0) return cmp * dir;
+      } else if (sortBy === 'projektnummer') {
+        const cmp = String(a.projektnummer || '').localeCompare(String(b.projektnummer || ''), 'de', { numeric: true });
+        if (cmp !== 0) return cmp * dir;
+      } else if (sortBy === 'ort') {
+        const cmp = cityA.localeCompare(cityB, 'de');
+        if (cmp !== 0) return cmp * dir;
+        return String(a.strasse || '').localeCompare(String(b.strasse || ''), 'de') * dir;
+      } else if (sortBy === 'strasse') {
+        const cmp = String(a.strasse || '').localeCompare(String(b.strasse || ''), 'de');
+        if (cmp !== 0) return cmp * dir;
+        return String(a.hausnummer || '').localeCompare(String(b.hausnummer || ''), 'de', { numeric: true }) * dir;
+      } else if (sortBy === 'hausnummer') {
+        const cmp = String(a.hausnummer || '').localeCompare(String(b.hausnummer || ''), 'de', { numeric: true });
+        if (cmp !== 0) return cmp * dir;
+      } else if (sortBy === 'progress') {
+        if (progA.pct !== progB.pct) return (progA.pct - progB.pct) * dir;
+        return (progA.taCount - progB.taCount) * dir;
+      } else if (sortBy === 'total_we') {
+        if (progA.totalWe !== progB.totalWe) return (progA.totalWe - progB.totalWe) * dir;
+        return (progA.taCount - progB.taCount) * dir;
+      } else if (sortBy === 'ta_count') {
+        if (progA.taCount !== progB.taCount) return (progA.taCount - progB.taCount) * dir;
+        return (progA.totalWe - progB.totalWe) * dir;
+      } else if (sortBy === 'ausbau_typ') {
+        const cmp = String(a.ausbau_typ || 'Metalkanal').localeCompare(String(b.ausbau_typ || 'Metalkanal'), 'de');
+        if (cmp !== 0) return cmp * dir;
+      } else if (sortBy === 'team') {
+        const cmp = String(a.team || '').localeCompare(String(b.team || ''), 'de');
+        if (cmp !== 0) return cmp * dir;
+      } else if (sortBy === 'building_status') {
+        const statusOrder = {
+          'Ausbau terminiert': 1,
+          Offen: 2,
+          'In Bearbeitung': 3,
+          Restarbeiten: 4,
+          Abgeschlossen: 5,
+        };
+        const sa = statusOrder[a.building_status || 'Ausbau terminiert'] || 9;
+        const sb = statusOrder[b.building_status || 'Ausbau terminiert'] || 9;
+        if (sa !== sb) return (sa - sb) * dir;
+      } else if (sortBy === 'ausbautermin') {
+        const da = dateValueForSort(a.ausbautermin);
+        const db = dateValueForSort(b.ausbautermin);
+        if (da !== db) return (da - db) * dir;
+      } else if (sortBy === 'abgeschlossen_datum') {
+        const da = dateValueForSort(a.abgeschlossen_datum);
+        const db = dateValueForSort(b.abgeschlossen_datum);
+        if (da !== db) return (da - db) * dir;
+      } else if (sortBy === 'restarbeit_termin') {
+        const da = dateValueForSort(a.restarbeit_termin);
+        const db = dateValueForSort(b.restarbeit_termin);
+        if (da !== db) return (da - db) * dir;
+      } else if (sortBy === 'checklist') {
+        if (progA.doneChecks !== progB.doneChecks) return (progA.doneChecks - progB.doneChecks) * dir;
+      } else if (sortBy === 'comments') {
+        const ca = (a.comments || []).length;
+        const cb = (b.comments || []).length;
+        if (ca !== cb) return (ca - cb) * dir;
+      } else {
+        // default: created
+        const da = dateValueForSort(a.created_at);
+        const db = dateValueForSort(b.created_at);
+        if (da !== db) return (da - db) * dir;
+      }
+
+      return String(a.projektnummer || '').localeCompare(String(b.projektnummer || ''), 'de', { numeric: true }) * dir;
+    });
   }, [
     addresses,
     onlyPriority,
@@ -3797,6 +4324,8 @@ export function ProtocolExtractorModule({ user, mode = 'objects' }) {
     colHausBis,
     colDateSearch,
     globalSearch,
+    sortBy,
+    sortDir,
   ]);
 
   // Overall Totals for the Main View ("Gesamtzahl der Objekte" & WE Breakdown)
@@ -4653,6 +5182,63 @@ export function ProtocolExtractorModule({ user, mode = 'objects' }) {
               <option value="RECHNUNG_OFFEN">Rechnung offen</option>
               <option value="HAS_PDF">Mit Protokoll-PDF</option>
             </select>
+
+            {/* Sort By Dropdown */}
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+              style={{
+                width: 'auto',
+                minWidth: 165,
+                padding: '6px 9px',
+                fontSize: 12,
+                fontWeight: 700,
+                background: '#fff7ed',
+                border: '1px solid #FF6B00',
+                color: '#0f172a',
+                borderRadius: 7,
+              }}
+              title="Objekte sortieren nach"
+            >
+              <option value="created">Sort: Erstellt / Import</option>
+              <option value="ort">Sort: Gemeinde / Ort</option>
+              <option value="strasse">Sort: Straße & Hausnr.</option>
+              <option value="hausnummer">Sort: Hausnummer</option>
+              <option value="project_name">Sort: Projekt</option>
+              <option value="adress_id">Sort: Adress-ID</option>
+              <option value="projektnummer">Sort: WE-Nummer</option>
+              <option value="progress">Sort: Fortschritt (%)</option>
+              <option value="total_we">Sort: Wohnungen (WE Gesamt)</option>
+              <option value="ta_count">Sort: TA installiert</option>
+              <option value="ausbau_typ">Sort: Ausbau-Typ</option>
+              <option value="team">Sort: Ausbau Team</option>
+              <option value="building_status">Sort: Gebäude-Status</option>
+              <option value="ausbautermin">Sort: Ausbau Datum</option>
+              <option value="abgeschlossen_datum">Sort: Abgeschlossen Datum</option>
+              <option value="restarbeit_termin">Sort: Restarbeit Termin</option>
+              <option value="checklist">Sort: Checkliste Fortschritt</option>
+              <option value="priority">Sort: Priorität (★)</option>
+              <option value="comments">Sort: Kommentare</option>
+            </select>
+
+            {/* Sort Direction Toggle */}
+            <button
+              type="button"
+              onClick={() => setSortDir((p) => (p === 'asc' ? 'desc' : 'asc'))}
+              style={{
+                padding: '6px 10px',
+                borderRadius: 7,
+                border: '1px solid #cbd5e1',
+                background: '#ffffff',
+                color: '#0f172a',
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: 'pointer',
+              }}
+              title={sortDir === 'asc' ? 'Aufsteigend sortiert' : 'Absteigend sortiert'}
+            >
+              {sortDir === 'asc' ? '↑ Aufsteigend' : '↓ Absteigend'}
+            </button>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -4691,19 +5277,85 @@ export function ProtocolExtractorModule({ user, mode = 'objects' }) {
                   borderBottom: '1px solid #e2e8f0',
                 }}
               >
-                <th style={{ padding: '9px 8px', width: 32, textAlign: 'center' }}>★</th>
-                <th style={{ padding: '9px 10px', textAlign: 'left' }}>Projekt / Adress-ID / WE-Nr</th>
-                <th style={{ padding: '9px 10px', textAlign: 'left' }}>Gemeinde</th>
-                <th style={{ padding: '9px 10px', textAlign: 'left' }}>Straße</th>
-                <th style={{ padding: '9px 8px', textAlign: 'center' }}>Haus</th>
-                <th style={{ padding: '9px 10px', textAlign: 'left', minWidth: 165 }}>Fortschritt (%) & WE</th>
-                <th style={{ padding: '9px 10px', textAlign: 'left' }}>Ausbau-Typ</th>
-                <th style={{ padding: '9px 10px', textAlign: 'left' }}>Team</th>
-                <th style={{ padding: '9px 10px', textAlign: 'left' }}>Status</th>
-                <th style={{ padding: '9px 10px', textAlign: 'left', minWidth: 135 }}>Ausbau Datum</th>
-                <th style={{ padding: '9px 10px', textAlign: 'left', minWidth: 135 }}>Abgeschlossen</th>
-                <th style={{ padding: '9px 10px', textAlign: 'left', minWidth: 135 }}>Restarbeit</th>
-                <th style={{ padding: '9px 10px', textAlign: 'left' }}>Gebäude-Checkliste</th>
+                <th
+                  style={{ padding: '9px 8px', width: 32, textAlign: 'center', cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => toggleColumnSort('priority')}
+                  title="Nach Priorität sortieren"
+                >
+                  ★ {sortBy === 'priority' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
+                </th>
+                <th
+                  style={{ padding: '9px 10px', textAlign: 'left', cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => toggleColumnSort('adress_id')}
+                >
+                  Projekt / Adress-ID / WE-Nr {sortBy === 'adress_id' || sortBy === 'projektnummer' || sortBy === 'project_name' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
+                </th>
+                <th
+                  style={{ padding: '9px 10px', textAlign: 'left', cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => toggleColumnSort('ort')}
+                >
+                  Gemeinde {sortBy === 'ort' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
+                </th>
+                <th
+                  style={{ padding: '9px 10px', textAlign: 'left', cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => toggleColumnSort('strasse')}
+                >
+                  Straße {sortBy === 'strasse' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
+                </th>
+                <th
+                  style={{ padding: '9px 8px', textAlign: 'center', cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => toggleColumnSort('hausnummer')}
+                >
+                  Haus {sortBy === 'hausnummer' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
+                </th>
+                <th
+                  style={{ padding: '9px 10px', textAlign: 'left', minWidth: 165, cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => toggleColumnSort('progress')}
+                >
+                  Fortschritt (%) & WE {sortBy === 'progress' || sortBy === 'total_we' || sortBy === 'ta_count' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
+                </th>
+                <th
+                  style={{ padding: '9px 10px', textAlign: 'left', cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => toggleColumnSort('ausbau_typ')}
+                >
+                  Ausbau-Typ {sortBy === 'ausbau_typ' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
+                </th>
+                <th
+                  style={{ padding: '9px 10px', textAlign: 'left', cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => toggleColumnSort('team')}
+                >
+                  Team {sortBy === 'team' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
+                </th>
+                <th
+                  style={{ padding: '9px 10px', textAlign: 'left', cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => toggleColumnSort('building_status')}
+                >
+                  Status {sortBy === 'building_status' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
+                </th>
+                <th
+                  style={{ padding: '9px 10px', textAlign: 'left', minWidth: 135, cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => toggleColumnSort('ausbautermin')}
+                >
+                  Ausbau Datum {sortBy === 'ausbautermin' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
+                </th>
+                <th
+                  style={{ padding: '9px 10px', textAlign: 'left', minWidth: 135, cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => toggleColumnSort('abgeschlossen_datum')}
+                >
+                  Abgeschlossen {sortBy === 'abgeschlossen_datum' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
+                </th>
+                <th
+                  style={{ padding: '9px 10px', textAlign: 'left', minWidth: 135, cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => toggleColumnSort('restarbeit_termin')}
+                >
+                  Restarbeit {sortBy === 'restarbeit_termin' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
+                </th>
+                <th
+                  style={{ padding: '9px 10px', textAlign: 'left', cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => toggleColumnSort('checklist')}
+                >
+                  Gebäude-Checkliste {sortBy === 'checklist' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
+                </th>
                 <th style={{ padding: '9px 12px', textAlign: 'right' }}>Aktionen</th>
               </tr>
 
@@ -4783,6 +5435,7 @@ export function ProtocolExtractorModule({ user, mode = 'objects' }) {
               ) : (
                 filteredAddresses.map((addr) => {
                   const commentsCount = (addr.comments || []).length;
+                  const lastCommentObj = commentsCount > 0 ? addr.comments[0] : null;
                   const bStatus = addr.building_status || 'Ausbau terminiert';
                   const canonicalCity = normalizeGemeinde(addr.ort, addr.plz) || addr.ort;
                   const pillStyle = BUILDING_STATUS_PILL[bStatus] || BUILDING_STATUS_PILL.Offen;
@@ -4849,6 +5502,26 @@ export function ProtocolExtractorModule({ user, mode = 'objects' }) {
                         <div style={{ fontSize: 10.5, color: '#64748b', fontFamily: 'monospace' }}>
                           {addr.projektnummer}
                         </div>
+                        {lastCommentObj?.text && (
+                          <div
+                            style={{
+                              marginTop: 2,
+                              fontSize: 10,
+                              color: '#b45309',
+                              background: '#fffbeb',
+                              border: '1px solid #fde68a',
+                              padding: '1px 5px',
+                              borderRadius: 4,
+                              maxWidth: 195,
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                            }}
+                            title={`Letzter Kommentar (${lastCommentObj.author || 'Team'}): ${lastCommentObj.text}`}
+                          >
+                            💬 {lastCommentObj.text}
+                          </div>
+                        )}
                       </td>
 
                       {/* Normalized Single-City Gemeinde */}

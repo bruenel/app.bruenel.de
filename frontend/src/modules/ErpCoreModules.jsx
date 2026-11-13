@@ -315,6 +315,8 @@ export const HRManagementModule = ({ user }) => {
   const tab = section || 'employees';
   const setTab = (id) => navigate(`/hr/${id}`);
   const [q, setQ] = useState('');
+  const [empSortBy, setEmpSortBy] = useState('name');
+  const [empSortDir, setEmpSortDir] = useState('asc');
   const [typeFilter, setTypeFilter] = useState('All');
   const [roleFilter, setRoleFilter] = useState('All');
   const [leaveFilter, setLeaveFilter] = useState('All');
@@ -1576,149 +1578,41 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
 
   return (
     <div>
-      <PageHead title="HR, Personalakten & Cost Control" desc="German Arbeitsrecht employee master cards, Freelancer multi-contracts, IT Project Candidates, Überstunden & weekly working hours control.">
-        {/* Selective Billing Month in HR Header */}
-        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#fff', border: '1px solid var(--border)', borderRadius: 10, padding: '4px 10px' }}>
-          <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Billing Month:</span>
-          <select
-            value={selectedBiMonthPart}
-            onChange={(e) => setBiMonth(`${selectedBiYear}-${e.target.value}`)}
-            style={{ width: 'auto', border: 'none', padding: '4px 6px', fontWeight: 700, background: 'transparent' }}
-          >
-            {MONTH_OPTIONS.map((m) => (
-              <option key={m.value} value={m.value}>{m.label}</option>
-            ))}
-          </select>
-          <select
-            value={selectedBiYear}
-            onChange={(e) => setBiMonth(`${e.target.value}-${selectedBiMonthPart}`)}
-            style={{ width: 'auto', border: 'none', padding: '4px 6px', fontWeight: 700, background: 'transparent' }}
-          >
-            {YEAR_OPTIONS.map((yr) => (
-              <option key={yr} value={yr}>{yr}</option>
-            ))}
-          </select>
+      {/* Compact single-row HR header (matches Objects & Properties) */}
+      <div className="glass-panel" style={{ padding: '10px 14px', borderRadius: 12, background: '#fff', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <h3 style={{ margin: 0, fontSize: 15.5, fontWeight: 800, color: '#0f172a' }}>HR & Workforce</h3>
+          <span style={{ padding: '4px 10px', borderRadius: 8, background: '#0f172a', color: '#fff', fontSize: 12, fontWeight: 700 }}>Gesamtzahl Mitarbeiter: {employees.length}</span>
+          <span style={{ padding: '4px 9px', borderRadius: 8, background: '#dcfce7', color: '#15803d', border: '1px solid #86efac', fontSize: 11.5, fontWeight: 700 }}>Aktiv: {employees.filter((e) => e.is_active !== false).length}</span>
+          <span style={{ padding: '4px 9px', borderRadius: 8, background: '#fff7ed', color: '#c2410c', border: '1px solid #fed7aa', fontSize: 11.5, fontWeight: 700 }}>Freelancer/Sub: {subCount}</span>
+          <span style={{ padding: '4px 9px', borderRadius: 8, background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', fontSize: 11.5, fontWeight: 700 }}>Kandidaten: {candidateCount}</span>
+          <span style={{ padding: '4px 9px', borderRadius: 8, background: '#f8fafc', color: '#0f172a', border: '1px solid #e2e8f0', fontSize: 11.5, fontWeight: 700 }}>Stunden: {biSummary ? `${biSummary.total_hours} h` : '—'}</span>
+          <span style={{ padding: '4px 9px', borderRadius: 8, background: totalOvertimeHoursSum > 0 ? '#fff7ed' : '#f8fafc', color: totalOvertimeHoursSum > 0 ? '#ea580c' : '#475569', border: '1px solid #e2e8f0', fontSize: 11.5, fontWeight: 700 }}>Überstunden: {totalOvertimeHoursSum} h</span>
+          <span style={{ padding: '4px 9px', borderRadius: 8, background: '#f8fafc', color: '#0f172a', border: '1px solid #e2e8f0', fontSize: 11.5, fontWeight: 700 }}>Kosten: {formatEuro(totalEstimatedMonthlyCost)}</span>
         </div>
-        <button className="btn-secondary" onClick={() => setTab('documents')}><Upload size={16} /> Dokumente & Lohnabrechnungen</button>
-        <button className="btn-primary" onClick={openCreateEmployeeModal}><Plus size={16} /> Register Employee / Freelancer / Sub</button>
-      </PageHead>
-
-      {/* HR Cost Control, Überstunden & Workforce Total Summary Banner (5 KPIs) */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(0, 1fr))', gap: '12px', marginBottom: '14px' }}>
-        <div className="glass-panel kpi" style={{ padding: '14px 16px' }}>
-          <div style={{ fontSize: '0.71rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>Total Monthly HR & Sub Cost</div>
-          <div style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--accent)', margin: '4px 0' }}>
-            {formatEuro(totalEstimatedMonthlyCost)}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '2px 8px' }}>
+            <span style={{ fontSize: 10.5, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Monat</span>
+            <select value={selectedBiMonthPart} onChange={(e) => setBiMonth(`${selectedBiYear}-${e.target.value}`)} style={{ width: 'auto', border: 'none', padding: '3px 4px', fontWeight: 700, background: 'transparent', fontSize: 12 }}>
+              {MONTH_OPTIONS.map((m) => (<option key={m.value} value={m.value}>{m.label}</option>))}
+            </select>
+            <select value={selectedBiYear} onChange={(e) => setBiMonth(`${e.target.value}-${selectedBiMonthPart}`)} style={{ width: 'auto', border: 'none', padding: '3px 4px', fontWeight: 700, background: 'transparent', fontSize: 12 }}>
+              {YEAR_OPTIONS.map((yr) => (<option key={yr} value={yr}>{yr}</option>))}
+            </select>
           </div>
-          <div style={{ fontSize: '0.73rem', color: 'var(--text-muted)' }}>
-            Base: {formatEuro(totalBasePayrollSum)}
-          </div>
-        </div>
-
-        <div className="glass-panel kpi" style={{ padding: '14px 16px', borderColor: totalOvertimeHoursSum > 0 ? '#fdba74' : undefined, background: totalOvertimeHoursSum > 0 ? '#fff7ed' : undefined }}>
-          <div style={{ fontSize: '0.71rem', color: '#c2410c', fontWeight: 700, textTransform: 'uppercase' }}>Überstunden (Overtime)</div>
-          <div style={{ fontSize: '1.6rem', fontWeight: 800, color: '#ea580c', margin: '4px 0' }}>
-            {totalOvertimeHoursSum} h
-          </div>
-          <div style={{ fontSize: '0.73rem', color: '#9a3412', fontWeight: 600 }}>
-            Cost: {formatEuro(totalOvertimeCostSum)} • {weeklyAlerts.length} Week Alert(s)
-          </div>
-        </div>
-
-        <div className="glass-panel kpi" style={{ padding: '14px 16px' }}>
-          <div style={{ fontSize: '0.71rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>Total Working Hours</div>
-          <div style={{ fontSize: '1.6rem', fontWeight: 800, color: '#059669', margin: '4px 0' }}>
-            {biSummary ? `${biSummary.total_hours} h` : '—'}
-          </div>
-          <div style={{ fontSize: '0.73rem', color: 'var(--text-muted)' }}>
-            {biSummary ? `${biSummary.approved_hours}h appr. • ${biSummary.pending_hours}h pend.` : 'Loading...'}
-          </div>
-        </div>
-
-        <div className="glass-panel kpi" style={{ padding: '14px 16px' }}>
-          <div style={{ fontSize: '0.71rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>Credited (+8h Absence)</div>
-          <div style={{ fontSize: '1.6rem', fontWeight: 800, color: '#2563eb', margin: '4px 0' }}>
-            {biSummary ? `${biSummary.total_credited_hours_with_absences ?? biSummary.total_hours} h` : '—'}
-          </div>
-          <div style={{ fontSize: '0.73rem', color: 'var(--text-muted)' }}>
-            Urlaub: +{biSummary?.leave_credited_hours || 0}h • AU: +{biSummary?.sick_credited_hours || 0}h
-          </div>
-        </div>
-
-        <div className="glass-panel kpi" style={{ padding: '14px 16px' }}>
-          <div style={{ fontSize: '0.71rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>Workforce & Candidates</div>
-          <div style={{ fontSize: '1.6rem', fontWeight: 800, color: '#111827', margin: '4px 0' }}>
-            {employees.length} <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)' }}>Total</span>
-          </div>
-          <div style={{ fontSize: '0.73rem', color: 'var(--text-muted)' }}>
-            {subCount} Freelance/Sub • {candidateCount} IT Candidates
-          </div>
+          <button className="btn-primary btn-sm" onClick={openCreateEmployeeModal} style={{ padding: '7px 12px', fontSize: 12.5, fontWeight: 700 }}><Plus size={14} /> Neuer Mitarbeiter</button>
         </div>
       </div>
 
-      {/* WEEKLY WORKING HOURS EXCEEDED ALERT BANNER (Wochenarbeitszeit überschritten) */}
       {weeklyAlerts.length > 0 && (
-        <div
-          style={{
-            marginBottom: '16px',
-            padding: '12px 16px',
-            borderRadius: '12px',
-            background: '#fef2f2',
-            border: '1.5px solid #fca5a5',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            flexWrap: 'wrap',
-            gap: '12px',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-            <span
-              style={{
-                background: '#dc2626',
-                color: '#fff',
-                fontWeight: 800,
-                fontSize: '0.72rem',
-                padding: '4px 10px',
-                borderRadius: '999px',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '5px',
-                textTransform: 'uppercase',
-              }}
-            >
-              <AlertTriangle size={13} /> Wochenarbeitszeit überschritten (Weekly Limit Alert)
-            </span>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-              {weeklyAlerts.map((al, i) => (
-                <button
-                  key={`${al.employee_id}-${al.week_key}-${i}`}
-                  type="button"
-                  onClick={() => {
-                    setBiEmpFilter(al.employee_id);
-                    setTimeSearchQuery(al.employee_name);
-                    setTab('timelogs');
-                  }}
-                  style={{
-                    background: '#ffffff',
-                    border: '1px solid #fecaca',
-                    borderRadius: '8px',
-                    padding: '4px 10px',
-                    fontSize: '0.78rem',
-                    color: '#991b1b',
-                    cursor: 'pointer',
-                    fontWeight: 600,
-                  }}
-                  title="Click to inspect employee weekly working hours"
-                >
-                  <strong>{al.employee_name}</strong> in <strong>{al.week_key}</strong>: {al.worked_hours}h / {al.weekly_limit}h Limit (<strong>+{al.exceeded_by}h Überstunden</strong>)
-                </button>
-              ))}
-            </div>
-          </div>
-          <button type="button" className="btn-secondary btn-sm" onClick={() => setTab('timelogs')}>
-            Inspect Working Hours
-          </button>
+        <div style={{ marginBottom: 10, padding: '8px 12px', borderRadius: 10, background: '#fef2f2', border: '1px solid #fca5a5', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 12 }}>
+          <strong style={{ color: '#dc2626', display: 'inline-flex', alignItems: 'center', gap: 4 }}><AlertTriangle size={13} /> Wochenarbeitszeit überschritten:</strong>
+          {weeklyAlerts.map((al, i) => (
+            <button key={`${al.employee_id}-${al.week_key}-${i}`} type="button" onClick={() => { setBiEmpFilter(al.employee_id); setTimeSearchQuery(al.employee_name); setTab('timelogs'); }}
+              style={{ background: '#fff', border: '1px solid #fecaca', borderRadius: 6, padding: '2px 8px', fontSize: 11.5, color: '#991b1b', cursor: 'pointer', fontWeight: 600 }}>
+              {al.employee_name} {al.week_key}: {al.worked_hours}/{al.weekly_limit}h (+{al.exceeded_by}h)
+            </button>
+          ))}
         </div>
       )}
 
@@ -3039,278 +2933,174 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
       )}
 
       {/* Tab Content */}
-      {tab === 'employees' && (
-        <div className="glass-panel">
-          {/* Employee Type Filter Pills Bar */}
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14, paddingBottom: 12, borderBottom: '1px solid var(--border)', alignItems: 'center' }}>
-            <span style={{ fontSize: '0.73rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginRight: 4 }}>
-              Filter by Type:
-            </span>
-            {[
-              { id: 'All', label: `All Types (${employees.length})` },
-              { id: 'Full-time', label: `Full-time (${employees.filter(e => e.employment_type === 'Full-time').length})` },
-              { id: 'Part-time', label: `Part-time (${employees.filter(e => e.employment_type === 'Part-time').length})` },
-              { id: 'Minijob', label: `Minijob (${employees.filter(e => e.employment_type === 'Minijob').length})` },
-              { id: 'Freelancer', label: `Freelancer (${employees.filter(e => e.employment_type === 'Freelancer').length})` },
-              { id: 'Subunternehmer', label: `Subunternehmer (${employees.filter(e => e.employment_type === 'Subunternehmer').length})` },
-              { id: 'Candidate', label: `Candidates / IT Projects (${employees.filter(e => e.employment_type === 'Candidate' || e.attributes?.is_candidate).length})` },
-            ].map((tf) => {
-              const active = typeFilter === tf.id;
-              return (
-                <button
-                  key={tf.id}
-                  type="button"
-                  onClick={() => setTypeFilter(tf.id)}
-                  style={{
-                    padding: '6px 12px',
-                    borderRadius: 999,
-                    fontSize: '0.76rem',
-                    fontWeight: active ? 700 : 600,
-                    border: active ? '1.5px solid var(--accent)' : '1px solid var(--border)',
-                    background: active ? 'var(--accent-soft)' : 'var(--surface-2)',
-                    color: active ? 'var(--accent)' : 'var(--text-main)',
-                    cursor: 'pointer',
-                  }}
-                >
-                  {tf.label}
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="toolbar" style={{ marginBottom: 16 }}>
-            <input placeholder="Smart search by name, position, Steuer-ID, Subunternehmer or employee ID…" value={q} onChange={(e) => setQ(e.target.value)} style={{ minWidth: '280px' }} />
-            <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} style={{ width: 'auto' }}>
-              <option value="All">All Employment Types</option>
-              <option value="Full-time">Full-time (Vollzeit)</option>
-              <option value="Part-time">Part-time (Teilzeit)</option>
-              <option value="Minijob">Minijob</option>
-              <option value="Freelancer">Freelancer</option>
-              <option value="Subunternehmer">Subunternehmer</option>
-              <option value="Candidate">Candidate (IT Projects)</option>
-            </select>
-            <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)} style={{ width: 'auto' }}>
-              <option value="All">All RBAC Tiers</option>
-              <option value="2">Tier 2 · Project Manager</option>
-              <option value="3">Tier 3 · HR & Finance</option>
-              <option value="4">Tier 4 · Team Lead</option>
-              <option value="5">Tier 5 · Field Tech / External</option>
-            </select>
-            <button className="btn-secondary" style={{ marginLeft: 'auto' }} onClick={() => downloadCsv({
-                rows: filteredEmps,
+      {tab === 'employees' && (() => {
+        const monthHours = {};
+        timeLogs.forEach((l) => {
+          if (!l.employee_id || !String(l.date || '').startsWith(biMonth)) return;
+          monthHours[l.employee_id] = (monthHours[l.employee_id] || 0) + Number(l.net_hours || 0);
+        });
+        const sortVal = (e) => {
+          const a = e.attributes || {};
+          switch (empSortBy) {
+            case 'number': return String(e.employee_number || '');
+            case 'role': return `${e.role || ''} ${e.department || ''}`.toLowerCase();
+            case 'type': return String(e.employment_type || '');
+            case 'hours': return monthHours[e.id] || 0;
+            case 'pay': return Number(e.base_salary || a.tagessatz || e.hourly_rate || 0);
+            case 'docs': return (e.documents || []).length;
+            case 'status': return e.is_active === false ? 1 : 0;
+            default: return String(e.full_name || '').toLowerCase();
+          }
+        };
+        const sortedEmps = [...filteredEmps].sort((x, y) => {
+          const a = sortVal(x), b = sortVal(y);
+          const c = typeof a === 'number' ? a - b : String(a).localeCompare(String(b), 'de', { numeric: true });
+          return empSortDir === 'asc' ? c : -c;
+        });
+        const th = (key, label, align = 'left') => (
+          <th
+            onClick={() => { if (empSortBy === key) setEmpSortDir(empSortDir === 'asc' ? 'desc' : 'asc'); else { setEmpSortBy(key); setEmpSortDir('asc'); } }}
+            style={{ padding: '9px 10px', textAlign: align, cursor: 'pointer', userSelect: 'none' }}
+          >
+            {label} {empSortBy === key ? (empSortDir === 'asc' ? '↑' : '↓') : '↕'}
+          </th>
+        );
+        const sel = { width: 'auto', padding: '6px 9px', fontSize: 12, background: '#fff', border: '1px solid #cbd5e1', borderRadius: 7, color: '#0f172a' };
+        return (
+          <div className="glass-panel" style={{ padding: 0, borderRadius: 12, background: '#fff', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+            <div style={{ padding: '10px 14px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+              <input placeholder="Suchen (Name, Position, Nr., Steuer-ID)…" value={q} onChange={(e) => setQ(e.target.value)} style={{ ...sel, minWidth: 230, flex: '1 1 230px', maxWidth: 320 }} />
+              <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} style={sel}>
+                <option value="All">Typ: Alle ({employees.length})</option>
+                {['Full-time', 'Part-time', 'Minijob', 'Freelancer', 'Subunternehmer', 'Candidate'].map((t) => (
+                  <option key={t} value={t}>{t} ({employees.filter((e) => e.employment_type === t || (t === 'Candidate' && e.attributes?.is_candidate)).length})</option>
+                ))}
+              </select>
+              <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)} style={sel}>
+                <option value="All">RBAC: Alle</option>
+                <option value="2">Tier 2 · Projektleiter</option>
+                <option value="3">Tier 3 · HR & Finance</option>
+                <option value="4">Tier 4 · Team Lead</option>
+                <option value="5">Tier 5 · Field / Extern</option>
+              </select>
+              <select value={empSortBy} onChange={(e) => setEmpSortBy(e.target.value)} style={{ ...sel, fontWeight: 700, background: '#fff7ed', border: '1px solid #FF6B00' }}>
+                <option value="name">Sort: Name</option>
+                <option value="number">Sort: Personal-Nr.</option>
+                <option value="role">Sort: Position / Abteilung</option>
+                <option value="type">Sort: Typ</option>
+                <option value="hours">Sort: Stunden (Monat)</option>
+                <option value="pay">Sort: Gehalt / Satz</option>
+                <option value="docs">Sort: Dokumente</option>
+                <option value="status">Sort: Status</option>
+              </select>
+              <button type="button" onClick={() => setEmpSortDir(empSortDir === 'asc' ? 'desc' : 'asc')} style={{ ...sel, fontWeight: 700, cursor: 'pointer' }}>
+                {empSortDir === 'asc' ? '↑ Aufsteigend' : '↓ Absteigend'}
+              </button>
+              <button type="button" className="btn-secondary btn-sm" onClick={() => { setQ(''); setTypeFilter('All'); setRoleFilter('All'); setEmpSortBy('name'); setEmpSortDir('asc'); }}>Reset</button>
+              <button type="button" className="btn-secondary btn-sm" style={{ marginLeft: 'auto' }} onClick={() => downloadCsv({
+                rows: sortedEmps,
                 columns: [
-                  { key: 'full_name', label: 'Vollständiger Name' },
-                  { key: 'first_name', label: 'Vorname' },
-                  { key: 'last_name', label: 'Nachname' },
-                  { key: 'email', label: 'E-Mail (Login)' },
-                  { key: 'phone', label: 'Telefon / Mobil' },
-                  { key: 'employment_type', label: 'Beschäftigungsart' },
-                  { key: 'role', label: 'Position / Rolle' },
+                  { key: 'employee_number', label: 'Personal-Nr.' },
+                  { key: 'full_name', label: 'Name' },
+                  { key: 'email', label: 'E-Mail' },
+                  { key: 'phone', label: 'Telefon' },
+                  { key: 'employment_type', label: 'Typ' },
+                  { key: 'role', label: 'Position' },
                   { key: 'department', label: 'Abteilung' },
-                  { key: 'base_salary', label: 'Grundgehalt (€/Mo)' },
-                  { key: 'hourly_rate', label: 'Stundenlohn (€/h)' },
-                  { key: 'annual_leave_days', label: 'Jahresurlaub (Tage)' },
-                  { key: 'is_active', label: 'Aktiv' },
-                  { label: 'Geburtsdatum', fn: r => r.attributes?.birth_date || '' },
-                  { label: 'Nationalität', fn: r => r.attributes?.nationality || '' },
-                  { label: 'Straße', fn: r => r.attributes?.street || '' },
-                  { label: 'PLZ', fn: r => r.attributes?.postal_code || '' },
-                  { label: 'Stadt', fn: r => r.attributes?.city || '' },
-                  { label: 'Steuer-ID', fn: r => r.attributes?.steuer_id || '' },
-                  { label: 'Steuerklasse', fn: r => r.attributes?.steuerklasse || '' },
-                  { label: 'KV-Name', fn: r => r.attributes?.krankenversicherung_name || '' },
-                  { label: 'SV-Nummer', fn: r => r.attributes?.sozialversicherungsnummer || '' },
-                  { label: 'IBAN', fn: r => r.attributes?.iban || '' },
-                  { label: 'BIC', fn: r => r.attributes?.bic || '' },
-                  { label: 'Bank', fn: r => r.attributes?.bank_name || '' },
-                  { label: 'Vertragsmodell', fn: r => r.attributes?.contract_model || '' },
-                  { label: 'Vertragsbeginn', fn: r => r.attributes?.contract_start_date || '' },
-                  { label: 'Probezeit Ende', fn: r => r.attributes?.probezeit_end_date || '' },
-                  { label: 'Wochenstunden', fn: r => r.attributes?.weekly_hours ?? '' },
-                  { label: 'Tagessatz (€)', fn: r => r.attributes?.tagessatz ?? '' },
-                  { label: 'Stundensatz (€)', fn: r => r.attributes?.stundensatz ?? '' },
-                  { label: 'Überstunden-Satz (€)', fn: r => r.attributes?.overtime_rate ?? '' },
-                  { label: 'SOS Kontakt', fn: r => r.attributes?.sos_contact_name || '' },
-                  { label: 'SOS Telefon', fn: r => r.attributes?.sos_contact_phone || '' },
-                  { label: 'Firmenname (Sub)', fn: r => r.attributes?.company_name || '' },
-                  { label: 'USt-ID', fn: r => r.attributes?.ust_id || '' },
-                  { label: 'Freistellungsbescheinigung bis', fn: r => r.attributes?.freistellungsbescheinigung_until || '' },
-                  { label: 'Registrierungsstatus', fn: r => r.attributes?.registration_status || '' },
-                  { label: 'Zugewiesenes Projekt', fn: r => r.attributes?.assigned_project_name || '' },
-                  { key: 'role_tier', label: 'RBAC Tier' },
+                  { key: 'base_salary', label: 'Grundgehalt' },
+                  { key: 'hourly_rate', label: 'Stundenlohn' },
+                  { label: 'Tagessatz', fn: (r) => r.attributes?.tagessatz ?? '' },
+                  { label: 'Steuer-ID', fn: (r) => r.attributes?.steuer_id || '' },
+                  { label: 'IBAN', fn: (r) => r.attributes?.iban || '' },
+                  { label: `Stunden ${biMonth}`, fn: (r) => (monthHours[r.id] || 0).toFixed(1) },
                 ],
-              }, `bruenel_mitarbeiter_${new Date().toISOString().slice(0,10)}.csv`)}>
-              📥 Mitarbeiter CSV exportieren
-            </button>
-          </div>
-          <table style={{ width: '100%', textAlign: 'left', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
-            <thead>
-              <tr style={{ borderBottom: '1px solid var(--border)', color: 'var(--text-muted)' }}>
-                <th style={{ padding: '10px 8px' }}>Type & Status</th>
-                <th style={{ padding: '10px 8px' }}>Name, Position & Abteilung</th>
-                <th style={{ padding: '10px 8px' }}>Assigned Project (Change)</th>
-                <th style={{ padding: '10px 8px' }}>Contract / Freelancer Multi-Contracts</th>
-                <th style={{ padding: '10px 8px' }}>Steuer-ID & Krankenversicherung</th>
-                <th style={{ padding: '10px 8px' }}>Salary / Tagessatz / Stundensatz</th>
-                <th style={{ padding: '10px 8px' }}>HR Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredEmps.map(e => {
-                const attr = e.attributes || {};
-                const isSub = ['Freelancer', 'Subunternehmer'].includes(e.employment_type);
-                const isCandidate = e.employment_type === 'Candidate' || attr.is_candidate;
-                const fcCount = Array.isArray(attr.freelancer_contracts) ? attr.freelancer_contracts.length : 0;
-                const currentProjId = e.assigned_project_id || attr.assigned_project_id || '';
-                return (
-                  <tr
-                    key={e.id}
-                    onClick={() => openEditEmployeeModal(e)}
-                    style={{ borderBottom: '1px solid var(--border)', cursor: 'pointer', opacity: e.is_active === false ? 0.68 : 1 }}
-                    title="Click to open and edit full Personalakte / Employee Card"
-                  >
-                    <td style={{ padding: '10px 8px' }}>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-start' }}>
-                        <span
-                          className="badge"
-                          style={{
-                            fontSize: '0.67rem',
-                            background: isCandidate ? '#eff6ff' : isSub ? '#fff7ed' : '#f0fdf4',
-                            color: isCandidate ? '#1d4ed8' : isSub ? '#c2410c' : '#15803d',
-                          }}
-                        >
-                          {e.employment_type}
-                        </span>
-                        <span
-                          className="badge"
-                          style={{
-                            fontSize: '0.65rem',
-                            background: e.is_active === false ? '#fef2f2' : '#ecfdf5',
-                            color: e.is_active === false ? '#dc2626' : '#059669',
-                          }}
-                        >
-                          {e.is_active === false ? '🔒 Deaktiviert' : '● Aktiv'}
-                        </span>
-                      </div>
-                    </td>
-                    <td style={{ padding: '10px 8px' }}>
-                      <div style={{ fontWeight: 700 }}>{e.full_name}</div>
-                      <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#334155' }}>
-                        {e.role} • <span style={{ color: 'var(--text-muted)' }}>{e.department}</span>
-                      </div>
-                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                        {e.email || '—'} • {e.phone || '—'}
-                      </div>
-                      {attr.sos_contact_name && (
-                        <div style={{ fontSize: '0.7rem', color: '#dc2626', fontWeight: 600, marginTop: '2px' }}>
-                          SOS: {attr.sos_contact_name} ({attr.sos_contact_phone})
-                        </div>
-                      )}
-                    </td>
-                    <td style={{ padding: '10px 8px' }} onClick={ev => ev.stopPropagation()}>
-                      <select
-                        value={currentProjId}
-                        onChange={(ev) => handleQuickProjectChange(e.id, ev.target.value)}
-                        style={{ fontSize: '0.76rem', padding: '6px 8px', minWidth: 185, fontWeight: 600 }}
-                        title="Change assigned project for this employee"
-                      >
-                        <option value="">— Unassigned —</option>
-                        {projects.map((p) => (
-                          <option key={p.id} value={p.id}>{p.code} · {p.name}</option>
-                        ))}
-                      </select>
-                    </td>
-                    <td style={{ padding: '10px 8px' }}>
-                      <div style={{ fontWeight: 600 }}>{attr.contract_model || e.employment_type}</div>
-                      {isSub ? (
-                        <div style={{ fontSize: '0.72rem', color: '#c2410c', fontWeight: 600 }}>
-                          {fcCount} Saved Contract(s) • Limit: {attr.weekly_hours || 40}h/wk
-                        </div>
-                      ) : isCandidate ? (
-                        <div style={{ fontSize: '0.72rem', color: '#1d4ed8' }}>
-                          Exp: {attr.experience_years || '—'} • Pref: {attr.preferred_contract_model || 'Freelancer'}
-                        </div>
-                      ) : (
-                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                          Quota: {attr.monthly_contract_hours || 160}h/mo ({attr.weekly_hours || 40}h/wk) • Probezeit: {formatDate(attr.probezeit_end_date)}
-                        </div>
-                      )}
-                    </td>
-                    <td style={{ padding: '10px 8px' }}>
-                      {isSub && attr.company_name ? (
-                        <>
-                          <div style={{ fontWeight: 600 }}>{attr.company_name}</div>
-                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                            USt-ID: {attr.ust_id || '—'} • §48b: {formatDate(attr.freistellungsbescheinigung_until)}
-                          </div>
-                        </>
-                      ) : (
-                        <>
-                          <div style={{ fontWeight: 600 }}>St-ID: {attr.steuer_id || '—'} (Kl. {attr.steuerklasse || 'I'})</div>
-                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                            KV: {attr.krankenversicherung_name || '—'}
-                          </div>
-                        </>
-                      )}
-                    </td>
-                    <td style={{ padding: '10px 8px' }}>
-                      {isSub || isCandidate ? (
-                        <>
-                          <div style={{ fontWeight: 700, color: '#c2410c' }}>
-                            Tagessatz: {formatEuro(attr.tagessatz || 640)}/Tag
-                          </div>
-                          <div style={{ fontSize: '0.73rem', fontWeight: 600 }}>
-                            Stundensatz: {formatEuro(attr.stundensatz || e.hourly_rate || 80)}/h
-                          </div>
-                        </>
-                      ) : (
-                        <>
-                          <div style={{ fontWeight: 700 }}>
-                            {e.base_salary > 0 ? `${formatEuro(e.base_salary)}/Mo` : `${formatEuro(e.hourly_rate)}/h`}
-                          </div>
-                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                            Basis: {formatEuro(e.hourly_rate)}/h • Überstunden: {formatEuro(attr.overtime_rate ?? 28.5)}/h
-                          </div>
-                        </>
-                      )}
-                    </td>
-                    <td style={{ padding: '10px 8px' }} onClick={ev => ev.stopPropagation()}>
-                      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                        <button
-                          type="button"
-                          className="btn-primary btn-sm"
-                          onClick={() => openEditEmployeeModal(e)}
-                        >
-                          <Edit3 size={12} /> {isCandidate ? 'Convert / Personalakte' : 'Personalakte'}
-                        </button>
-                        <button
-                          type="button"
-                          className="btn-secondary btn-sm"
-                          onClick={() => {
-                            openEditEmployeeModal(e);
-                            setEmpCardTab('docs');
-                          }}
-                        >
-                          <Upload size={12} /> Dokumente ({(e.documents || []).length})
-                        </button>
-                        <button
-                          type="button"
-                          className="btn-secondary btn-sm"
-                          style={{ color: '#dc2626', padding: '4px 8px' }}
-                          title="Mitarbeiter & Personalakte löschen"
-                          onClick={() => handleDeleteEmployee(e.id, e.full_name)}
-                        >
-                          <Trash2 size={12} />
-                        </button>
-                      </div>
-                    </td>
+              }, `bruenel_mitarbeiter_${new Date().toISOString().slice(0, 10)}.csv`)}>
+                <Download size={13} /> CSV
+              </button>
+            </div>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+                <thead>
+                  <tr style={{ background: '#f1f5f9', color: '#475569', textTransform: 'uppercase', fontSize: 10.5, fontWeight: 700, letterSpacing: '0.04em', borderBottom: '1px solid #e2e8f0' }}>
+                    {th('number', 'Nr.')}
+                    {th('status', 'Status')}
+                    {th('name', 'Name & Kontakt')}
+                    {th('role', 'Position & Abteilung')}
+                    {th('type', 'Typ & Vertrag')}
+                    <th style={{ padding: '9px 10px', textAlign: 'left' }}>Projekt</th>
+                    {th('hours', 'Stunden (Monat)')}
+                    {th('pay', 'Gehalt / Satz')}
+                    {th('docs', 'Akte')}
+                    <th style={{ padding: '9px 10px', textAlign: 'right' }} />
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
+                </thead>
+                <tbody>
+                  {sortedEmps.length === 0 && (
+                    <tr><td colSpan={10} style={{ padding: 30, textAlign: 'center', color: '#64748b' }}>Keine Mitarbeiter gefunden.</td></tr>
+                  )}
+                  {sortedEmps.map((e) => {
+                    const attr = e.attributes || {};
+                    const isSub = ['Freelancer', 'Subunternehmer'].includes(e.employment_type);
+                    const hrs = monthHours[e.id] || 0;
+                    const quota = Number(attr.monthly_contract_hours || 160);
+                    const pct = Math.min(100, Math.round((hrs / quota) * 100));
+                    const over = hrs > quota;
+                    return (
+                      <tr key={e.id} onClick={() => openEditEmployeeModal(e)} style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', opacity: e.is_active === false ? 0.65 : 1 }}
+                        onMouseEnter={(ev) => { ev.currentTarget.style.background = '#f8fafc'; }}
+                        onMouseLeave={(ev) => { ev.currentTarget.style.background = 'transparent'; }}>
+                        <td style={{ padding: '9px 10px', fontFamily: 'monospace', fontWeight: 700, color: '#1d4ed8' }}>{e.employee_number || '—'}</td>
+                        <td style={{ padding: '9px 10px' }}>
+                          <span style={{ padding: '2px 8px', borderRadius: 999, fontSize: 11, fontWeight: 700, background: e.is_active === false ? '#fef2f2' : '#dcfce7', color: e.is_active === false ? '#dc2626' : '#15803d' }}>
+                            {e.is_active === false ? 'Gesperrt' : 'Aktiv'}
+                          </span>
+                        </td>
+                        <td style={{ padding: '9px 10px' }}>
+                          <div style={{ fontWeight: 700, color: '#0f172a' }}>{e.full_name}</div>
+                          <div style={{ fontSize: 11, color: '#64748b' }}>{e.email || '—'} · {e.phone || '—'}</div>
+                        </td>
+                        <td style={{ padding: '9px 10px' }}>
+                          <div style={{ fontWeight: 600 }}>{e.role}</div>
+                          <div style={{ fontSize: 11, color: '#64748b' }}>{e.department}</div>
+                        </td>
+                        <td style={{ padding: '9px 10px' }}>
+                          <span style={{ padding: '2px 7px', borderRadius: 6, fontSize: 10.5, fontWeight: 700, background: isSub ? '#fff7ed' : '#f0fdf4', color: isSub ? '#c2410c' : '#15803d' }}>{e.employment_type}</span>
+                          <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>{attr.contract_model || '—'}</div>
+                        </td>
+                        <td style={{ padding: '9px 10px' }} onClick={(ev) => ev.stopPropagation()}>
+                          <select value={e.assigned_project_id || attr.assigned_project_id || ''} onChange={(ev) => handleQuickProjectChange(e.id, ev.target.value)} style={{ ...sel, minWidth: 150, fontSize: 11.5 }}>
+                            <option value="">— Kein Projekt —</option>
+                            {projects.map((p) => (<option key={p.id} value={p.id}>{p.code} · {p.name}</option>))}
+                          </select>
+                        </td>
+                        <td style={{ padding: '9px 10px', minWidth: 130 }}>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: over ? '#dc2626' : '#0f172a' }}>{hrs.toFixed(1)} h / {quota} h</div>
+                          <div style={{ height: 5, borderRadius: 999, background: '#e2e8f0', overflow: 'hidden', marginTop: 3 }}>
+                            <div style={{ width: `${Math.max(3, pct)}%`, height: '100%', background: over ? '#dc2626' : '#FF6B00' }} />
+                          </div>
+                        </td>
+                        <td style={{ padding: '9px 10px', fontWeight: 700 }}>
+                          {isSub ? `${formatEuro(attr.tagessatz || 640)}/Tag` : e.base_salary > 0 ? `${formatEuro(e.base_salary)}/Mo` : `${formatEuro(e.hourly_rate)}/h`}
+                        </td>
+                        <td style={{ padding: '9px 10px' }} onClick={(ev) => ev.stopPropagation()}>
+                          <button type="button" className="btn-secondary btn-sm" style={{ padding: '3px 8px', fontSize: 11 }} onClick={() => { openEditEmployeeModal(e); setEmpCardTab('docs'); }}>
+                            <Upload size={11} /> {(e.documents || []).length}
+                          </button>
+                        </td>
+                        <td style={{ padding: '9px 10px', textAlign: 'right' }} onClick={(ev) => ev.stopPropagation()}>
+                          <button type="button" className="btn-secondary btn-sm" style={{ color: '#dc2626', padding: '4px 7px' }} onClick={() => handleDeleteEmployee(e.id, e.full_name)}>
+                            <Trash2 size={12} />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })()}
 
       {tab === 'timelogs' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>

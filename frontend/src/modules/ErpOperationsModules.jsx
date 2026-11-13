@@ -1830,31 +1830,90 @@ export const FleetEquipmentModule = () => {
 };
 
 // ==============================================================================
-// MODULE 5: CENTRALIZED INTERACTIVE MASTER CALENDAR
+// MODULE 5: CENTRALIZED INTERACTIVE MASTER CALENDAR (ADAPTIVE LIGHT-MODE UI/UX)
 // ==============================================================================
 
-export const MasterCalendarModule = () => {
+export const MasterCalendarModule = ({ embeddedInProjects = false }) => {
   const { section } = useParams();
-  const sec = section || 'all';
-  const typeMap = { all: 'ALL', assignments: 'Assignment', leave: 'Leave', sickness: 'Sickness', objects: 'BuildingObject' };
-  const filterType = typeMap[sec] || 'ALL';
+  const navigate = useNavigate();
+  const sec = embeddedInProjects ? 'all' : section || 'all';
+  const typeMap = {
+    all: 'ALL',
+    assignments: 'Assignment',
+    leave: 'Leave',
+    sickness: 'Sickness',
+    objects: 'OBJECTS_GROUP',
+  };
+
+  const [categoryTab, setCategoryTab] = useState(() => typeMap[sec] || 'ALL');
+  useEffect(() => {
+    if (!embeddedInProjects) {
+      setCategoryTab(typeMap[section || 'all'] || 'ALL');
+    }
+  }, [section, embeddedInProjects]);
+
   const [events, setEvents] = useState([]);
   const [employees, setEmployees] = useState([]);
-  const [empFilter, setEmpFilter] = useState('');
-  const [view, setView] = useState('week'); // 'week' | 'month' | 'list'
+  const [teams, setTeams] = useState([]);
+  const [projects, setProjects] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  // View & Navigation State ('month' | 'week' | 'day' | 'list')
+  const [view, setView] = useState('month');
   const [cursor, setCursor] = useState(() => new Date());
+
+  // Rich Filter & Sort State
+  const [searchQ, setSearchQ] = useState('');
+  const [empFilter, setEmpFilter] = useState('');
+  const [teamFilter, setTeamFilter] = useState('ALL');
+  const [projectFilter, setProjectFilter] = useState('ALL');
+  const [gemeindeFilter, setGemeindeFilter] = useState('ALL');
+  const [subtypeFilter, setSubtypeFilter] = useState('ALL');
+  const [statusFilter, setStatusFilter] = useState('ALL');
+  const [onlyPriority, setOnlyPriority] = useState(false);
+  const [sortBy, setSortBy] = useState('date');
+  const [sortDir, setSortDir] = useState('asc');
+
+  // Modals & Inspector State
   const [dayModal, setDayModal] = useState(null);
+  const [selectedEvent, setSelectedEvent] = useState(null);
   const [taskDocModal, setTaskDocModal] = useState(null);
   const [commentText, setCommentText] = useState('');
-  const [draggedSourceId, setDraggedSourceId] = useState(null);
+  const [draggedEvent, setDraggedEvent] = useState(null);
 
-  const loadCal = () => {
-    const qs = empFilter ? `?employee_id=${empFilter}` : '';
-    fetchWithToken(`/api/v1/calendar/events${qs}`).then(setEvents).catch(console.error);
+  const iso = (d) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const toDeDate = (isoOrDe) => {
+    if (!isoOrDe) return '—';
+    const s = String(isoOrDe).trim();
+    const mIso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (mIso) return `${mIso[3]}.${mIso[2]}.${mIso[1]}`;
+    return s;
+  };
+
+  const loadCal = async () => {
+    setLoading(true);
+    try {
+      const qs = empFilter ? `?employee_id=${encodeURIComponent(empFilter)}` : '';
+      const data = await fetchWithToken(`/api/v1/calendar/events${qs}`);
+      setEvents(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error('Calendar load failed:', err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
-    fetchWithToken('/api/v1/hr/employees').then(setEmployees).catch(() => []);
+    Promise.all([
+      fetchWithToken('/api/v1/hr/employees').catch(() => []),
+      fetchWithToken('/api/v1/teams').catch(() => []),
+      fetchWithToken('/api/v1/projects').catch(() => []),
+    ]).then(([empList, teamList, projList]) => {
+      setEmployees(Array.isArray(empList) ? empList : []);
+      setTeams(Array.isArray(teamList) ? teamList : []);
+      setProjects(Array.isArray(projList) ? projList : []);
+    });
   }, []);
 
   useEffect(() => {
@@ -1870,18 +1929,49 @@ export const MasterCalendarModule = () => {
     }
   };
 
-  const handleDropTaskOnDate = async (targetIsoDate) => {
-    if (!draggedSourceId || !targetIsoDate) return;
+  // Supports drag-and-drop rescheduling for both Assignments AND Protocol Building Milestones!
+  const handleDropEventOnDate = async (targetIsoDate) => {
+    if (!draggedEvent || !targetIsoDate) return;
+    const ev = draggedEvent;
+    setDraggedEvent(null);
     try {
-      await fetchWithToken(`/api/v1/assignments/${draggedSourceId}/status`, {
-        method: 'PATCH',
-        body: JSON.stringify({ date: targetIsoDate }),
-      });
-      setDraggedSourceId(null);
-      loadCal();
+      if (ev.event_type === 'Assignment' && ev.source_id) {
+        await fetchWithToken(`/api/v1/assignments/${ev.source_id}/status`, {
+          method: 'PATCH',
+          body: JSON.stringify({ date: targetIsoDate }),
+        });
+        loadCal();
+      } else if (ev.protocol_address_id) {
+        const deDate = toDeDate(targetIsoDate);
+        const patchField =
+          ev.event_subtype === 'Restarbeit Termin'
+            ? { restarbeit_termin: deDate }
+            : ev.event_subtype === 'Abgeschlossen'
+            ? { abgeschlossen_datum: deDate }
+            : { ausbautermin: deDate };
+        await fetchWithToken(`/api/v1/protocol/addresses/${ev.protocol_address_id}`, {
+          method: 'PATCH',
+          body: JSON.stringify(patchField),
+        });
+        loadCal();
+      }
     } catch (err) {
       alert(err.message);
-      setDraggedSourceId(null);
+    }
+  };
+
+  const handlePatchProtocolFromCalendar = async (addressId, patch) => {
+    try {
+      await fetchWithToken(`/api/v1/protocol/addresses/${addressId}`, {
+        method: 'PATCH',
+        body: JSON.stringify(patch),
+      });
+      await loadCal();
+      if (selectedEvent && selectedEvent.protocol_address_id === addressId) {
+        setSelectedEvent((prev) => (prev ? { ...prev, ...patch } : null));
+      }
+    } catch (err) {
+      alert(err.message);
     }
   };
 
@@ -1916,11 +2006,173 @@ export const MasterCalendarModule = () => {
     }
   };
 
-  const filtered = events.filter((ev) => filterType === 'ALL' || ev.event_type === filterType);
-  const byDate = {};
-  filtered.forEach((ev) => { (byDate[ev.date] = byDate[ev.date] || []).push(ev); });
+  // Dynamic Filter Options derived from events + master lists
+  const filterOptions = React.useMemo(() => {
+    const projSet = new Set(['UGG']);
+    const gemSet = new Set();
+    const teamSet = new Set();
+    const statusSet = new Set([
+      'Ausbau terminiert',
+      'Offen',
+      'In Bearbeitung',
+      'Restarbeiten',
+      'Abgeschlossen',
+    ]);
 
-  const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    projects.forEach((p) => p?.name && projSet.add(p.name.trim()));
+    teams.forEach((t) => t?.name && teamSet.add(t.name.trim()));
+
+    events.forEach((ev) => {
+      if (ev.project_name) projSet.add(ev.project_name.trim());
+      if (ev.gemeinde) gemSet.add(ev.gemeinde.trim());
+      if (ev.team_name) teamSet.add(ev.team_name.trim());
+      if (ev.building_status) statusSet.add(ev.building_status.trim());
+      if (ev.task_status) statusSet.add(ev.task_status.trim());
+    });
+
+    return {
+      projects: Array.from(projSet).sort(),
+      gemeinden: Array.from(gemSet).sort(),
+      teams: Array.from(teamSet).sort(),
+      statuses: Array.from(statusSet),
+    };
+  }, [events, projects, teams]);
+
+  // Filtered & Sorted Calendar Events
+  const filtered = React.useMemo(() => {
+    const list = events.filter((ev) => {
+      if (categoryTab !== 'ALL') {
+        if (categoryTab === 'OBJECTS_GROUP') {
+          if (ev.event_type !== 'BuildingObject') return false;
+        } else if (ev.event_type !== categoryTab) {
+          return false;
+        }
+      }
+      if (onlyPriority && !ev.is_priority) return false;
+      if (projectFilter !== 'ALL' && (ev.project_name || '').toLowerCase() !== projectFilter.toLowerCase()) {
+        return false;
+      }
+      if (gemeindeFilter !== 'ALL' && (ev.gemeinde || '').toLowerCase() !== gemeindeFilter.toLowerCase()) {
+        return false;
+      }
+      if (teamFilter !== 'ALL' && (ev.team_name || '').toLowerCase() !== teamFilter.toLowerCase()) {
+        return false;
+      }
+      if (subtypeFilter !== 'ALL' && (ev.event_subtype || ev.event_type || '') !== subtypeFilter) {
+        return false;
+      }
+      if (statusFilter !== 'ALL') {
+        const st = ev.building_status || ev.task_status || '';
+        if (st.toLowerCase() !== statusFilter.toLowerCase()) return false;
+      }
+      if (searchQ.trim()) {
+        const q = searchQ.trim().toLowerCase();
+        const hay = [
+          ev.title,
+          ev.subtitle,
+          ev.project_name,
+          ev.gemeinde,
+          ev.plz,
+          ev.strasse,
+          ev.hausnummer,
+          ev.projektnummer,
+          ev.adress_id,
+          ev.team_name,
+          ev.employee_name,
+          ev.ausbau_typ,
+          ev.building_status,
+          ev.task_status,
+          ev.last_comment,
+          ev.date,
+          toDeDate(ev.date),
+        ]
+          .join(' ')
+          .toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+
+    const dir = sortDir === 'asc' ? 1 : -1;
+    return [...list].sort((a, b) => {
+      if (sortBy === 'gemeinde') {
+        const cmp = String(a.gemeinde || '').localeCompare(String(b.gemeinde || ''), 'de');
+        if (cmp !== 0) return cmp * dir;
+      } else if (sortBy === 'strasse') {
+        const cmp = String(a.strasse || a.title || '').localeCompare(String(b.strasse || b.title || ''), 'de', {
+          numeric: true,
+        });
+        if (cmp !== 0) return cmp * dir;
+      } else if (sortBy === 'status') {
+        const cmp = String(a.building_status || a.task_status || '').localeCompare(
+          String(b.building_status || b.task_status || ''),
+          'de'
+        );
+        if (cmp !== 0) return cmp * dir;
+      } else if (sortBy === 'progress') {
+        const pa = Number(a.progress_pct || 0);
+        const pb = Number(b.progress_pct || 0);
+        if (pa !== pb) return (pa - pb) * dir;
+      } else if (sortBy === 'total_we') {
+        const wa = Number(a.total_we || 0);
+        const wb = Number(b.total_we || 0);
+        if (wa !== wb) return (wa - wb) * dir;
+      } else if (sortBy === 'team') {
+        const cmp = String(a.team_name || a.employee_name || '').localeCompare(
+          String(b.team_name || b.employee_name || ''),
+          'de'
+        );
+        if (cmp !== 0) return cmp * dir;
+      } else if (sortBy === 'priority') {
+        const pa = a.is_priority ? 1 : 0;
+        const pb = b.is_priority ? 1 : 0;
+        if (pa !== pb) return (pa - pb) * dir;
+      }
+      return String(a.date || '').localeCompare(String(b.date || '')) * dir;
+    });
+  }, [
+    events,
+    categoryTab,
+    onlyPriority,
+    projectFilter,
+    gemeindeFilter,
+    teamFilter,
+    subtypeFilter,
+    statusFilter,
+    searchQ,
+    sortBy,
+    sortDir,
+  ]);
+
+  const byDate = React.useMemo(() => {
+    const map = {};
+    filtered.forEach((ev) => {
+      if (!ev.date) return;
+      (map[ev.date] = map[ev.date] || []).push(ev);
+    });
+    return map;
+  }, [filtered]);
+
+  // Calendar KPI Counts
+  const stats = React.useMemo(() => {
+    const ausbauCount = events.filter((e) => e.event_subtype === 'Ausbautermin' || e.event_subtype === 'Ausbau / Objekt').length;
+    const restCount = events.filter((e) => e.event_subtype === 'Restarbeit Termin').length;
+    const doneCount = events.filter(
+      (e) => e.event_subtype === 'Abgeschlossen' || e.building_status === 'Abgeschlossen' || e.task_status === 'Done'
+    ).length;
+    const taskCount = events.filter((e) => e.event_type === 'Assignment').length;
+    const absenceCount = events.filter((e) => e.event_type === 'Leave' || e.event_type === 'Sickness').length;
+    return {
+      total: events.length,
+      filteredCount: filtered.length,
+      ausbauCount,
+      restCount,
+      doneCount,
+      taskCount,
+      absenceCount,
+    };
+  }, [events, filtered]);
+
   const y = cursor.getFullYear();
   const m = cursor.getMonth();
   const offset = (new Date(y, m, 1).getDay() + 6) % 7;
@@ -1930,9 +2182,16 @@ export const MasterCalendarModule = () => {
   for (let d = 1; d <= days; d++) cells.push(new Date(y, m, d));
   while (cells.length % 7) cells.push(null);
   const todayIso = iso(new Date());
+  const cursorIso = iso(cursor);
   const monthLabel = cursor.toLocaleDateString('de-DE', { month: 'long', year: 'numeric' });
+  const dayLabel = cursor.toLocaleDateString('de-DE', {
+    weekday: 'long',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  });
 
-  // Week days calculation
+  // Week days calculation (Monday - Sunday)
   const weekDays = (() => {
     const d = new Date(cursor);
     const day = d.getDay();
@@ -1945,143 +2204,818 @@ export const MasterCalendarModule = () => {
     });
   })();
 
+  const weekRangeLabel = `${toDeDate(iso(weekDays[0]))} – ${toDeDate(iso(weekDays[6]))}`;
+
+  const stepPeriod = (delta) => {
+    const next = new Date(cursor);
+    if (view === 'month') {
+      next.setMonth(next.getMonth() + delta);
+    } else if (view === 'week') {
+      next.setDate(next.getDate() + delta * 7);
+    } else {
+      next.setDate(next.getDate() + delta);
+    }
+    setCursor(next);
+  };
+
+  const handleEventClick = (ev, e) => {
+    if (e) e.stopPropagation();
+    if (ev.event_type === 'Assignment' && ev.source_id) {
+      openAssignmentDoc(ev.source_id);
+    } else {
+      setSelectedEvent(ev);
+    }
+  };
+
+  const toggleSortColumn = (colKey) => {
+    if (sortBy === colKey) {
+      setSortDir((p) => (p === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortBy(colKey);
+      setSortDir('asc');
+    }
+  };
+
+  const resetFilters = () => {
+    setSearchQ('');
+    setEmpFilter('');
+    setTeamFilter('ALL');
+    setProjectFilter('ALL');
+    setGemeindeFilter('ALL');
+    setSubtypeFilter('ALL');
+    setStatusFilter('ALL');
+    setOnlyPriority(false);
+    setCategoryTab('ALL');
+    setSortBy('date');
+    setSortDir('asc');
+  };
+
+  const dayEvents = byDate[cursorIso] || [];
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      <PageHead title="Master Calendar & Employee Schedules" desc="View the overall company schedule or each employee's calendar separately. Drag and drop tasks onto future days to reschedule.">
-        <select value={empFilter} onChange={e => setEmpFilter(e.target.value)} style={{ width: 'auto', fontWeight: 600 }}>
-          <option value="">Overall Calendar (All Employees)</option>
-          {employees.map(emp => (
-            <option key={emp.id} value={emp.id}>Employee: {emp.full_name}</option>
-          ))}
-        </select>
-        <div className="subtabs">
-          <button className={`subtab ${view === 'week' ? 'active' : ''}`} onClick={() => setView('week')}>Week</button>
-          <button className={`subtab ${view === 'month' ? 'active' : ''}`} onClick={() => setView('month')}>Month</button>
-          <button className={`subtab ${view === 'list' ? 'active' : ''}`} onClick={() => setView('list')}>List</button>
-        </div>
-      </PageHead>
-
-      <div className="flex-between" style={{ flexWrap: 'wrap' }}>
-        <SubTabs base="/calendar" active={sec} items={[
-          { id: 'all', label: 'All events' }, { id: 'assignments', label: 'Tasks & Assignments' }, { id: 'leave', label: 'Holiday' },
-          { id: 'sickness', label: 'Sickness' }, { id: 'objects', label: 'Objects' },
-        ]} />
-        <div className="toolbar">
-          <button className="btn-secondary btn-sm" onClick={() => {
-            const next = new Date(cursor);
-            view === 'month' ? next.setMonth(next.getMonth() - 1) : next.setDate(next.getDate() - 7);
-            setCursor(next);
-          }}>‹</button>
-          <strong style={{ minWidth: 150, textAlign: 'center' }}>{monthLabel}</strong>
-          <button className="btn-secondary btn-sm" onClick={() => {
-            const next = new Date(cursor);
-            view === 'month' ? next.setMonth(next.getMonth() + 1) : next.setDate(next.getDate() + 7);
-            setCursor(next);
-          }}>›</button>
-          <button className="btn-secondary btn-sm" onClick={() => setCursor(new Date())}>Today</button>
-        </div>
-      </div>
-
-      <div className="glass-panel" style={{ display: 'flex', gap: 24, padding: '12px 16px', fontSize: 13, flexWrap: 'wrap' }}>
-        {[
-          ['#3b82f6', 'To Do / Planned (Construction)'],
-          ['#eab308', 'Remaining Work / Approved Leave'],
-          ['#22c55e', 'Completed / Done'],
-          ['#ef4444', 'Not Completed / Sickness'],
-        ].map(([c, l]) => (
-          <div key={l} style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600 }}>
-            <span style={{ width: 12, height: 12, borderRadius: '50%', background: c }} />{l}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, width: '100%' }}>
+      {/* 1. Minimal Light-Mode Top Header Bar (Matches Objects & Properties) */}
+      <div
+        className="glass-panel"
+        style={{
+          padding: '10px 14px',
+          borderRadius: 12,
+          background: '#ffffff',
+          border: '1px solid #e2e8f0',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: 10,
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <div
+            style={{
+              width: 32,
+              height: 32,
+              borderRadius: 8,
+              background: 'rgba(255, 107, 0, 0.12)',
+              color: '#FF6B00',
+              display: 'grid',
+              placeItems: 'center',
+            }}
+          >
+            <CalendarIcon size={17} />
           </div>
-        ))}
+          <h3 style={{ margin: 0, fontSize: 15.5, fontWeight: 800, color: '#0f172a' }}>
+            Kalender & Ausbau-Terminplanung
+          </h3>
+
+          {/* KPI Badges */}
+          <span
+            style={{
+              padding: '4px 10px',
+              borderRadius: 8,
+              background: '#0f172a',
+              color: '#ffffff',
+              fontSize: 11.5,
+              fontWeight: 700,
+            }}
+          >
+            Gesamt Termine: {stats.filteredCount} / {stats.total}
+          </span>
+          <span
+            style={{
+              padding: '4px 9px',
+              borderRadius: 8,
+              background: '#eff6ff',
+              color: '#1d4ed8',
+              border: '1px solid #bfdbfe',
+              fontSize: 11.5,
+              fontWeight: 700,
+              cursor: 'pointer',
+            }}
+            onClick={() => setSubtypeFilter(subtypeFilter === 'Ausbautermin' ? 'ALL' : 'Ausbautermin')}
+          >
+            Ausbautermine: {stats.ausbauCount}
+          </span>
+          <span
+            style={{
+              padding: '4px 9px',
+              borderRadius: 8,
+              background: '#fff7ed',
+              color: '#c2410c',
+              border: '1px solid #fed7aa',
+              fontSize: 11.5,
+              fontWeight: 700,
+              cursor: 'pointer',
+            }}
+            onClick={() => setSubtypeFilter(subtypeFilter === 'Restarbeit Termin' ? 'ALL' : 'Restarbeit Termin')}
+          >
+            Restarbeiten: {stats.restCount}
+          </span>
+          <span
+            style={{
+              padding: '4px 9px',
+              borderRadius: 8,
+              background: '#dcfce7',
+              color: '#15803d',
+              border: '1px solid #86efac',
+              fontSize: 11.5,
+              fontWeight: 700,
+              cursor: 'pointer',
+            }}
+            onClick={() => setSubtypeFilter(subtypeFilter === 'Abgeschlossen' ? 'ALL' : 'Abgeschlossen')}
+          >
+            Abgeschlossen: {stats.doneCount}
+          </span>
+          {stats.absenceCount > 0 && (
+            <span
+              style={{
+                padding: '4px 9px',
+                borderRadius: 8,
+                background: '#fef2f2',
+                color: '#dc2626',
+                border: '1px solid #fecaca',
+                fontSize: 11.5,
+                fontWeight: 700,
+              }}
+            >
+              Urlaub / AU: {stats.absenceCount}
+            </span>
+          )}
+        </div>
+
+        {/* Right: Date Navigation + Adaptive View Switcher (Monat / Woche / Tag / Liste) */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          {/* Date Stepper */}
+          <div
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+              padding: '3px 6px',
+              borderRadius: 8,
+              background: '#f8fafc',
+              border: '1px solid #e2e8f0',
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => stepPeriod(-1)}
+              style={{
+                border: '1px solid #cbd5e1',
+                background: '#ffffff',
+                borderRadius: 6,
+                width: 26,
+                height: 26,
+                cursor: 'pointer',
+                fontWeight: 700,
+                color: '#0f172a',
+              }}
+              title="Zurück"
+            >
+              ‹
+            </button>
+            <strong
+              style={{
+                minWidth: view === 'day' ? 175 : view === 'week' ? 165 : 135,
+                textAlign: 'center',
+                fontSize: 12.5,
+                color: '#0f172a',
+                padding: '0 6px',
+              }}
+            >
+              {view === 'day' ? dayLabel : view === 'week' ? weekRangeLabel : monthLabel}
+            </strong>
+            <button
+              type="button"
+              onClick={() => stepPeriod(1)}
+              style={{
+                border: '1px solid #cbd5e1',
+                background: '#ffffff',
+                borderRadius: 6,
+                width: 26,
+                height: 26,
+                cursor: 'pointer',
+                fontWeight: 700,
+                color: '#0f172a',
+              }}
+              title="Weiter"
+            >
+              ›
+            </button>
+            <button
+              type="button"
+              onClick={() => setCursor(new Date())}
+              style={{
+                border: '1px solid #FF6B00',
+                background: '#fff7ed',
+                color: '#FF6B00',
+                borderRadius: 6,
+                padding: '3px 8px',
+                fontSize: 11.5,
+                fontWeight: 700,
+                cursor: 'pointer',
+              }}
+            >
+              Heute
+            </button>
+            <input
+              type="month"
+              value={`${y}-${String(m + 1).padStart(2, '0')}`}
+              onChange={(e) => {
+                const [ny, nm] = e.target.value.split('-').map(Number);
+                if (ny && nm) setCursor(new Date(ny, nm - 1, 1));
+              }}
+              style={{
+                width: 125,
+                padding: '3px 6px',
+                fontSize: 11.5,
+                borderRadius: 6,
+                border: '1px solid #cbd5e1',
+                background: '#ffffff',
+                color: '#0f172a',
+              }}
+              title="Monat direkt wählen"
+            />
+          </div>
+
+          {/* View Switcher: Monat | Woche | Tag | Liste */}
+          <div
+            style={{
+              display: 'inline-flex',
+              padding: 3,
+              borderRadius: 8,
+              background: '#f1f5f9',
+              border: '1px solid #e2e8f0',
+              gap: 3,
+            }}
+          >
+            {[
+              { id: 'month', label: 'Monat' },
+              { id: 'week', label: 'Woche' },
+              { id: 'day', label: 'Tag' },
+              { id: 'list', label: 'Liste / Agenda' },
+            ].map((v) => {
+              const active = view === v.id;
+              return (
+                <button
+                  key={v.id}
+                  type="button"
+                  onClick={() => setView(v.id)}
+                  style={{
+                    padding: '5px 11px',
+                    borderRadius: 6,
+                    fontSize: 12,
+                    fontWeight: active ? 700 : 600,
+                    cursor: 'pointer',
+                    border: active ? '1px solid #FF6B00' : '1px solid transparent',
+                    background: active ? '#ffffff' : 'transparent',
+                    color: active ? '#FF6B00' : '#475569',
+                    boxShadow: active ? '0 1px 3px rgba(15,23,42,0.08)' : 'none',
+                  }}
+                >
+                  {v.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
       </div>
 
-      {view === 'week' && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: 10 }}>
-          {weekDays.map(d => {
-            const dIso = iso(d);
-            const list = byDate[dIso] || [];
-            return (
-              <div
-                key={dIso}
-                onDragOver={e => e.preventDefault()}
-                onDrop={() => handleDropTaskOnDate(dIso)}
-                className="glass-panel"
+      {/* 2. Filter & Sort Toolbar + Category Pills (Same Light-Mode Style as Objects & Properties) */}
+      <div
+        className="glass-panel"
+        style={{
+          padding: '10px 14px',
+          borderRadius: 12,
+          background: '#f8fafc',
+          border: '1px solid #e2e8f0',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 8,
+        }}
+      >
+        {/* Top Row: Category Pills + Legend */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: 8,
+            paddingBottom: 6,
+            borderBottom: '1px solid #e2e8f0',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+            {[
+              { id: 'ALL', label: 'Alle Termine' },
+              { id: 'OBJECTS_GROUP', label: 'Objekte & Ausbau (Objects & Properties)' },
+              { id: 'Assignment', label: 'Team-Einsätze & Tasks' },
+              { id: 'Leave', label: 'Urlaub / Ferien' },
+              { id: 'Sickness', label: 'Krankheit (AU)' },
+            ].map((tab) => {
+              const isAct = categoryTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setCategoryTab(tab.id)}
+                  style={{
+                    padding: '4px 10px',
+                    borderRadius: 6,
+                    fontSize: 11.5,
+                    fontWeight: isAct ? 700 : 600,
+                    cursor: 'pointer',
+                    border: isAct ? '1px solid #FF6B00' : '1px solid #cbd5e1',
+                    background: isAct ? 'rgba(255, 107, 0, 0.1)' : '#ffffff',
+                    color: isAct ? '#FF6B00' : '#475569',
+                  }}
+                >
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', fontSize: 11, color: '#475569' }}>
+            {[
+              ['#3b82f6', 'Ausbautermin / Geplant'],
+              ['#f59e0b', 'Restarbeit / Urlaub'],
+              ['#16a34a', 'Abgeschlossen / Fertig'],
+              ['#ef4444', 'Offen / Krankheit (AU)'],
+            ].map(([c, l]) => (
+              <span key={l} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontWeight: 600 }}>
+                <span style={{ width: 9, height: 9, borderRadius: '50%', background: c }} />
+                {l}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        {/* Second Row: Comprehensive Filters + Sort Controls */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap', flex: 1 }}>
+            <div style={{ position: 'relative', minWidth: 195, flex: '1 1 200px', maxWidth: 270 }}>
+              <Search
+                size={13}
                 style={{
-                  padding: 12,
-                  minHeight: 280,
-                  border: dIso === todayIso ? '2px solid var(--accent)' : '1px solid var(--border)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 8,
+                  position: 'absolute',
+                  left: 9,
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  color: '#64748b',
+                }}
+              />
+              <input
+                value={searchQ}
+                onChange={(e) => setSearchQ(e.target.value)}
+                placeholder="Suchen (Straße, Ort, WE-Nr, Team)…"
+                style={{
+                  padding: '5px 10px 5px 27px',
+                  fontSize: 12,
+                  background: '#ffffff',
+                  border: '1px solid #cbd5e1',
+                  borderRadius: 7,
+                  color: '#0f172a',
+                }}
+              />
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setOnlyPriority((p) => !p)}
+              style={{
+                padding: '5px 9px',
+                borderRadius: 7,
+                fontSize: 11.5,
+                fontWeight: 700,
+                cursor: 'pointer',
+                background: onlyPriority ? '#fef9c3' : '#ffffff',
+                border: onlyPriority ? '1px solid #eab308' : '1px solid #cbd5e1',
+                color: onlyPriority ? '#a16207' : '#334155',
+              }}
+            >
+              ★ Priorität
+            </button>
+
+            <select
+              value={projectFilter}
+              onChange={(e) => setProjectFilter(e.target.value)}
+              style={{
+                width: 'auto',
+                minWidth: 120,
+                padding: '5px 8px',
+                fontSize: 11.5,
+                fontWeight: 700,
+                background: projectFilter !== 'ALL' ? '#faf5ff' : '#ffffff',
+                border: projectFilter !== 'ALL' ? '1px solid #9333ea' : '1px solid #cbd5e1',
+                color: projectFilter !== 'ALL' ? '#6b21a8' : '#0f172a',
+                borderRadius: 7,
+              }}
+            >
+              <option value="ALL">Projekt: Alle</option>
+              {filterOptions.projects.map((p) => (
+                <option key={p} value={p}>
+                  Projekt: {p}
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={gemeindeFilter}
+              onChange={(e) => setGemeindeFilter(e.target.value)}
+              style={{
+                width: 'auto',
+                minWidth: 130,
+                padding: '5px 8px',
+                fontSize: 11.5,
+                background: gemeindeFilter !== 'ALL' ? '#fff7ed' : '#ffffff',
+                border: gemeindeFilter !== 'ALL' ? '1px solid #FF6B00' : '1px solid #cbd5e1',
+                color: '#0f172a',
+                borderRadius: 7,
+              }}
+            >
+              <option value="ALL">Gemeinde: Alle</option>
+              {filterOptions.gemeinden.map((g) => (
+                <option key={g} value={g}>
+                  {g}
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={teamFilter}
+              onChange={(e) => setTeamFilter(e.target.value)}
+              style={{
+                width: 'auto',
+                minWidth: 125,
+                padding: '5px 8px',
+                fontSize: 11.5,
+                background: '#ffffff',
+                border: '1px solid #cbd5e1',
+                color: '#0f172a',
+                borderRadius: 7,
+              }}
+            >
+              <option value="ALL">Team: Alle</option>
+              {filterOptions.teams.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={empFilter}
+              onChange={(e) => setEmpFilter(e.target.value)}
+              style={{
+                width: 'auto',
+                minWidth: 140,
+                padding: '5px 8px',
+                fontSize: 11.5,
+                background: '#ffffff',
+                border: '1px solid #cbd5e1',
+                color: '#0f172a',
+                borderRadius: 7,
+              }}
+            >
+              <option value="">Mitarbeiter: Alle</option>
+              {employees.map((emp) => (
+                <option key={emp.id} value={emp.id}>
+                  {emp.full_name}
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={subtypeFilter}
+              onChange={(e) => setSubtypeFilter(e.target.value)}
+              style={{
+                width: 'auto',
+                minWidth: 140,
+                padding: '5px 8px',
+                fontSize: 11.5,
+                background: '#ffffff',
+                border: '1px solid #cbd5e1',
+                color: '#0f172a',
+                borderRadius: 7,
+              }}
+            >
+              <option value="ALL">Termin-Art: Alle</option>
+              <option value="Ausbautermin">Ausbautermin</option>
+              <option value="Restarbeit Termin">Restarbeit Termin</option>
+              <option value="Abgeschlossen">Abgeschlossen</option>
+            </select>
+
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              style={{
+                width: 'auto',
+                minWidth: 130,
+                padding: '5px 8px',
+                fontSize: 11.5,
+                background: '#ffffff',
+                border: '1px solid #cbd5e1',
+                color: '#0f172a',
+                borderRadius: 7,
+              }}
+            >
+              <option value="ALL">Status: Alle</option>
+              {filterOptions.statuses.map((st) => (
+                <option key={st} value={st}>
+                  {st}
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+              style={{
+                width: 'auto',
+                minWidth: 145,
+                padding: '5px 8px',
+                fontSize: 11.5,
+                fontWeight: 700,
+                background: '#fff7ed',
+                border: '1px solid #FF6B00',
+                color: '#0f172a',
+                borderRadius: 7,
+              }}
+            >
+              <option value="date">Sort: Datum</option>
+              <option value="gemeinde">Sort: Gemeinde / Ort</option>
+              <option value="strasse">Sort: Straße</option>
+              <option value="status">Sort: Status</option>
+              <option value="progress">Sort: Fortschritt (%)</option>
+              <option value="total_we">Sort: WE Anzahl</option>
+              <option value="team">Sort: Team / Mitarbeiter</option>
+              <option value="priority">Sort: Priorität (★)</option>
+            </select>
+
+            <button
+              type="button"
+              onClick={() => setSortDir((p) => (p === 'asc' ? 'desc' : 'asc'))}
+              style={{
+                padding: '5px 9px',
+                borderRadius: 7,
+                border: '1px solid #cbd5e1',
+                background: '#ffffff',
+                color: '#0f172a',
+                fontSize: 11.5,
+                fontWeight: 700,
+                cursor: 'pointer',
+              }}
+            >
+              {sortDir === 'asc' ? '↑' : '↓'}
+            </button>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <button
+              type="button"
+              onClick={resetFilters}
+              className="btn-secondary btn-sm"
+              style={{ padding: '5px 10px', fontSize: 11.5 }}
+            >
+              Reset
+            </button>
+            <button
+              type="button"
+              onClick={loadCal}
+              className="btn-secondary btn-sm"
+              style={{ padding: '5px 8px' }}
+              title="Kalender aktualisieren"
+            >
+              <RefreshCw size={13} />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* 3A. MONTH VIEW — Minimal, Information-Rich, Responsive 7-Column Grid */}
+      {view === 'month' && (
+        <div
+          className="glass-panel"
+          style={{
+            padding: 0,
+            borderRadius: 12,
+            overflow: 'hidden',
+            background: '#ffffff',
+            border: '1px solid #e2e8f0',
+          }}
+        >
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(7, minmax(0, 1fr))',
+              background: '#f1f5f9',
+              borderBottom: '1px solid #e2e8f0',
+            }}
+          >
+            {['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'].map((wd) => (
+              <div
+                key={wd}
+                style={{
+                  padding: '8px 10px',
+                  fontSize: 11,
+                  fontWeight: 800,
+                  textTransform: 'uppercase',
+                  color: '#475569',
+                  textAlign: 'center',
+                  borderRight: '1px solid #e2e8f0',
                 }}
               >
-                <div className="flex-between" style={{ borderBottom: '1px solid var(--border)', paddingBottom: 6 }}>
-                  <strong style={{ fontSize: 13 }}>{d.toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit' })}</strong>
-                  <span className="badge">{list.length}</span>
-                </div>
-                {list.map(ev => (
-                  <div
-                    key={ev.id}
-                    draggable={ev.event_type === 'Assignment'}
-                    onDragStart={() => ev.event_type === 'Assignment' && setDraggedSourceId(ev.source_id)}
-                    onClick={() => ev.event_type === 'Assignment' ? openAssignmentDoc(ev.source_id) : setDayModal({ date: dIso, list: [ev] })}
-                    style={{
-                      padding: '8px 10px',
-                      borderRadius: 8,
-                      background: `${ev.hex_color}22`,
-                      borderLeft: `4px solid ${ev.hex_color}`,
-                      fontSize: 12,
-                      cursor: ev.event_type === 'Assignment' ? 'grab' : 'pointer',
-                    }}
-                  >
-                    <div style={{ fontWeight: 700 }}>{ev.title}</div>
-                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{ev.employee_name || ev.subtitle}</div>
-                    {ev.task_status && <div style={{ fontSize: 10, fontWeight: 700, color: ev.hex_color, marginTop: 3 }}>{ev.task_status}</div>}
-                  </div>
-                ))}
+                {wd}
               </div>
-            );
-          })}
-        </div>
-      )}
+            ))}
+          </div>
 
-      {view === 'month' && (
-        <div className="glass-panel" style={{ padding: 0, overflow: 'hidden' }}>
-          <div className="cal-grid cal-head">{['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => <div key={d}>{d}</div>)}</div>
-          <div className="cal-grid">
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(7, minmax(0, 1fr))',
+              background: '#e2e8f0',
+              gap: 1,
+            }}
+          >
             {cells.map((d, i) => {
-              const key = d ? iso(d) : `e${i}`;
-              const list = d ? byDate[iso(d)] || [] : [];
+              const dIso = d ? iso(d) : null;
+              const list = dIso ? byDate[dIso] || [] : [];
+              const isToday = dIso === todayIso;
+              const isSelectedDay = dIso === cursorIso;
+
               return (
                 <div
-                  key={key}
-                  onDragOver={e => d && e.preventDefault()}
-                  onDrop={() => d && handleDropTaskOnDate(iso(d))}
-                  className={`cal-cell ${d ? '' : 'empty'} ${d && iso(d) === todayIso ? 'today' : ''}`}
-                  onClick={() => d && list.length && setDayModal({ date: iso(d), list })}
+                  key={dIso || `empty-${i}`}
+                  onDragOver={(e) => d && e.preventDefault()}
+                  onDrop={() => d && handleDropEventOnDate(dIso)}
+                  onClick={() => {
+                    if (!d) return;
+                    setCursor(d);
+                    if (list.length > 0) {
+                      setDayModal({ date: dIso, list });
+                    }
+                  }}
+                  style={{
+                    minHeight: 128,
+                    padding: 6,
+                    background: !d
+                      ? '#f8fafc'
+                      : isToday
+                      ? '#fff7ed'
+                      : isSelectedDay
+                      ? '#f8fafc'
+                      : '#ffffff',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 4,
+                    cursor: d ? 'pointer' : 'default',
+                    position: 'relative',
+                  }}
                 >
-                  {d && <span className="cal-num">{d.getDate()}</span>}
-                  {list.slice(0, 3).map((ev) => (
+                  {d && (
                     <div
-                      key={ev.id}
-                      draggable={ev.event_type === 'Assignment'}
-                      onDragStart={(e) => {
-                        e.stopPropagation();
-                        if (ev.event_type === 'Assignment') setDraggedSourceId(ev.source_id);
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        marginBottom: 2,
                       }}
-                      onClick={(e) => {
-                        if (ev.event_type === 'Assignment') {
-                          e.stopPropagation();
-                          openAssignmentDoc(ev.source_id);
-                        }
-                      }}
-                      className="cal-chip"
-                      style={{ background: `${ev.hex_color}26`, color: '#2b2b33', borderLeft: `3px solid ${ev.hex_color}`, cursor: ev.event_type === 'Assignment' ? 'grab' : 'pointer' }}
                     >
-                      {ev.title}
+                      <span
+                        style={{
+                          fontSize: 11.5,
+                          fontWeight: isToday ? 800 : 700,
+                          width: 22,
+                          height: 22,
+                          borderRadius: 999,
+                          display: 'grid',
+                          placeItems: 'center',
+                          background: isToday ? '#FF6B00' : 'transparent',
+                          color: isToday ? '#ffffff' : '#0f172a',
+                        }}
+                      >
+                        {d.getDate()}
+                      </span>
+                      {list.length > 0 && (
+                        <span
+                          style={{
+                            fontSize: 10,
+                            fontWeight: 700,
+                            padding: '1px 5px',
+                            borderRadius: 999,
+                            background: '#f1f5f9',
+                            color: '#475569',
+                          }}
+                        >
+                          {list.length}
+                        </span>
+                      )}
                     </div>
-                  ))}
-                  {list.length > 3 && <div className="cal-more">+{list.length - 3} more</div>}
+                  )}
+
+                  {list.slice(0, 4).map((ev) => {
+                    const isDraggable =
+                      ev.event_type === 'Assignment' || Boolean(ev.protocol_address_id);
+                    return (
+                      <div
+                        key={ev.id}
+                        draggable={isDraggable}
+                        onDragStart={(e) => {
+                          e.stopPropagation();
+                          if (isDraggable) setDraggedEvent(ev);
+                        }}
+                        onClick={(e) => handleEventClick(ev, e)}
+                        style={{
+                          padding: '3px 6px',
+                          borderRadius: 5,
+                          background: `${ev.hex_color || '#3b82f6'}15`,
+                          borderLeft: `3px solid ${ev.hex_color || '#3b82f6'}`,
+                          fontSize: 10.5,
+                          color: '#0f172a',
+                          cursor: isDraggable ? 'grab' : 'pointer',
+                          overflow: 'hidden',
+                        }}
+                        title={`${ev.title}\n${ev.subtitle || ''}\n${ev.last_comment ? '💬 ' + ev.last_comment : ''}`}
+                      >
+                        <div
+                          style={{
+                            fontWeight: 700,
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 4,
+                          }}
+                        >
+                          {ev.is_priority && <span style={{ color: '#eab308' }}>★</span>}
+                          <span>
+                            {ev.gemeinde
+                              ? `${ev.gemeinde}: ${ev.strasse || ''} ${ev.hausnummer || ''}`
+                              : ev.title}
+                          </span>
+                        </div>
+                        <div
+                          style={{
+                            fontSize: 9.5,
+                            color: '#475569',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: 4,
+                          }}
+                        >
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {ev.event_subtype || ev.team_name || ev.employee_name || ev.event_type}
+                          </span>
+                          {ev.total_we > 0 && (
+                            <strong style={{ color: '#15803d', flexShrink: 0 }}>
+                              {ev.ta_count ?? 0}/{ev.total_we}WE
+                            </strong>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {list.length > 4 && (
+                    <div
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setDayModal({ date: dIso, list });
+                      }}
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 700,
+                        color: '#FF6B00',
+                        padding: '1px 4px',
+                      }}
+                    >
+                      +{list.length - 4} weitere anzeigen
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -2089,29 +3023,858 @@ export const MasterCalendarModule = () => {
         </div>
       )}
 
-      {view === 'list' && (
-        <div className="grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
-          {filtered.length === 0 && <Empty>No events for this filter.</Empty>}
-          {filtered.map((ev) => (
-            <div
-              key={ev.id}
-              onClick={() => ev.event_type === 'Assignment' && openAssignmentDoc(ev.source_id)}
-              className="glass-panel hover-lift"
-              style={{ borderLeft: `4px solid ${ev.hex_color}`, cursor: ev.event_type === 'Assignment' ? 'pointer' : 'default' }}
-            >
-              <div className="flex-between" style={{ marginBottom: 6 }}>
-                <span style={{ fontSize: 12, fontWeight: 600 }}>{formatDate(ev.date)}</span><span className="badge">{ev.task_status || ev.event_type}</span>
+      {/* 3B. WEEK VIEW — Responsive 7-Day Columns with Full Building & Task Cards */}
+      {view === 'week' && (
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
+            gap: 10,
+          }}
+        >
+          {weekDays.map((d) => {
+            const dIso = iso(d);
+            const list = byDate[dIso] || [];
+            const isToday = dIso === todayIso;
+            return (
+              <div
+                key={dIso}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={() => handleDropEventOnDate(dIso)}
+                className="glass-panel"
+                style={{
+                  padding: 10,
+                  minHeight: 340,
+                  borderRadius: 12,
+                  background: isToday ? '#fffdf9' : '#ffffff',
+                  border: isToday ? '2px solid #FF6B00' : '1px solid #e2e8f0',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 8,
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    borderBottom: '1px solid #e2e8f0',
+                    paddingBottom: 6,
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: 12.5, fontWeight: 800, color: isToday ? '#FF6B00' : '#0f172a' }}>
+                      {d.toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' })}
+                    </div>
+                  </div>
+                  <span
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 700,
+                      padding: '2px 7px',
+                      borderRadius: 999,
+                      background: list.length > 0 ? 'rgba(255,107,0,0.12)' : '#f1f5f9',
+                      color: list.length > 0 ? '#FF6B00' : '#64748b',
+                    }}
+                  >
+                    {list.length}
+                  </span>
+                </div>
+
+                {list.length === 0 ? (
+                  <div style={{ fontSize: 11.5, color: '#94a3b8', padding: '18px 4px', textAlign: 'center' }}>
+                    Keine Termine
+                  </div>
+                ) : (
+                  list.map((ev) => {
+                    const isDraggable =
+                      ev.event_type === 'Assignment' || Boolean(ev.protocol_address_id);
+                    return (
+                      <div
+                        key={ev.id}
+                        draggable={isDraggable}
+                        onDragStart={() => isDraggable && setDraggedEvent(ev)}
+                        onClick={(e) => handleEventClick(ev, e)}
+                        style={{
+                          padding: '8px 10px',
+                          borderRadius: 8,
+                          background: '#f8fafc',
+                          border: '1px solid #e2e8f0',
+                          borderLeft: `4px solid ${ev.hex_color || '#3b82f6'}`,
+                          fontSize: 11.5,
+                          cursor: isDraggable ? 'grab' : 'pointer',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: 4,
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4 }}>
+                          <span
+                            style={{
+                              fontSize: 9.5,
+                              fontWeight: 700,
+                              padding: '1px 5px',
+                              borderRadius: 4,
+                              background: `${ev.hex_color || '#3b82f6'}18`,
+                              color: ev.hex_color || '#1d4ed8',
+                            }}
+                          >
+                            {ev.event_subtype || ev.event_type}
+                          </span>
+                          {ev.project_name && (
+                            <span
+                              style={{
+                                fontSize: 9.5,
+                                fontWeight: 700,
+                                padding: '1px 5px',
+                                borderRadius: 4,
+                                background: '#f3e8ff',
+                                color: '#6b21a8',
+                              }}
+                            >
+                              {ev.project_name}
+                            </span>
+                          )}
+                        </div>
+
+                        <div style={{ fontWeight: 700, color: '#0f172a', fontSize: 12 }}>
+                          {ev.is_priority && <span style={{ color: '#eab308', marginRight: 3 }}>★</span>}
+                          {ev.gemeinde
+                            ? `${ev.strasse} ${ev.hausnummer}, ${ev.plz || ''} ${ev.gemeinde}`
+                            : ev.title}
+                        </div>
+
+                        {(ev.adress_id || ev.projektnummer) && (
+                          <div style={{ fontSize: 10.5, fontFamily: 'monospace', color: '#1d4ed8', fontWeight: 700 }}>
+                            {ev.adress_id ? `${ev.adress_id} · ` : ''}
+                            {ev.projektnummer}
+                          </div>
+                        )}
+
+                        {ev.total_we > 0 && (
+                          <div>
+                            <div
+                              style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                fontSize: 10,
+                                fontWeight: 700,
+                                color: '#334155',
+                                marginBottom: 2,
+                              }}
+                            >
+                              <span>{ev.progress_pct || 0}%</span>
+                              <span>
+                                {ev.ta_count || 0}/{ev.total_we} TA · {ev.reserve_count || 0} Res · {ev.ohne_count || 0} Ohne
+                              </span>
+                            </div>
+                            <div style={{ height: 5, borderRadius: 999, background: '#e2e8f0', overflow: 'hidden' }}>
+                              <div
+                                style={{
+                                  width: `${Math.max(5, ev.progress_pct || 0)}%`,
+                                  height: '100%',
+                                  background: ev.hex_color || '#FF6B00',
+                                }}
+                              />
+                            </div>
+                          </div>
+                        )}
+
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            fontSize: 10.5,
+                            color: '#475569',
+                            marginTop: 2,
+                          }}
+                        >
+                          <span>{ev.team_name || ev.employee_name || ev.ausbau_typ || '—'}</span>
+                          <strong style={{ color: ev.hex_color }}>{ev.building_status || ev.task_status || ''}</strong>
+                        </div>
+
+                        {ev.last_comment && (
+                          <div
+                            style={{
+                              fontSize: 10,
+                              color: '#b45309',
+                              background: '#fffbeb',
+                              border: '1px solid #fde68a',
+                              padding: '2px 5px',
+                              borderRadius: 4,
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            💬 {ev.last_comment}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
               </div>
-              <h4>{ev.title}</h4><p style={{ fontSize: 13 }}>{ev.subtitle}</p>
+            );
+          })}
+        </div>
+      )}
+
+      {/* 3C. DAY VIEW — Adaptive Split Schedule & Inspector */}
+      {view === 'day' && (
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+            gap: 12,
+            alignItems: 'start',
+          }}
+        >
+          {/* Left: Selected Day Timeline & Cards */}
+          <div
+            className="glass-panel"
+            style={{
+              padding: 14,
+              borderRadius: 12,
+              background: '#ffffff',
+              border: '1px solid #e2e8f0',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 10,
+            }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                borderBottom: '1px solid #e2e8f0',
+                paddingBottom: 10,
+              }}
+            >
+              <div>
+                <h4 style={{ margin: 0, fontSize: 15, fontWeight: 800, color: '#0f172a' }}>{dayLabel}</h4>
+                <div style={{ fontSize: 11.5, color: '#64748b' }}>
+                  {dayEvents.length} Termine an diesem Tag
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button type="button" className="btn-secondary btn-sm" onClick={() => stepPeriod(-1)}>
+                  ‹ Vorheriger Tag
+                </button>
+                <button type="button" className="btn-secondary btn-sm" onClick={() => stepPeriod(1)}>
+                  Nächster Tag ›
+                </button>
+              </div>
             </div>
-          ))}
+
+            {dayEvents.length === 0 ? (
+              <div style={{ padding: 28, textAlign: 'center', color: '#64748b', fontSize: 13 }}>
+                Keine Termine für den {toDeDate(cursorIso)} eingetragen.
+              </div>
+            ) : (
+              dayEvents.map((ev) => (
+                <div
+                  key={ev.id}
+                  onClick={(e) => handleEventClick(ev, e)}
+                  style={{
+                    padding: 12,
+                    borderRadius: 10,
+                    background: selectedEvent?.id === ev.id ? '#fff7ed' : '#f8fafc',
+                    border: selectedEvent?.id === ev.id ? '1.5px solid #FF6B00' : '1px solid #e2e8f0',
+                    borderLeft: `4px solid ${ev.hex_color || '#FF6B00'}`,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 6,
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                      <span
+                        style={{
+                          fontSize: 10.5,
+                          fontWeight: 700,
+                          padding: '2px 7px',
+                          borderRadius: 5,
+                          background: `${ev.hex_color || '#3b82f6'}18`,
+                          color: ev.hex_color || '#1d4ed8',
+                        }}
+                      >
+                        {ev.event_subtype || ev.event_type}
+                      </span>
+                      {ev.project_name && (
+                        <span
+                          style={{
+                            fontSize: 10.5,
+                            fontWeight: 700,
+                            padding: '2px 7px',
+                            borderRadius: 5,
+                            background: '#f3e8ff',
+                            color: '#6b21a8',
+                          }}
+                        >
+                          Projekt: {ev.project_name}
+                        </span>
+                      )}
+                      {ev.adress_id && (
+                        <span
+                          style={{
+                            fontFamily: 'monospace',
+                            fontSize: 11,
+                            fontWeight: 700,
+                            color: '#1d4ed8',
+                            background: '#eff6ff',
+                            padding: '2px 6px',
+                            borderRadius: 5,
+                          }}
+                        >
+                          {ev.adress_id}
+                        </span>
+                      )}
+                      {ev.projektnummer && (
+                        <span style={{ fontFamily: 'monospace', fontSize: 11, color: '#64748b' }}>
+                          {ev.projektnummer}
+                        </span>
+                      )}
+                    </div>
+                    <span
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 700,
+                        padding: '2px 8px',
+                        borderRadius: 999,
+                        background: '#ffffff',
+                        border: '1px solid #cbd5e1',
+                        color: '#0f172a',
+                      }}
+                    >
+                      {ev.building_status || ev.task_status || ev.event_type}
+                    </span>
+                  </div>
+
+                  <div style={{ fontSize: 14, fontWeight: 800, color: '#0f172a' }}>
+                    {ev.gemeinde ? `${ev.strasse} ${ev.hausnummer}, ${ev.plz || ''} ${ev.gemeinde}` : ev.title}
+                  </div>
+
+                  <div style={{ fontSize: 12, color: '#475569' }}>{ev.subtitle}</div>
+
+                  {ev.total_we > 0 && (
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        flexWrap: 'wrap',
+                        fontSize: 11,
+                        fontWeight: 600,
+                      }}
+                    >
+                      <span style={{ color: '#15803d', background: '#dcfce7', padding: '2px 6px', borderRadius: 4 }}>
+                        {ev.ta_count || 0}/{ev.total_we} TA
+                      </span>
+                      <span style={{ color: '#b45309', background: '#fef3c7', padding: '2px 6px', borderRadius: 4 }}>
+                        {ev.reserve_count || 0} Reserve
+                      </span>
+                      <span style={{ color: '#475569', background: '#e2e8f0', padding: '2px 6px', borderRadius: 4 }}>
+                        {ev.ohne_count || 0} Ohne
+                      </span>
+                      <span style={{ color: '#0f172a' }}>Fortschritt: {ev.progress_pct || 0}%</span>
+                      <span style={{ color: '#64748b' }}>
+                        Checkliste: {ev.checklist_done || 0}/{ev.checklist_total || 8}
+                      </span>
+                    </div>
+                  )}
+
+                  {ev.last_comment && (
+                    <div
+                      style={{
+                        fontSize: 11.5,
+                        color: '#92400e',
+                        background: '#fffbeb',
+                        border: '1px solid #fde68a',
+                        padding: '5px 8px',
+                        borderRadius: 6,
+                      }}
+                    >
+                      💬 <strong>Letzter Kommentar:</strong> {ev.last_comment}
+                    </div>
+                  )}
+
+                  {ev.protocol_address_id && (
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 2 }}>
+                      <button
+                        type="button"
+                        className="btn-primary btn-sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigate('/projects/objects', { state: { openAddressId: ev.protocol_address_id } });
+                        }}
+                        style={{ padding: '4px 10px', fontSize: 11.5 }}
+                      >
+                        Im Objekt öffnen →
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* Right: Quick Day Summary & Selected Event Inspector */}
+          <div
+            className="glass-panel"
+            style={{
+              padding: 14,
+              borderRadius: 12,
+              background: '#ffffff',
+              border: '1px solid #e2e8f0',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 10,
+            }}
+          >
+            <h4 style={{ margin: 0, fontSize: 14, fontWeight: 800, color: '#0f172a' }}>
+              Termin- & Objekt-Details
+            </h4>
+            {selectedEvent ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, fontSize: 12.5 }}>
+                <div style={{ padding: 10, borderRadius: 8, background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+                  <div style={{ fontSize: 11, color: '#64748b' }}>Objekt / Termin</div>
+                  <strong style={{ fontSize: 14, color: '#0f172a' }}>{selectedEvent.title}</strong>
+                  <div style={{ fontSize: 12, color: '#475569', marginTop: 2 }}>{selectedEvent.subtitle}</div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                  <div style={{ padding: 8, borderRadius: 8, background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+                    <div style={{ fontSize: 10.5, color: '#64748b' }}>Datum</div>
+                    <strong>{toDeDate(selectedEvent.date)}</strong>
+                  </div>
+                  <div style={{ padding: 8, borderRadius: 8, background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+                    <div style={{ fontSize: 10.5, color: '#64748b' }}>Team / Mitarbeiter</div>
+                    <strong>{selectedEvent.team_name || selectedEvent.employee_name || '—'}</strong>
+                  </div>
+                  <div style={{ padding: 8, borderRadius: 8, background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+                    <div style={{ fontSize: 10.5, color: '#64748b' }}>Projekt / WE-Nr</div>
+                    <strong>
+                      {selectedEvent.project_name || 'UGG'} · {selectedEvent.projektnummer || '—'}
+                    </strong>
+                  </div>
+                  <div style={{ padding: 8, borderRadius: 8, background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+                    <div style={{ fontSize: 10.5, color: '#64748b' }}>Ausbau-Typ / WE</div>
+                    <strong>
+                      {selectedEvent.ausbau_typ || '—'} ({selectedEvent.ta_count || 0}/{selectedEvent.total_we || 0} TA)
+                    </strong>
+                  </div>
+                </div>
+                {selectedEvent.last_comment && (
+                  <div style={{ padding: 10, borderRadius: 8, background: '#fffbeb', border: '1px solid #fde68a' }}>
+                    <div style={{ fontSize: 10.5, fontWeight: 700, color: '#b45309' }}>Letzter Kommentar</div>
+                    <div style={{ fontSize: 12, color: '#78350f', marginTop: 2 }}>{selectedEvent.last_comment}</div>
+                  </div>
+                )}
+                {selectedEvent.protocol_address_id && (
+                  <button
+                    type="button"
+                    className="btn-primary btn-sm"
+                    onClick={() =>
+                      navigate('/projects/objects', {
+                        state: { openAddressId: selectedEvent.protocol_address_id },
+                      })
+                    }
+                    style={{ padding: '8px 14px', fontWeight: 700, justifyContent: 'center' }}
+                  >
+                    Gebäude in Objects & Properties öffnen →
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div style={{ fontSize: 12, color: '#64748b', padding: '12px 0' }}>
+                Klicken Sie links auf einen Termin oder ein Gebäude, um alle Details, WE-Zahlen, Checkliste und den letzten Kommentar einzusehen.
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 3D. LIST / AGENDA VIEW — Same Clean Light-Mode Table Style as Objects & Properties */}
+      {view === 'list' && (
+        <div
+          className="glass-panel"
+          style={{
+            padding: 0,
+            borderRadius: 12,
+            overflowX: 'auto',
+            background: '#ffffff',
+            border: '1px solid #e2e8f0',
+          }}
+        >
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+            <thead>
+              <tr
+                style={{
+                  background: '#f1f5f9',
+                  color: '#475569',
+                  textTransform: 'uppercase',
+                  fontSize: 10.5,
+                  fontWeight: 700,
+                  letterSpacing: '0.04em',
+                  borderBottom: '1px solid #e2e8f0',
+                }}
+              >
+                <th
+                  style={{ padding: '10px 12px', textAlign: 'left', cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => toggleSortColumn('date')}
+                >
+                  Datum {sortBy === 'date' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
+                </th>
+                <th style={{ padding: '10px 10px', textAlign: 'left' }}>Termin-Art</th>
+                <th style={{ padding: '10px 10px', textAlign: 'left' }}>Projekt / Adress-ID / WE-Nr</th>
+                <th
+                  style={{ padding: '10px 10px', textAlign: 'left', cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => toggleSortColumn('gemeinde')}
+                >
+                  Gemeinde & Straße {sortBy === 'gemeinde' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
+                </th>
+                <th
+                  style={{ padding: '10px 10px', textAlign: 'left', cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => toggleSortColumn('progress')}
+                >
+                  Fortschritt (%) & WE {sortBy === 'progress' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
+                </th>
+                <th style={{ padding: '10px 10px', textAlign: 'left' }}>Ausbau-Typ</th>
+                <th
+                  style={{ padding: '10px 10px', textAlign: 'left', cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => toggleSortColumn('team')}
+                >
+                  Team / Mitarbeiter {sortBy === 'team' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
+                </th>
+                <th
+                  style={{ padding: '10px 10px', textAlign: 'left', cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => toggleSortColumn('status')}
+                >
+                  Status {sortBy === 'status' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
+                </th>
+                <th style={{ padding: '10px 10px', textAlign: 'left' }}>Letzter Kommentar</th>
+                <th style={{ padding: '10px 12px', textAlign: 'right' }}>Aktion</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr>
+                  <td colSpan={10} style={{ padding: 30, textAlign: 'center', color: '#64748b' }}>
+                    Lade Kalendertermine…
+                  </td>
+                </tr>
+              ) : filtered.length === 0 ? (
+                <tr>
+                  <td colSpan={10} style={{ padding: 32, textAlign: 'center', color: '#64748b' }}>
+                    Keine Termine für den aktuellen Filter gefunden.
+                  </td>
+                </tr>
+              ) : (
+                filtered.map((ev) => (
+                  <tr
+                    key={ev.id}
+                    onClick={(e) => handleEventClick(ev, e)}
+                    style={{
+                      borderBottom: '1px solid #f1f5f9',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <td style={{ padding: '9px 12px', fontFamily: 'monospace', fontWeight: 700, color: '#0f172a' }}>
+                      {toDeDate(ev.date)}
+                    </td>
+                    <td style={{ padding: '9px 10px' }}>
+                      <span
+                        style={{
+                          padding: '2px 8px',
+                          borderRadius: 6,
+                          fontSize: 11,
+                          fontWeight: 700,
+                          background: `${ev.hex_color || '#3b82f6'}18`,
+                          color: ev.hex_color || '#1d4ed8',
+                        }}
+                      >
+                        {ev.event_subtype || ev.event_type}
+                      </span>
+                    </td>
+                    <td style={{ padding: '9px 10px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                        <span
+                          style={{
+                            fontSize: 10,
+                            fontWeight: 700,
+                            padding: '1px 5px',
+                            borderRadius: 4,
+                            background: '#f3e8ff',
+                            color: '#6b21a8',
+                          }}
+                        >
+                          {ev.project_name || 'UGG'}
+                        </span>
+                        <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#1d4ed8' }}>
+                          {ev.adress_id || '—'}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 10.5, fontFamily: 'monospace', color: '#64748b' }}>
+                        {ev.projektnummer || ''}
+                      </div>
+                    </td>
+                    <td style={{ padding: '9px 10px', fontWeight: 600, color: '#0f172a' }}>
+                      {ev.gemeinde
+                        ? `${ev.strasse} ${ev.hausnummer}, ${ev.plz || ''} ${ev.gemeinde}`
+                        : ev.title}
+                    </td>
+                    <td style={{ padding: '9px 10px' }}>
+                      {ev.total_we > 0 ? (
+                        <div>
+                          <div style={{ fontSize: 11, fontWeight: 700 }}>
+                            {ev.progress_pct || 0}% · {ev.ta_count || 0}/{ev.total_we} TA · {ev.reserve_count || 0} Res ·{' '}
+                            {ev.ohne_count || 0} Ohne
+                          </div>
+                          <div
+                            style={{
+                              width: 135,
+                              height: 5,
+                              borderRadius: 999,
+                              background: '#e2e8f0',
+                              overflow: 'hidden',
+                              marginTop: 2,
+                            }}
+                          >
+                            <div
+                              style={{
+                                width: `${Math.max(5, ev.progress_pct || 0)}%`,
+                                height: '100%',
+                                background: ev.hex_color || '#FF6B00',
+                              }}
+                            />
+                          </div>
+                        </div>
+                      ) : (
+                        <span style={{ color: '#94a3b8' }}>—</span>
+                      )}
+                    </td>
+                    <td style={{ padding: '9px 10px', fontSize: 12 }}>{ev.ausbau_typ || '—'}</td>
+                    <td style={{ padding: '9px 10px', fontWeight: 600 }}>
+                      {ev.team_name || ev.employee_name || '—'}
+                    </td>
+                    <td style={{ padding: '9px 10px' }}>
+                      <span
+                        style={{
+                          padding: '3px 8px',
+                          borderRadius: 999,
+                          fontSize: 11,
+                          fontWeight: 700,
+                          background: `${ev.hex_color || '#3b82f6'}18`,
+                          color: ev.hex_color || '#0f172a',
+                        }}
+                      >
+                        {ev.building_status || ev.task_status || ev.event_type}
+                      </span>
+                    </td>
+                    <td style={{ padding: '9px 10px', maxWidth: 220, fontSize: 11.5, color: '#475569' }}>
+                      {ev.last_comment || '—'}
+                    </td>
+                    <td style={{ padding: '9px 12px', textAlign: 'right' }} onClick={(e) => e.stopPropagation()}>
+                      {ev.protocol_address_id ? (
+                        <button
+                          type="button"
+                          className="btn-primary btn-sm"
+                          onClick={() =>
+                            navigate('/projects/objects', { state: { openAddressId: ev.protocol_address_id } })
+                          }
+                          style={{ padding: '4px 10px', fontSize: 11 }}
+                        >
+                          Objekt →
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="btn-secondary btn-sm"
+                          onClick={(e) => handleEventClick(ev, e)}
+                          style={{ padding: '4px 8px', fontSize: 11 }}
+                        >
+                          Details
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Selected Event / Building Inspector Modal */}
+      {selectedEvent && view !== 'day' && (
+        <div
+          className="modal-overlay"
+          onMouseDown={(e) => e.target === e.currentTarget && setSelectedEvent(null)}
+        >
+          <div
+            className="glass-panel"
+            style={{
+              width: 'min(640px, 100%)',
+              background: '#ffffff',
+              borderRadius: 14,
+              padding: 18,
+              border: '1px solid #e2e8f0',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <span
+                  style={{
+                    padding: '3px 9px',
+                    borderRadius: 6,
+                    fontSize: 11.5,
+                    fontWeight: 700,
+                    background: `${selectedEvent.hex_color || '#FF6B00'}18`,
+                    color: selectedEvent.hex_color || '#FF6B00',
+                  }}
+                >
+                  {selectedEvent.event_subtype || selectedEvent.event_type}
+                </span>
+                <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 12.5 }}>
+                  {toDeDate(selectedEvent.date)}
+                </span>
+                {selectedEvent.project_name && (
+                  <span
+                    style={{
+                      padding: '2px 8px',
+                      borderRadius: 6,
+                      fontSize: 11,
+                      fontWeight: 700,
+                      background: '#f3e8ff',
+                      color: '#6b21a8',
+                    }}
+                  >
+                    Projekt: {selectedEvent.project_name}
+                  </span>
+                )}
+              </div>
+              <button type="button" className="btn-secondary btn-sm" onClick={() => setSelectedEvent(null)}>
+                <X size={14} />
+              </button>
+            </div>
+
+            <h3 style={{ margin: '0 0 4px', fontSize: 16, fontWeight: 800, color: '#0f172a' }}>
+              {selectedEvent.gemeinde
+                ? `${selectedEvent.strasse} ${selectedEvent.hausnummer}, ${selectedEvent.plz || ''} ${selectedEvent.gemeinde}`
+                : selectedEvent.title}
+            </h3>
+            <p style={{ margin: '0 0 12px', fontSize: 12.5, color: '#475569' }}>{selectedEvent.subtitle}</p>
+
+            {selectedEvent.protocol_address_id && (
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(145px, 1fr))',
+                  gap: 10,
+                  padding: 12,
+                  borderRadius: 10,
+                  background: '#f8fafc',
+                  border: '1px solid #e2e8f0',
+                  marginBottom: 12,
+                }}
+              >
+                <div>
+                  <label style={{ fontSize: 10.5 }}>Gebäude-Status</label>
+                  <select
+                    value={selectedEvent.building_status || 'Ausbau terminiert'}
+                    onChange={(e) =>
+                      handlePatchProtocolFromCalendar(selectedEvent.protocol_address_id, {
+                        building_status: e.target.value,
+                      })
+                    }
+                    style={{ padding: '5px 8px', fontSize: 12, fontWeight: 700 }}
+                  >
+                    {['Ausbau terminiert', 'Offen', 'In Bearbeitung', 'Restarbeiten', 'Abgeschlossen'].map((st) => (
+                      <option key={st} value={st}>
+                        {st}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: 10.5 }}>Ausbau Team</label>
+                  <select
+                    value={selectedEvent.team_name || ''}
+                    onChange={(e) =>
+                      handlePatchProtocolFromCalendar(selectedEvent.protocol_address_id, {
+                        team: e.target.value,
+                      })
+                    }
+                    style={{ padding: '5px 8px', fontSize: 12, fontWeight: 600 }}
+                  >
+                    <option value="">— Team —</option>
+                    {filterOptions.teams.map((t) => (
+                      <option key={t} value={t}>
+                        {t}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: 10.5 }}>WE & Fortschritt</label>
+                  <div style={{ fontSize: 12, fontWeight: 700, paddingTop: 4 }}>
+                    {selectedEvent.progress_pct || 0}% · {selectedEvent.ta_count || 0}/{selectedEvent.total_we || 0} TA
+                  </div>
+                </div>
+                <div>
+                  <label style={{ fontSize: 10.5 }}>Checkliste</label>
+                  <div style={{ fontSize: 12, fontWeight: 700, paddingTop: 4 }}>
+                    {selectedEvent.checklist_done || 0} / {selectedEvent.checklist_total || 8} erledigt
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {selectedEvent.last_comment && (
+              <div
+                style={{
+                  padding: '8px 12px',
+                  borderRadius: 8,
+                  background: '#fffbeb',
+                  border: '1px solid #fde68a',
+                  fontSize: 12,
+                  color: '#78350f',
+                  marginBottom: 12,
+                }}
+              >
+                💬 <strong>Letzter Kommentar:</strong> {selectedEvent.last_comment}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button type="button" className="btn-secondary btn-sm" onClick={() => setSelectedEvent(null)}>
+                Schließen
+              </button>
+              {selectedEvent.protocol_address_id && (
+                <button
+                  type="button"
+                  className="btn-primary btn-sm"
+                  onClick={() =>
+                    navigate('/projects/objects', {
+                      state: { openAddressId: selectedEvent.protocol_address_id },
+                    })
+                  }
+                >
+                  Im Objekt öffnen →
+                </button>
+              )}
+            </div>
+          </div>
         </div>
       )}
 
       {/* Task Documentation Modal inside Master Calendar */}
       {taskDocModal && (
-        <div className="modal-overlay">
-          <div className="glass-panel" style={{ width: 740, maxHeight: '88vh', overflowY: 'auto' }}>
+        <div className="modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && setTaskDocModal(null)}>
+          <div className="glass-panel" style={{ width: 'min(740px, 100%)', maxHeight: '88vh', overflowY: 'auto' }}>
             <div className="flex-between" style={{ marginBottom: 14 }}>
               <div>
                 <div style={{ display: 'flex', gap: 8, marginBottom: 4 }}>
@@ -2119,30 +3882,54 @@ export const MasterCalendarModule = () => {
                   <span className="badge">{taskDocModal.assignee_label}</span>
                 </div>
                 <h3>{taskDocModal.title}</h3>
-                <p style={{ fontSize: 13 }}>{taskDocModal.object_address} — {taskDocModal.project_name}</p>
+                <p style={{ fontSize: 13 }}>
+                  {taskDocModal.object_address} — {taskDocModal.project_name}
+                </p>
               </div>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                 <select
                   value={taskDocModal.task_status}
-                  onChange={e => handleStatusChange(taskDocModal.id, e.target.value)}
+                  onChange={(e) => handleStatusChange(taskDocModal.id, e.target.value)}
                   style={{ width: 'auto', fontWeight: 700 }}
                 >
-                  {Object.values(TASK_STATUS_CONFIG).map(st => (
-                    <option key={st.key} value={st.key}>{st.en}</option>
+                  {Object.values(TASK_STATUS_CONFIG).map((st) => (
+                    <option key={st.key} value={st.key}>
+                      {st.en}
+                    </option>
                   ))}
                 </select>
-                <button className="btn-secondary btn-sm" onClick={() => setTaskDocModal(null)}><X size={14} /></button>
+                <button className="btn-secondary btn-sm" onClick={() => setTaskDocModal(null)}>
+                  <X size={14} />
+                </button>
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16 }}>
               <div>
                 <h4 style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <MessageSquare size={15} /> Comments ({(taskDocModal.comments || []).length})
+                  <MessageSquare size={15} /> Kommentare ({(taskDocModal.comments || []).length})
                 </h4>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 260, overflowY: 'auto', marginBottom: 10 }}>
-                  {(taskDocModal.comments || []).map(c => (
-                    <div key={c.id} style={{ padding: 10, borderRadius: 8, background: 'var(--surface-2)', border: '1px solid var(--border)', fontSize: 13 }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 8,
+                    maxHeight: 260,
+                    overflowY: 'auto',
+                    marginBottom: 10,
+                  }}
+                >
+                  {(taskDocModal.comments || []).map((c) => (
+                    <div
+                      key={c.id}
+                      style={{
+                        padding: 10,
+                        borderRadius: 8,
+                        background: 'var(--surface-2)',
+                        border: '1px solid var(--border)',
+                        fontSize: 13,
+                      }}
+                    >
                       <div className="flex-between" style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 3 }}>
                         <strong>{c.author_name}</strong>
                         <span>{formatDateTime(c.created_at)}</span>
@@ -2152,26 +3939,59 @@ export const MasterCalendarModule = () => {
                   ))}
                 </div>
                 <form onSubmit={handlePostTaskComment} style={{ display: 'flex', gap: 8 }}>
-                  <input placeholder="Write comment..." value={commentText} onChange={e => setCommentText(e.target.value)} />
-                  <button type="submit" className="btn-primary">Post</button>
+                  <input
+                    placeholder="Kommentar schreiben…"
+                    value={commentText}
+                    onChange={(e) => setCommentText(e.target.value)}
+                  />
+                  <button type="submit" className="btn-primary">
+                    Senden
+                  </button>
                 </form>
               </div>
 
               <div>
                 <h4 style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <Video size={15} /> Attached Photos, Videos & PDFs ({(taskDocModal.media || []).length})
+                  <Video size={15} /> Fotos, Videos & PDFs ({(taskDocModal.media || []).length})
                 </h4>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 300, overflowY: 'auto' }}>
-                  {(taskDocModal.media || []).map(m => (
-                    <div key={m.id} style={{ padding: 10, borderRadius: 8, background: 'var(--surface-2)', border: '1px solid var(--border)' }}>
+                  {(taskDocModal.media || []).map((m) => (
+                    <div
+                      key={m.id}
+                      style={{
+                        padding: 10,
+                        borderRadius: 8,
+                        background: 'var(--surface-2)',
+                        border: '1px solid var(--border)',
+                      }}
+                    >
                       <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>{m.file_name}</div>
                       {m.mime_type?.startsWith('video') ? (
-                        <video controls style={{ width: '100%', borderRadius: 6, maxHeight: 150, background: '#000' }} src={resolveMediaUrl(m.url)} />
+                        <video
+                          controls
+                          style={{ width: '100%', borderRadius: 6, maxHeight: 150, background: '#000' }}
+                          src={resolveMediaUrl(m.url)}
+                        />
                       ) : m.mime_type?.startsWith('image') ? (
-                        <img alt={m.title} style={{ width: '100%', borderRadius: 6, maxHeight: 150, objectFit: 'cover' }} src={resolveMediaUrl(m.url)} />
+                        <img
+                          alt={m.title}
+                          style={{ width: '100%', borderRadius: 6, maxHeight: 150, objectFit: 'cover' }}
+                          src={resolveMediaUrl(m.url)}
+                        />
                       ) : (
-                        <a href={resolveMediaUrl(m.url)} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                          <FileText size={13} /> Open Document ({m.file_name})
+                        <a
+                          href={resolveMediaUrl(m.url)}
+                          target="_blank"
+                          rel="noreferrer"
+                          style={{
+                            color: 'var(--accent)',
+                            fontSize: 12,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 4,
+                          }}
+                        >
+                          <FileText size={13} /> Dokument öffnen ({m.file_name})
                         </a>
                       )}
                     </div>
@@ -2183,18 +4003,64 @@ export const MasterCalendarModule = () => {
         </div>
       )}
 
+      {/* Day Modal when clicking a Month cell with multiple items */}
       {dayModal && (
-        <div className="modal-overlay">
-          <div className="glass-panel" style={{ width: 520 }}>
-            <div className="flex-between" style={{ marginBottom: 16 }}>
-              <h3>{new Date(dayModal.date).toLocaleDateString('de-DE', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' })}</h3>
-              <button className="btn-secondary btn-sm" onClick={() => setDayModal(null)}>Close</button>
+        <div className="modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && setDayModal(null)}>
+          <div className="glass-panel" style={{ width: 'min(620px, 100%)', maxHeight: '85vh', overflowY: 'auto' }}>
+            <div className="flex-between" style={{ marginBottom: 14 }}>
+              <div>
+                <h3 style={{ margin: 0 }}>
+                  {new Date(dayModal.date).toLocaleDateString('de-DE', {
+                    weekday: 'long',
+                    day: '2-digit',
+                    month: '2-digit',
+                    year: 'numeric',
+                  })}
+                </h3>
+                <div style={{ fontSize: 12, color: '#64748b' }}>{dayModal.list.length} Termine an diesem Tag</div>
+              </div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button
+                  type="button"
+                  className="btn-secondary btn-sm"
+                  onClick={() => {
+                    setCursor(new Date(dayModal.date));
+                    setView('day');
+                    setDayModal(null);
+                  }}
+                >
+                  Tagesansicht öffnen
+                </button>
+                <button type="button" className="btn-secondary btn-sm" onClick={() => setDayModal(null)}>
+                  <X size={14} />
+                </button>
+              </div>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {dayModal.list.map((ev) => (
-                <div key={ev.id} style={{ padding: 12, borderRadius: 'var(--r-md)', background: 'var(--surface-2)', borderLeft: `4px solid ${ev.hex_color}` }}>
-                  <div className="flex-between"><strong>{ev.title}</strong><span className="badge">{ev.event_type}</span></div>
-                  <p style={{ fontSize: 13, marginTop: 4 }}>{ev.subtitle}</p>
+                <div
+                  key={ev.id}
+                  onClick={() => {
+                    setDayModal(null);
+                    handleEventClick(ev);
+                  }}
+                  style={{
+                    padding: 12,
+                    borderRadius: 10,
+                    background: '#f8fafc',
+                    border: '1px solid #e2e8f0',
+                    borderLeft: `4px solid ${ev.hex_color || '#3b82f6'}`,
+                    cursor: 'pointer',
+                  }}
+                >
+                  <div className="flex-between">
+                    <strong>{ev.title}</strong>
+                    <span className="badge">{ev.event_subtype || ev.event_type}</span>
+                  </div>
+                  <p style={{ fontSize: 12.5, marginTop: 4, color: '#475569' }}>{ev.subtitle}</p>
+                  {ev.last_comment && (
+                    <div style={{ fontSize: 11, color: '#b45309', marginTop: 4 }}>💬 {ev.last_comment}</div>
+                  )}
                 </div>
               ))}
             </div>
