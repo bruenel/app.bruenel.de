@@ -37,21 +37,14 @@ export const NAV = [
 
   { group: 'Operations' },
   {
-    id: 'projects', label: 'Projects & Objects', icon: Building2, base: '/projects', mod: 'mod_projects',
+    id: 'projects', label: 'Projects & Objects', icon: Building2, base: '/projects', activeBases: ['/projects', '/protocol'], mod: 'mod_projects',
     children: [
+      { to: '/projects/protocol', label: 'UGG Protokoll & AI' },
       { to: '/projects/objects', label: 'Building Objects' },
       { to: '/projects/tasks', label: 'Task Calendar & Assignments' },
       { to: '/projects/teams', label: 'Field Teams' },
       { to: '/projects/projects', label: 'Projects & Regions' },
       { to: '/projects/delegation', label: 'Vertretung (Delegation)' },
-    ],
-  },
-  {
-    id: 'protocol', label: 'UGG Protokoll & AI', icon: Sparkles, base: '/protocol', mod: 'mod_protocol',
-    children: [
-      { to: '/protocol/manager', label: 'Master-Detail & Upload' },
-      { to: '/protocol/upload', label: 'PDF KI-Extraktor (Upload)' },
-      { to: '/protocol/export', label: 'Excel Export (.xlsx)' },
     ],
   },
   {
@@ -142,7 +135,7 @@ export const NAV = [
 
 const QUICK_ACTIONS = [
   { label: 'Arbeitszeiten erfassen', icon: Clock, href: 'https://www.bruenel.de/timenet', mod: null },
-  { label: 'UGG Protokoll PDF Extraktor', icon: Sparkles, to: '/protocol/manager', action: 'upload-protocol', mod: 'mod_protocol' },
+  { label: 'UGG Protokoll & AI', icon: Sparkles, to: '/projects/protocol', action: 'upload-protocol', mod: 'mod_projects' },
   { label: 'New Employee', icon: UserPlus, to: '/hr/employees', action: 'add-employee', mod: 'mod_hr' },
   { label: 'Assign Task', icon: ClipboardList, to: '/projects/tasks', action: 'add-task', mod: 'mod_projects' },
   { label: 'New Building Object', icon: Building2, to: '/projects/objects', action: 'add-object', mod: 'mod_projects' },
@@ -681,6 +674,7 @@ export default function App() {
       <ManagementLayout user={user} logout={logout} onSwitchToPortal={() => togglePortalMode('portal')}>
         <Routes>
           <Route path="/" element={<ExecutiveDashboard user={user} />} />
+          <Route path="/projects/protocol" element={<ProtocolExtractorModule user={user} />} />
           <Route path="/projects/:section?" element={<ProjectsObjectsModule user={user} />} />
           <Route path="/protocol/:section?" element={<ProtocolExtractorModule user={user} />} />
           <Route path="/hr/:section?" element={<HRManagementModule user={user} />} />

@@ -14,6 +14,7 @@ from core.security import (
 )
 from core.storage import create_presigned_download
 from core.audit import log_audit
+from routers.protocol import normalize_gemeinde_ort, sync_protocol_address_to_erp
 
 router = APIRouter()
 
@@ -46,16 +47,24 @@ def list_regions(
     current_user: models.User = Depends(get_current_user),
 ):
     regions = db.query(models.Region).order_by(models.Region.postal_code.asc()).all()
-    return [
-        {
-            "id": r.id,
-            "name": r.name,
-            "postal_code": r.postal_code,
-            "city": r.city,
-            "attributes": r.attributes or {},
-        }
-        for r in regions
-    ]
+    seen_cities = {}
+    out = []
+    for r in regions:
+        norm_city = normalize_gemeinde_ort(r.city or r.name, r.postal_code) or r.city or r.name
+        key = f"{r.postal_code}:{norm_city.lower()}"
+        if key in seen_cities:
+            continue
+        seen_cities[key] = True
+        out.append(
+            {
+                "id": r.id,
+                "name": norm_city,
+                "postal_code": r.postal_code,
+                "city": norm_city,
+                "attributes": r.attributes or {},
+            }
+        )
+    return out
 
 
 @router.post("/regions")
@@ -247,6 +256,11 @@ def list_objects(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(get_current_user),
 ):
+    try:
+        for proto_addr in db.query(models.Address).all():
+            sync_protocol_address_to_erp(db, proto_addr)
+    except Exception:
+        pass
     proj_map = {p.id: p.name for p in db.query(models.Project).all()}
     reg_map = {r.id: f"{r.postal_code} {r.name}" for r in db.query(models.Region).all()}
 

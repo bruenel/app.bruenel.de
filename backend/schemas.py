@@ -383,7 +383,8 @@ class ProtocolExtractedResponse(BaseModel):
     building_status: str = Field(default="Ausbau terminiert", description="Building status")
     is_priority: bool = Field(default=False)
     ausbau_typ: str = Field(default="Metalkanal", description="Metalkanal | Leerrohr-Kamin | Kabelkanal")
-    ausbautermin: str = Field(default="", description="Ausbautermin (AB-Termin) from calendar")
+    ausbautermin: str = Field(default="", description="Ausbau Datum (AB-Termin) from calendar")
+    abgeschlossen_datum: str = Field(default="", description="Abgeschlossen Datum from calendar")
     restarbeit_termin: str = Field(default="", description="Restarbeit Termin from calendar")
     plz: str = Field(default="", description="Postal code, e.g., '73547'")
     ort: str = Field(default="", description="City/Town, e.g., 'Lorch'")
@@ -419,6 +420,7 @@ class ProtocolConfirmRequest(BaseModel):
     is_priority: Optional[bool] = Field(default=False)
     ausbau_typ: Optional[str] = Field(default="Metalkanal")
     ausbautermin: Optional[str] = Field(default="")
+    abgeschlossen_datum: Optional[str] = Field(default="")
     restarbeit_termin: Optional[str] = Field(default="")
     plz: str = Field(..., min_length=1)
     ort: str = Field(..., min_length=1)
@@ -454,6 +456,7 @@ class AddressPatchRequest(BaseModel):
     is_priority: Optional[bool] = None
     ausbau_typ: Optional[str] = None
     ausbautermin: Optional[str] = None
+    abgeschlossen_datum: Optional[str] = None
     restarbeit_termin: Optional[str] = None
     plz: Optional[str] = None
     ort: Optional[str] = None
@@ -520,6 +523,7 @@ class AddressOut(BaseModel):
     is_priority: Optional[bool] = False
     ausbau_typ: Optional[str] = "Metalkanal"
     ausbautermin: Optional[str] = ""
+    abgeschlossen_datum: Optional[str] = ""
     restarbeit_termin: Optional[str] = ""
     plz: str
     ort: str

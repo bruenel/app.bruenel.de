@@ -7,6 +7,7 @@ import models
 import database
 from core.security import get_current_user, get_effective_tier
 from routers.projects import normalize_task_status, task_status_color
+from routers.protocol import parse_date_obj, sync_protocol_address_to_erp
 
 router = APIRouter()
 
@@ -28,6 +29,12 @@ def get_master_calendar_events(
       - Blue (#3b82f6): Planned / To Do (for construction) tasks
       - Red (#ef4444): Not Completed tasks (and Reported Sickness)
     """
+    try:
+        for proto_addr in db.query(models.Address).all():
+            sync_protocol_address_to_erp(db, proto_addr)
+    except Exception:
+        pass
+
     tier = get_effective_tier(current_user)
     emp_map = {e.id: f"{e.first_name} {e.last_name}" for e in db.query(models.Employee).all()}
     proj_map = {p.id: p.name for p in db.query(models.Project).all()}
@@ -161,11 +168,18 @@ def get_master_calendar_events(
             obj_q = obj_q.filter(models.BuildingObject.project_id == project_id)
         for o in obj_q.all():
             is_done = o.status in ("Tested", "Completed")
+            attrs = o.attributes if isinstance(o.attributes, dict) else {}
+            sched_dt = (
+                parse_date_obj(attrs.get("ausbautermin"))
+                or parse_date_obj(attrs.get("restarbeit_termin"))
+                or parse_date_obj(attrs.get("abgeschlossen_datum"))
+                or (o.created_at.date() if o.created_at else date.today())
+            )
             events.append({
                 "id": f"obj-{o.id}",
                 "source_id": o.id,
                 "event_type": "BuildingObject",
-                "date": o.created_at.date().isoformat() if o.created_at else date.today().isoformat(),
+                "date": sched_dt.isoformat(),
                 "title": f"Object: {o.address} ({o.units_count} WE)",
                 "subtitle": f"{o.status} • {o.cabling_type}",
                 "project_id": o.project_id,

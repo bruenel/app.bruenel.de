@@ -550,7 +550,8 @@ class Address(Base):
     building_status = Column(String(100), nullable=True, default="Ausbau terminiert")  # Building Status
     is_priority = Column(Boolean, nullable=True, default=False)                  # Priority Star
     ausbau_typ = Column(String(100), nullable=True, default="Metalkanal")        # Metalkanal, Leerrohr-Kamin, etc.
-    ausbautermin = Column(String(50), nullable=True, default="")                 # AB-Termin (Calendar date)
+    ausbautermin = Column(String(50), nullable=True, default="")                 # Ausbau Datum / AB-Termin (Calendar date)
+    abgeschlossen_datum = Column(String(50), nullable=True, default="")          # Abgeschlossen Datum (Calendar date)
     restarbeit_termin = Column(String(50), nullable=True, default="")            # Restarbeit Termin (Calendar date)
     plz = Column(String(20), nullable=False, index=True)                         # e.g., "73547"
     ort = Column(String(150), nullable=False)                                    # e.g., "Lorch" (Gemeinde)

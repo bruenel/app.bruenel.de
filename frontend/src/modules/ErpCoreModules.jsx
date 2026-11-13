@@ -5027,6 +5027,7 @@ export const ProjectsObjectsModule = () => {
       </PageHead>
 
       <SubTabs base="/projects" active={tab} items={[
+        { id: 'protocol', label: 'UGG Protokoll & AI' },
         { id: 'objects', label: 'Building Objects', count: objects.length },
         { id: 'tasks', label: 'Task Calendar & Assignments', count: assignments.length },
         { id: 'teams', label: 'Teams', count: teams.length },

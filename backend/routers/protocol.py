@@ -3,14 +3,14 @@ import io
 import re
 import uuid
 import zipfile
-from datetime import datetime
+from datetime import datetime, date
 from typing import List, Dict, Any, Tuple, Optional
 from uuid import UUID
 from xml.sax.saxutils import escape as xml_escape
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import inspect, text
+from sqlalchemy import inspect, text, func
 from sqlalchemy.orm import Session, selectinload
 
 import database
@@ -20,6 +20,390 @@ import schemas
 router = APIRouter()
 
 _SCHEMA_CHECKED = False
+
+# Canonical PLZ -> Gemeinde mapping for UGG rollout areas
+PLZ_TO_GEMEINDE: Dict[str, str] = {
+    "73547": "Lorch",
+    "73525": "Schwäbisch Gmünd",
+    "73527": "Schwäbisch Gmünd",
+    "73529": "Schwäbisch Gmünd",
+    "73553": "Alfdorf",
+    "73563": "Mögglingen",
+    "73574": "Iggingen",
+    "73577": "Ruppertshofen",
+    "73571": "Göggingen",
+    "73565": "Spraitbach",
+    "73568": "Durlangen",
+    "73575": "Leinzell",
+    "73566": "Bartholomä",
+    "73560": "Böbingen an der Rems",
+    "73557": "Mutlangen",
+    "73540": "Heubach",
+    "73614": "Schorndorf",
+    "73642": "Welzheim",
+    "73655": "Plüderhausen",
+    "73650": "Winterbach",
+    "73630": "Remshalden",
+}
+
+CANONICAL_CITIES: List[Tuple[str, str]] = [
+    ("lorch", "Lorch"),
+    ("schw", "Schwäbisch Gmünd"),
+    ("gmünd", "Schwäbisch Gmünd"),
+    ("gmuend", "Schwäbisch Gmünd"),
+    ("alfdorf", "Alfdorf"),
+    ("mögglingen", "Mögglingen"),
+    ("moegglingen", "Mögglingen"),
+    ("iggingen", "Iggingen"),
+    ("ruppertshofen", "Ruppertshofen"),
+    ("göggingen", "Göggingen"),
+    ("goeggingen", "Göggingen"),
+    ("spraitbach", "Spraitbach"),
+    ("durlangen", "Durlangen"),
+    ("leinzell", "Leinzell"),
+    ("bartholom", "Bartholomä"),
+    ("böbingen", "Böbingen an der Rems"),
+    ("boebingen", "Böbingen an der Rems"),
+    ("mutlangen", "Mutlangen"),
+    ("heubach", "Heubach"),
+    ("schorndorf", "Schorndorf"),
+    ("welzheim", "Welzheim"),
+    ("plüderhausen", "Plüderhausen"),
+    ("pluederhausen", "Plüderhausen"),
+    ("winterbach", "Winterbach"),
+    ("remshalden", "Remshalden"),
+]
+
+
+def normalize_gemeinde_ort(raw_ort: Optional[str], raw_plz: Optional[str] = "") -> str:
+    """
+    AI/Smart Location Normalizer:
+    Cleans noisy PDF location strings (e.g. 'gps + Lorch', 'GPS 48.79 9.68 Lorch', '73547 Lorch', 'LORCH')
+    and merges them into a single canonical Gemeinde name (e.g. 'Lorch').
+    """
+    plz_clean = re.sub(r"\D", "", str(raw_plz or ""))[:5]
+    s = str(raw_ort or "").strip()
+
+    # Check if PLZ directly maps when raw_ort is noisy or contains the same city
+    s_lower = s.lower()
+    for needle, canonical in CANONICAL_CITIES:
+        if needle in s_lower:
+            return canonical
+
+    if plz_clean in PLZ_TO_GEMEINDE:
+        return PLZ_TO_GEMEINDE[plz_clean]
+
+    # Strip GPS / coordinate / label noise
+    s = re.sub(
+        r"\b(gps|koordinaten|standort|objekt[-\s]*adresse|gemeinde|ort|plz|stra[ßs]e|str\.|hausnummer|hnr\.?|nr\.?|we)\b",
+        " ",
+        s,
+        flags=re.IGNORECASE,
+    )
+    # Remove coordinates, digits, plus signs, brackets, slashes, colons
+    s = re.sub(r"[0-9+*:;/|\\()\[\]{}<>_.,!?\-]+", " ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+
+    s_lower = s.lower()
+    for needle, canonical in CANONICAL_CITIES:
+        if needle in s_lower:
+            return canonical
+
+    if not s:
+        return PLZ_TO_GEMEINDE.get(plz_clean, "Lorch" if plz_clean == "73547" else "")
+
+    return " ".join(w.capitalize() for w in s.split())
+
+
+def format_date_dd_mm_yyyy(val: Optional[str]) -> str:
+    """Normalizes any ISO ('YYYY-MM-DD') or German date string to 'DD.MM.YYYY'."""
+    if not val:
+        return ""
+    s = str(val).strip()
+    if not s:
+        return ""
+    # Match ISO YYYY-MM-DD
+    m_iso = re.match(r"^(\d{4})-(\d{1,2})-(\d{1,2})", s)
+    if m_iso:
+        return f"{int(m_iso.group(3)):02d}.{int(m_iso.group(2)):02d}.{m_iso.group(1)}"
+    # Match German DD.MM.YYYY or DD.MM.YY (strip any trailing time like ' 08:01')
+    m_de = re.match(r"^(\d{1,2})\.(\d{1,2})\.(\d{2,4})", s)
+    if m_de:
+        yyyy = m_de.group(3)
+        if len(yyyy) == 2:
+            yyyy = f"20{yyyy}"
+        return f"{int(m_de.group(1)):02d}.{int(m_de.group(2)):02d}.{yyyy}"
+    return s
+
+
+def parse_date_obj(val: Optional[str]) -> Optional[date]:
+    """Parses 'DD.MM.YYYY' or 'YYYY-MM-DD' into a Python date object for Calendar/Task sync."""
+    if not val:
+        return None
+    s = str(val).strip()
+    m_de = re.match(r"^(\d{1,2})\.(\d{1,2})\.(\d{4})", s)
+    if m_de:
+        try:
+            return date(int(m_de.group(3)), int(m_de.group(2)), int(m_de.group(1)))
+        except ValueError:
+            return None
+    m_iso = re.match(r"^(\d{4})-(\d{1,2})-(\d{1,2})", s)
+    if m_iso:
+        try:
+            return date(int(m_iso.group(1)), int(m_iso.group(2)), int(m_iso.group(3)))
+        except ValueError:
+            return None
+    return None
+
+
+def sync_protocol_address_to_erp(db: Session, addr: models.Address) -> None:
+    """
+    Synchronizes a UGG Protocol Building (`models.Address`) with the core ERP modules:
+      1. `models.Region` (normalized Gemeinde & PLZ)
+      2. `models.Project` (UGG Ausbau project)
+      3. `models.Team` (Field Team in Projects & Objects)
+      4. `models.BuildingObject` (Building Object in Projects & Objects)
+      5. `models.Assignment` (Task Calendar & Master Calendar assignment for the Field Team)
+    """
+    try:
+        norm_ort = normalize_gemeinde_ort(addr.ort, addr.plz)
+        if norm_ort and addr.ort != norm_ort:
+            addr.ort = norm_ort
+
+        plz_str = (addr.plz or "73547").strip()
+        city_str = norm_ort or "Lorch"
+
+        # 1. Region sync (merge any existing region for the same city)
+        region = None
+        all_regions = db.query(models.Region).all()
+        for r in all_regions:
+            r_norm = normalize_gemeinde_ort(r.city or r.name, r.postal_code)
+            if r_norm and r_norm.lower() == city_str.lower():
+                if r.city != city_str or r.name != city_str:
+                    r.city = city_str
+                    r.name = city_str
+                region = r
+                break
+        if not region:
+            region = models.Region(
+                id=str(uuid.uuid4()),
+                name=city_str,
+                postal_code=plz_str,
+                city=city_str,
+                attributes={"source": "ugg_protocol"},
+            )
+            db.add(region)
+            db.flush()
+
+        # 2. Project sync
+        project = (
+            db.query(models.Project)
+            .filter(models.Project.region_id == region.id)
+            .first()
+        )
+        if not project:
+            project = (
+                db.query(models.Project)
+                .filter(models.Project.name.ilike(f"%{city_str}%"))
+                .first()
+            )
+        if not project:
+            project = db.query(models.Project).order_by(models.Project.created_at.asc()).first()
+        if not project:
+            project = models.Project(
+                id=str(uuid.uuid4()),
+                name=f"UGG Glasfaser Ausbau {city_str}",
+                code=f"UGG-{plz_str}",
+                client_name="Unsere Grüne Glasfaser (UGG)",
+                kst=1000,
+                status="Active",
+                region_id=region.id,
+            )
+            db.add(project)
+            db.flush()
+
+        # 3. Team sync with Projects & Objects -> Field Teams
+        team_name = (addr.team or "").strip()
+        team_obj = None
+        if team_name:
+            team_obj = (
+                db.query(models.Team)
+                .filter(func.lower(models.Team.name) == team_name.lower())
+                .first()
+            )
+            if not team_obj:
+                first_emp = db.query(models.Employee).first()
+                team_obj = models.Team(
+                    id=str(uuid.uuid4()),
+                    name=team_name,
+                    leader_id=first_emp.id if first_emp else None,
+                    member_ids=[first_emp.id] if first_emp else [],
+                    project_id=project.id,
+                    notes=f"Ausbau-Team ({city_str})",
+                )
+                db.add(team_obj)
+                db.flush()
+
+        # 4. BuildingObject sync in Projects & Objects -> Building Objects
+        street_house = f"{addr.strasse or ''} {addr.hausnummer or ''}".strip()
+        full_address = f"{street_house}, {plz_str} {city_str}".strip(", ")
+        b_status = (addr.building_status or "Ausbau terminiert").strip()
+        obj_status_map = {
+            "Abgeschlossen": "Completed",
+            "In Bearbeitung": "In Progress",
+            "Restarbeiten": "In Progress",
+            "Ausbau terminiert": "Hausbegehung",
+            "Offen": "Planned",
+        }
+        mapped_obj_status = obj_status_map.get(b_status, "Hausbegehung")
+
+        b_obj = None
+        for candidate in db.query(models.BuildingObject).all():
+            c_attrs = candidate.attributes or {}
+            if str(c_attrs.get("protocol_address_id", "")) == str(addr.id):
+                b_obj = candidate
+                break
+            if street_house and candidate.address and street_house.lower() in candidate.address.lower():
+                b_obj = candidate
+                break
+
+        units_cnt = max(1, int(addr.total_we or len(addr.units or []) or 1))
+        ausbau_typ_str = addr.ausbau_typ or "Metalkanal"
+        notes_summary = (
+            f"Adress-ID: {addr.adress_id or '-'} | WE-Nr: {addr.projektnummer} | "
+            f"Ausbau-Typ: {ausbau_typ_str} | Team: {team_name or '-'} | "
+            f"Ausbau Datum: {format_date_dd_mm_yyyy(addr.ausbautermin) or '-'}"
+        )
+        merged_attrs = {
+            **(b_obj.attributes if b_obj and isinstance(b_obj.attributes, dict) else {}),
+            "protocol_address_id": str(addr.id),
+            "adress_id": addr.adress_id or "",
+            "projektnummer": addr.projektnummer or "",
+            "ausbau_typ": ausbau_typ_str,
+            "team": team_name,
+            "building_status": b_status,
+            "ausbautermin": format_date_dd_mm_yyyy(addr.ausbautermin),
+            "abgeschlossen_datum": format_date_dd_mm_yyyy(addr.abgeschlossen_datum),
+            "restarbeit_termin": format_date_dd_mm_yyyy(addr.restarbeit_termin),
+        }
+
+        if b_obj:
+            b_obj.project_id = project.id
+            b_obj.region_id = region.id
+            b_obj.address = full_address
+            b_obj.units_count = units_cnt
+            b_obj.cabling_type = ausbau_typ_str
+            b_obj.status = mapped_obj_status
+            b_obj.notes = notes_summary
+            b_obj.attributes = merged_attrs
+        else:
+            b_obj = models.BuildingObject(
+                id=str(uuid.uuid4()),
+                project_id=project.id,
+                region_id=region.id,
+                address=full_address,
+                units_count=units_cnt,
+                cabling_type=ausbau_typ_str,
+                status=mapped_obj_status,
+                notes=notes_summary,
+                attributes=merged_attrs,
+            )
+            db.add(b_obj)
+            db.flush()
+
+        # 5. Task Calendar & Master Calendar Assignment sync
+        task_date = (
+            parse_date_obj(addr.ausbautermin)
+            or parse_date_obj(addr.restarbeit_termin)
+            or parse_date_obj(addr.abgeschlossen_datum)
+            or (addr.created_at.date() if getattr(addr, "created_at", None) else date.today())
+        )
+        task_status_map = {
+            "Abgeschlossen": "Completed",
+            "Restarbeiten": "Remaining",
+            "In Bearbeitung": "Remaining",
+            "Ausbau terminiert": "Planned",
+            "Offen": "Planned",
+        }
+        mapped_task_status = task_status_map.get(b_status, "Planned")
+
+        existing_task = (
+            db.query(models.Assignment)
+            .filter(models.Assignment.object_id == b_obj.id)
+            .first()
+        )
+        task_title = f"UGG Ausbau ({ausbau_typ_str}): {street_house}, {city_str} [{addr.adress_id or addr.projektnummer}]"
+        task_instructions = (
+            f"Adress-ID: {addr.adress_id or '-'} | Projektnummer: {addr.projektnummer} | "
+            f"Einheiten: {units_cnt} WE | Ausbau-Typ: {ausbau_typ_str} | "
+            f"Ausbau Datum: {format_date_dd_mm_yyyy(addr.ausbautermin) or '-'} | "
+            f"Restarbeit Termin: {format_date_dd_mm_yyyy(addr.restarbeit_termin) or '-'}"
+        )
+
+        leader_emp_id = team_obj.leader_id if team_obj else None
+        member_emp_ids = list(team_obj.member_ids or []) if team_obj else []
+        if not leader_emp_id:
+            first_emp = db.query(models.Employee).first()
+            if not first_emp:
+                first_emp = models.Employee(
+                    id=str(uuid.uuid4()),
+                    employee_number="BR-TECH-01",
+                    first_name="Bauleitung",
+                    last_name="Glasfaser",
+                    email="bauleitung@bruenel.de",
+                    role="Team Lead",
+                    department="Glasfaser & NE4",
+                    is_active=True,
+                )
+                db.add(first_emp)
+                db.flush()
+            leader_emp_id = first_emp.id
+            if first_emp.id not in member_emp_ids:
+                member_emp_ids.append(first_emp.id)
+            if team_obj and not team_obj.leader_id:
+                team_obj.leader_id = first_emp.id
+                team_obj.member_ids = member_emp_ids
+
+        if existing_task:
+            existing_task.project_id = project.id
+            existing_task.region_id = region.id
+            existing_task.team_id = team_obj.id if team_obj else existing_task.team_id
+            if leader_emp_id:
+                existing_task.employee_id = leader_emp_id
+            if member_emp_ids:
+                existing_task.assigned_employee_ids = member_emp_ids
+            existing_task.date = task_date
+            existing_task.title = task_title
+            existing_task.instructions = task_instructions
+            existing_task.priority = "Urgent" if addr.is_priority else "High"
+            existing_task.task_status = mapped_task_status
+        else:
+            new_task = models.Assignment(
+                id=str(uuid.uuid4()),
+                employee_id=leader_emp_id,
+                team_id=team_obj.id if team_obj else None,
+                assigned_employee_ids=member_emp_ids,
+                project_id=project.id,
+                region_id=region.id,
+                object_id=b_obj.id,
+                date=task_date,
+                title=task_title,
+                instructions=task_instructions,
+                priority="Urgent" if addr.is_priority else "High",
+                task_status=mapped_task_status,
+                checklist=[
+                    {"label": f"Ausbau ({ausbau_typ_str}) durchführen ({units_cnt} WE)", "done": b_status == "Abgeschlossen"},
+                    {"label": "HÜP & Spleißen prüfen", "done": bool(addr.huep_installiert and addr.spleissen_fertig)},
+                    {"label": "Fotos Uploaded", "done": bool(addr.upload_done)},
+                ],
+                comments=[],
+            )
+            db.add(new_task)
+
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        print(f"ERP sync note for protocol address {getattr(addr, 'id', '')}: {exc}")
 
 
 def _ensure_protocol_columns() -> None:
@@ -46,7 +430,7 @@ def _ensure_protocol_columns() -> None:
 
 
 def _serialize_address(addr: models.Address) -> schemas.AddressOut:
-    """Serializes an Address ORM instance into AddressOut (setting `has_pdf` without sending huge base64 in list)."""
+    """Serializes an Address ORM instance into AddressOut with normalized Ort and DD.MM.YYYY dates."""
     units_out = []
     for u in addr.units or []:
         we_art = getattr(u, "we_ausbau_art", None) or (
@@ -70,28 +454,32 @@ def _serialize_address(addr: models.Address) -> schemas.AddressOut:
             )
         )
 
+    ausbau_typ = getattr(addr, "ausbau_typ", None) or getattr(addr, "loesungsoption", None) or "Metalkanal"
+    norm_ort = normalize_gemeinde_ort(addr.ort, addr.plz)
+
     return schemas.AddressOut(
         id=addr.id,
         adress_id=getattr(addr, "adress_id", "") or "",
         projektnummer=addr.projektnummer or "",
-        datum=addr.datum or "",
-        hausbegeher=addr.hausbegeher or "",
+        datum=format_date_dd_mm_yyyy(addr.datum),
+        hausbegeher="",
         team=getattr(addr, "team", "") or "",
         building_status=getattr(addr, "building_status", None) or "Ausbau terminiert",
         is_priority=bool(getattr(addr, "is_priority", False)),
-        ausbau_typ=getattr(addr, "ausbau_typ", None) or "Metalkanal",
-        ausbautermin=getattr(addr, "ausbautermin", "") or "",
-        restarbeit_termin=getattr(addr, "restarbeit_termin", "") or "",
+        ausbau_typ=ausbau_typ,
+        ausbautermin=format_date_dd_mm_yyyy(getattr(addr, "ausbautermin", "")),
+        abgeschlossen_datum=format_date_dd_mm_yyyy(getattr(addr, "abgeschlossen_datum", "")),
+        restarbeit_termin=format_date_dd_mm_yyyy(getattr(addr, "restarbeit_termin", "")),
         plz=addr.plz or "",
-        ort=addr.ort or "",
+        ort=norm_ort or addr.ort or "",
         strasse=addr.strasse or "",
         hausnummer=addr.hausnummer or "",
-        owner_name=addr.owner_name or "",
-        owner_telefon=addr.owner_telefon or "",
-        owner_email=addr.owner_email or "",
+        owner_name="",
+        owner_telefon="",
+        owner_email="",
         total_we=addr.total_we or max(1, len(units_out)),
-        ne3_status=addr.ne3_status or "",
-        loesungsoption=addr.loesungsoption or "",
+        ne3_status="",
+        loesungsoption=ausbau_typ,
         flexrohr=bool(getattr(addr, "flexrohr", False)),
         huep_installiert=bool(getattr(addr, "huep_installiert", False)),
         spleissen_fertig=bool(getattr(addr, "spleissen_fertig", False)),
@@ -133,7 +521,6 @@ def _extract_pdf_artifacts(pdf_bytes: bytes) -> Tuple[str, List[List[List[str]]]
     extracted_tables: List[List[List[str]]] = []
     form_widgets: Dict[str, Any] = {}
 
-    # 1. Try PyMuPDF (fitz)
     try:
         import fitz  # PyMuPDF
 
@@ -171,7 +558,6 @@ def _extract_pdf_artifacts(pdf_bytes: bytes) -> Tuple[str, List[List[List[str]]]
             detail=f"Fehler beim Lesen der PDF-Datei mit PyMuPDF: {str(exc)}",
         )
 
-    # 2. Fallback to pdfplumber
     try:
         import pdfplumber
 
@@ -197,7 +583,6 @@ def _extract_pdf_artifacts(pdf_bytes: bytes) -> Tuple[str, List[List[List[str]]]
             detail=f"Fehler beim Lesen der PDF-Datei mit pdfplumber: {str(exc)}",
         )
 
-    # 3. Fallback to pure-Python pypdf
     try:
         from pypdf import PdfReader
 
@@ -230,77 +615,6 @@ def _search_first(patterns: List[str], text: str, flags: int = re.IGNORECASE | r
                 if group and _normalize_whitespace(group):
                     return _normalize_whitespace(group)
     return ""
-
-
-def _parse_owner_details(text: str, widgets: Dict[str, Any]) -> Tuple[str, str, str]:
-    """Extracts Eigentümer (Vorname, Nachname -> owner_name, Telefon, E-Mail)."""
-    owner_section_match = re.search(
-        r"Eigent[üu]mer.*?(?=(?:Objekt[-\s]*Adresse|Objektdaten|Z[äa]hlung|NE3|Hausbegeher|$))",
-        text,
-        re.IGNORECASE | re.DOTALL,
-    )
-    owner_scope = owner_section_match.group(0) if owner_section_match else text
-
-    vorname = _search_first(
-        [
-            r"Vorname\s*[:\-]?\s*([^\n\r|]+?)(?=\s+(?:Nachname|Name|Telefon|Tel|E-Mail|$))",
-            r"Vorname\s*[:\-]?\s*([^\n\r]+)",
-        ],
-        owner_scope,
-    )
-    nachname = _search_first(
-        [
-            r"(?:Nachname|Familienname)\s*[:\-]?\s*([^\n\r|]+?)(?=\s+(?:Vorname|Telefon|Tel|E-Mail|$))",
-            r"(?:Nachname|Familienname)\s*[:\-]?\s*([^\n\r]+)",
-        ],
-        owner_scope,
-    )
-
-    if vorname or nachname:
-        owner_name = f"{vorname} {nachname}".strip()
-    else:
-        owner_name = _search_first(
-            [
-                r"Eigent[üu]mer(?:\s*Name)?\s*[:\-]\s*([^\n\r]+)",
-                r"Name\s+Eigent[üu]mer\s*[:\-]?\s*([^\n\r]+)",
-            ],
-            owner_scope,
-        )
-
-    owner_telefon = _search_first(
-        [
-            r"(?:Telefon|Tel\.?|Mobil|Rufnummer)\s*[:\-]?\s*([+\d][\d\s/\-()]{5,24}\d)",
-        ],
-        owner_scope,
-    ) or _search_first(
-        [r"(?:Telefon|Tel\.?|Mobil)\s*[:\-]?\s*([+\d][\d\s/\-()]{5,24}\d)"],
-        text,
-    )
-
-    owner_email = _search_first(
-        [
-            r"(?:E-Mail|Email|Mail)\s*[:\-]?\s*([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})",
-            r"\b([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})\b",
-        ],
-        owner_scope,
-    ) or _search_first(
-        [r"\b([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})\b"],
-        text,
-    )
-
-    for k, v in widgets.items():
-        kl = k.lower()
-        val = _normalize_whitespace(str(v or ""))
-        if not val:
-            continue
-        if not owner_name and ("eigentuemer" in kl or "eigentümer" in kl or "owner" in kl):
-            owner_name = val
-        elif not owner_telefon and ("tel" in kl or "phone" in kl):
-            owner_telefon = val
-        elif not owner_email and ("mail" in kl):
-            owner_email = val
-
-    return owner_name, owner_telefon, owner_email
 
 
 def _parse_address_details(text: str, widgets: Dict[str, Any]) -> Tuple[str, str, str, str, int]:
@@ -369,7 +683,8 @@ def _parse_address_details(text: str, widgets: Dict[str, Any]) -> Tuple[str, str
     except ValueError:
         total_we = 1
 
-    return plz, ort, strasse, hausnummer, total_we
+    norm_ort = normalize_gemeinde_ort(ort, plz)
+    return plz, norm_ort, strasse, hausnummer, total_we
 
 
 def _normalize_etage(raw_etage: str) -> str:
@@ -496,46 +811,21 @@ def _parse_zaehlung_units(
     return units
 
 
-def _parse_ne3_and_loesungsoption(text: str, widgets: Dict[str, Any]) -> Tuple[str, str]:
-    ne3_status = ""
-    loesungsoption = ""
-
+def _extract_ausbau_typ(text: str, widgets: Dict[str, Any]) -> str:
+    """
+    Extracts Ausbau-Typ (Lösungsoption 1 in PDF is unified into Ausbau-Typ: Metalkanal | Leerrohr-Kamin).
+    """
+    raw_loesung = ""
     for k, v in widgets.items():
         kl = k.lower()
-        if "ne3" in kl and v not in (None, "", False, "Off", "No"):
-            ne3_status = str(v) if not isinstance(v, bool) else "Ja / Aktiv"
-        if ("loesungsoption" in kl or "lösungsoption" in kl) and v:
-            loesungsoption = _normalize_whitespace(str(v))
+        if ("loesungsoption" in kl or "lösungsoption" in kl or "ausbau" in kl) and v:
+            raw_loesung = _normalize_whitespace(str(v))
+            break
 
-    ne3_section_match = re.search(
-        r"NE\s*3[^\n\r]*[\n\r]+([^\n\r]+(?:\n[^\n\r]+){0,5})",
-        text,
-        re.IGNORECASE,
-    )
-    ne3_block = ne3_section_match.group(0) if ne3_section_match else text
-
-    if not ne3_status:
-        checked_regex = re.compile(
-            r"(?:[☑☒✓✔▣■]|\[\s*[xX✓]\s*\]|\(\s*[xX✓]\s*\))\s*([A-Za-zÄÖÜäöüß0-9/\-\s]{2,40}?)(?=\s{2,}|[☐◻□☑☒]|\[\s*\]|\n|$)"
-        )
-        checked_matches = checked_regex.findall(ne3_block)
-        if checked_matches:
-            ne3_status = ", ".join(_normalize_whitespace(m) for m in checked_matches if _normalize_whitespace(m))
-        else:
-            ne3_status = _search_first(
-                [
-                    r"NE\s*3[-\s]*Status\s*[:\-]?\s*([^\n\r|]+)",
-                    r"NE\s*3\s*[:\-]\s*([^\n\r|]+)",
-                ],
-                text,
-            )
-            for sym in CHECKED_SYMBOLS | UNCHECKED_SYMBOLS:
-                ne3_status = ne3_status.replace(sym, "").strip()
-
-    if not loesungsoption:
+    if not raw_loesung:
         loesung_patterns = [
-            r"L[öo]sungsoption\s*1?\s*[:\-]?\s*\n+\s*([^\n\r]+)",
-            r"L[öo]sungsoption\s*1?\s*[:\-]\s*([^\n\r]+)",
+            r"(?:Ausbau[-\s]*Typ|L[öo]sungsoption\s*1?)\s*[:\-]?\s*\n+\s*([^\n\r]+)",
+            r"(?:Ausbau[-\s]*Typ|L[öo]sungsoption\s*1?)\s*[:\-]\s*([^\n\r]+)",
             r"L[öo]sungsoption\s*1\s+([^\n\r]+)",
         ]
         for pat in loesung_patterns:
@@ -545,17 +835,13 @@ def _parse_ne3_and_loesungsoption(text: str, widgets: Dict[str, Any]) -> Tuple[s
                 for sym in CHECKED_SYMBOLS | UNCHECKED_SYMBOLS:
                     candidate = candidate.replace(sym, "").strip()
                 if candidate and not re.match(r"^L[öo]sungsoption\s*2", candidate, re.IGNORECASE):
-                    loesungsoption = candidate
+                    raw_loesung = candidate
                     break
 
-    return ne3_status, loesungsoption
-
-
-def _infer_ausbau_typ(loesungsoption: str, raw_text: str) -> str:
-    combined = f"{loesungsoption} {raw_text}".lower()
+    combined = f"{raw_loesung} {text}".lower()
     if "leerrohr" in combined or "kamin" in combined:
         return "Leerrohr-Kamin"
-    if "metal" in combined or "kanal" in combined:
+    if "metalkanal" in combined or "metallkanal" in combined or "kabelkanal" in combined:
         return "Metalkanal"
     return "Metalkanal"
 
@@ -564,7 +850,6 @@ def parse_ugg_protocol_pdf(pdf_bytes: bytes, filename: str = "protokoll.pdf") ->
     """
     End-to-end local parser for 'UGG Hausbegehungsprotokoll' PDFs.
     Strictly local execution (DSGVO/GDPR compliant — no cloud API calls).
-    Also encodes the PDF as base64 so it can be persisted into the building record on confirm.
     """
     raw_text, tables, widgets = _extract_pdf_artifacts(pdf_bytes)
     warnings: List[str] = []
@@ -589,7 +874,6 @@ def parse_ugg_protocol_pdf(pdf_bytes: bytes, filename: str = "protokoll.pdf") ->
     if not projektnummer:
         warnings.append("UGG-Projektnummer konnte nicht eindeutig erkannt werden.")
 
-    # Extract Adress-ID (e.g. "ABW007413530")
     adress_id = _search_first(
         [
             r"(?:Adress[-\s]*ID\s*2?|Address[-\s]*ID)\s*[:\-]?\s*([A-Z0-9\-]{5,25})",
@@ -602,60 +886,40 @@ def parse_ugg_protocol_pdf(pdf_bytes: bytes, filename: str = "protokoll.pdf") ->
         if digits:
             adress_id = f"ABW{digits[-9:].zfill(9)}"
 
-    datum = _search_first(
-        [
-            r"Datum\s*/?\s*Uhrzeit\s*[:\-]?\s*(\d{1,2}\.\d{1,2}\.\d{2,4}(?:\s+\d{1,2}:\d{2}(?:\s*Uhr)?)?)",
-            r"Datum\s*[:\-]?\s*(\d{1,2}\.\d{1,2}\.\d{2,4}(?:\s+\d{1,2}:\d{2})?)",
-            r"\b(\d{2}\.\d{2}\.\d{4}(?:\s+\d{2}:\d{2})?)\b",
-        ],
-        raw_text,
-    )
-
-    hausbegeher = _search_first(
-        [
-            r"(?:Name\s+)?Hausbegeher\s*[:\-]?\s*([^\n\r|]+?)(?=\s+(?:Datum|Projekt|PLZ|Eigent[üu]mer|$|\n))",
-            r"(?:Begeher|Techniker)\s*[:\-]?\s*([^\n\r|]+)",
-        ],
-        raw_text,
-    )
-
-    owner_name, owner_telefon, owner_email = _parse_owner_details(raw_text, widgets)
     plz, ort, strasse, hausnummer, total_we = _parse_address_details(raw_text, widgets)
     units = _parse_zaehlung_units(raw_text, tables, total_we)
     if len(units) > total_we:
         total_we = len(units)
 
-    ne3_status, loesungsoption = _parse_ne3_and_loesungsoption(raw_text, widgets)
-    ausbau_typ = _infer_ausbau_typ(loesungsoption, raw_text)
-    team = f"Techno({ort})" if ort else "Techno(Lorch)"
-
+    ausbau_typ = _extract_ausbau_typ(raw_text, widgets)
     pdf_b64 = base64.b64encode(pdf_bytes).decode("ascii")
 
     return schemas.ProtocolExtractedResponse(
         adress_id=adress_id,
         projektnummer=projektnummer,
-        datum=datum,
-        hausbegeher=hausbegeher,
-        team=team,
+        datum="",
+        hausbegeher="",
+        team="",
         building_status="Ausbau terminiert",
         is_priority=False,
         ausbau_typ=ausbau_typ,
         ausbautermin="",
+        abgeschlossen_datum="",
         restarbeit_termin="",
         plz=plz,
         ort=ort,
         strasse=strasse,
         hausnummer=hausnummer,
-        owner_name=owner_name,
-        owner_telefon=owner_telefon,
-        owner_email=owner_email,
+        owner_name="",
+        owner_telefon="",
+        owner_email="",
         total_we=total_we,
-        ne3_status=ne3_status,
-        loesungsoption=loesungsoption,
+        ne3_status="",
+        loesungsoption=ausbau_typ,
         flexrohr=False,
         huep_installiert=False,
         spleissen_fertig=False,
-        upload_done=True,
+        upload_done=False,
         genehmigt=False,
         rechnung_erstellt=False,
         rechnung_bezahlt=False,
@@ -667,7 +931,7 @@ def parse_ugg_protocol_pdf(pdf_bytes: bytes, filename: str = "protokoll.pdf") ->
 
 
 # ==============================================================================
-# EXCEL (.XLSX) WORKBOOK GENERATOR (MATCHING ATTACHED TRACKING SCREENSHOT)
+# EXCEL (.XLSX) WORKBOOK GENERATOR (CLEANED & MATCHING USER SPECIFICATION)
 # ==============================================================================
 
 def _col_letter(col_idx_1based: int) -> str:
@@ -753,17 +1017,25 @@ def _build_xlsx_fallback(sheets: List[Tuple[str, List[str], List[List[Any]]]]) -
 
 def generate_protocols_excel_bytes(addresses: List[models.Address]) -> bytes:
     """
-    Builds a richly formatted multi-sheet Excel (.xlsx) file matching the exact
-    column layout & header color scheme of the user's UGG Ausbau tracking table:
-      - Sheet 1: Ausbau-Tracking (Master-Detail)
-      - Sheet 2: Gebäude Übersicht (Master)
-      - Sheet 3: Wohnungen (Units)
+    Builds a clean, multi-sheet Excel (.xlsx) file WITHOUT unnecessary fields
+    (removed Hausbegeher, NE3 Status, Eigentümer info, Email, separate Lösungsoption, WE-Status, and HBG Datum).
+    Includes:
+      - Ausbau-Typ (Metalkanal, Leerrohr-Kamin)
+      - Status & Fortschritt (%)
+      - Ausbau Datum, Abgeschlossen Datum, Restarbeit Termin (DD.MM.YYYY)
+      - Ausbau Team (from Projects & Objects)
+      - Adress ID2, WE Nummer, PLZ, Ort (normalized Gemeinde), Straße, Etage, Wohnung
+      - Per-Wohnung: TA Installation, Reserve, Ohne
+      - Whole-Building: Flexrohr, HÜP installiert, Spleißen fertig, Fotos Uploaded, Genehmigt, Rechnung erstellt, Rechnung bezahlt
     """
     tracking_headers = [
         "Ausbau-Typ",
         "Status",
-        "AB-Termin",
+        "Fortschritt (%)",
+        "Ausbau Datum",
+        "Abgeschlossen Datum",
         "Restarbeit Termin",
+        "Ausbau Team",
         "Adress ID2",
         "WE Nummer",
         "PLZ",
@@ -777,7 +1049,7 @@ def generate_protocols_excel_bytes(addresses: List[models.Address]) -> bytes:
         "Flexrohr",
         "HÜP installiert",
         "Spleißen fertig",
-        "Upload",
+        "Fotos Uploaded",
         "Genehmigt",
         "Rechnung erstellt",
         "Rechnung bezahlt",
@@ -786,25 +1058,23 @@ def generate_protocols_excel_bytes(addresses: List[models.Address]) -> bytes:
 
     building_headers = [
         "Adress-ID",
-        "WE Nummer (Projekt-Nr)",
-        "Gemeinde (Ort)",
+        "WE Nummer",
         "PLZ",
+        "Gemeinde (Ort)",
         "Straße",
         "Haus",
         "Einheiten (WE)",
+        "Fortschritt (%)",
         "Ausbau-Typ",
+        "Ausbau Team",
         "Status",
-        "Teams",
-        "HBG Datum",
-        "Ausbautermin (AB-Termin)",
+        "Ausbau Datum",
+        "Abgeschlossen Datum",
         "Restarbeit Termin",
-        "Eigentümer",
-        "E-Mail",
-        "Telefon",
-        "Flexrohr (Gebäude)",
-        "HÜP installiert (Gebäude)",
-        "Spleißen fertig (Gebäude)",
-        "Upload",
+        "Flexrohr",
+        "HÜP installiert",
+        "Spleißen fertig",
+        "Fotos Uploaded",
         "Genehmigt",
         "Rechnung erstellt",
         "Rechnung bezahlt",
@@ -818,22 +1088,45 @@ def generate_protocols_excel_bytes(addresses: List[models.Address]) -> bytes:
         "Adresse",
         "Etage",
         "Wohnung (Unit-ID)",
-        "Ausbau-Art (Wohnung)",
         "TA Installation",
         "Reserve",
         "Ohne",
-        "Status",
     ]
     unit_rows: List[List[Any]] = []
 
     for addr in addresses:
         units_list = list(addr.units or [])
-        ausbau_typ = getattr(addr, "ausbau_typ", None) or "Metalkanal"
+        total_units = max(len(units_list), addr.total_we or 1)
         b_status = getattr(addr, "building_status", None) or "Ausbau terminiert"
-        ab_termin = getattr(addr, "ausbautermin", "") or ""
-        rest_termin = getattr(addr, "restarbeit_termin", "") or ""
+
+        # Calculate building completion percentage
+        checks = [
+            bool(getattr(addr, "flexrohr", False)),
+            bool(getattr(addr, "huep_installiert", False)),
+            bool(getattr(addr, "spleissen_fertig", False)),
+            bool(getattr(addr, "upload_done", False)),
+            bool(getattr(addr, "genehmigt", False)),
+            bool(getattr(addr, "rechnung_erstellt", False)),
+            bool(getattr(addr, "rechnung_bezahlt", False)),
+        ]
+        if b_status == "Abgeschlossen":
+            pct = 100
+        else:
+            done_checks = sum(1 for c in checks if c)
+            pct = round((done_checks / len(checks)) * 100)
+            if b_status == "In Bearbeitung" and pct < 25:
+                pct = 25
+            elif b_status == "Restarbeiten" and pct < 65:
+                pct = 65
+        progress_label = f"{pct}% ({total_units} WE)"
+
+        ausbau_typ = getattr(addr, "ausbau_typ", None) or "Metalkanal"
+        ab_termin = format_date_dd_mm_yyyy(getattr(addr, "ausbautermin", ""))
+        abg_datum = format_date_dd_mm_yyyy(getattr(addr, "abgeschlossen_datum", ""))
+        rest_termin = format_date_dd_mm_yyyy(getattr(addr, "restarbeit_termin", ""))
         adr_id = getattr(addr, "adress_id", "") or ""
         team_str = getattr(addr, "team", "") or ""
+        norm_ort = normalize_gemeinde_ort(addr.ort, addr.plz)
         full_street = f"{addr.strasse or ''} {addr.hausnummer or ''}".strip()
 
         b_flex = "Ja" if getattr(addr, "flexrohr", False) else "Nein"
@@ -851,20 +1144,18 @@ def generate_protocols_excel_bytes(addresses: List[models.Address]) -> bytes:
             [
                 adr_id,
                 addr.projektnummer or "",
-                addr.ort or "",
                 addr.plz or "",
+                norm_ort,
                 addr.strasse or "",
                 addr.hausnummer or "",
                 addr.total_we or len(units_list),
+                f"{pct}%",
                 ausbau_typ,
-                b_status,
                 team_str,
-                addr.datum or "",
+                b_status,
                 ab_termin,
+                abg_datum,
                 rest_termin,
-                addr.owner_name or "",
-                addr.owner_email or "",
-                addr.owner_telefon or "",
                 b_flex,
                 b_huep,
                 b_spleiss,
@@ -878,7 +1169,6 @@ def generate_protocols_excel_bytes(addresses: List[models.Address]) -> bytes:
 
         if units_list:
             for u in units_list:
-                u_status = u.status.value if hasattr(u.status, "value") else str(u.status)
                 we_art = getattr(u, "we_ausbau_art", None) or (
                     "TA Installation"
                     if getattr(u, "ta_installiert", False)
@@ -892,12 +1182,15 @@ def generate_protocols_excel_bytes(addresses: List[models.Address]) -> bytes:
                     [
                         ausbau_typ,
                         b_status,
+                        progress_label,
                         ab_termin,
+                        abg_datum,
                         rest_termin,
+                        team_str,
                         adr_id,
                         addr.projektnummer or "",
                         addr.plz or "",
-                        addr.ort or "",
+                        norm_ort,
                         full_street,
                         u.etage or "",
                         u.unit_id or "",
@@ -918,14 +1211,12 @@ def generate_protocols_excel_bytes(addresses: List[models.Address]) -> bytes:
                     [
                         adr_id,
                         addr.projektnummer or "",
-                        f"{full_street}, {addr.plz or ''} {addr.ort or ''}",
+                        f"{full_street}, {addr.plz or ''} {norm_ort}",
                         u.etage or "",
                         u.unit_id or "",
-                        we_art,
                         ta_str,
                         res_str,
                         ohne_str,
-                        u_status,
                     ]
                 )
         else:
@@ -933,12 +1224,15 @@ def generate_protocols_excel_bytes(addresses: List[models.Address]) -> bytes:
                 [
                     ausbau_typ,
                     b_status,
+                    progress_label,
                     ab_termin,
+                    abg_datum,
                     rest_termin,
+                    team_str,
                     adr_id,
                     addr.projektnummer or "",
                     addr.plz or "",
-                    addr.ort or "",
+                    norm_ort,
                     full_street,
                     "-",
                     "-",
@@ -969,7 +1263,6 @@ def generate_protocols_excel_bytes(addresses: List[models.Address]) -> bytes:
         wb = Workbook()
         wb.remove(wb.active)
 
-        # Exact color palette matching Image 1
         navy_fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
         gold_fill = PatternFill(start_color="FFC000", end_color="FFC000", fill_type="solid")
         red_fill = PatternFill(start_color="FF0000", end_color="FF0000", fill_type="solid")
@@ -999,7 +1292,7 @@ def generate_protocols_excel_bytes(addresses: List[models.Address]) -> bytes:
                 cell.border = thin_border
 
                 if sheet_title == "Ausbau-Tracking":
-                    if h_text == "Status":
+                    if h_text in ("Status", "WE Fortschritt"):
                         cell.fill = gold_fill
                         cell.font = dark_header_font
                     elif h_text in (
@@ -1012,7 +1305,7 @@ def generate_protocols_excel_bytes(addresses: List[models.Address]) -> bytes:
                     ):
                         cell.fill = red_fill
                         cell.font = white_header_font
-                    elif h_text in ("Upload", "Genehmigt"):
+                    elif h_text in ("Fotos Uploaded", "Upload", "Genehmigt"):
                         cell.fill = peach_fill
                         cell.font = white_header_font
                     elif h_text in ("Rechnung erstellt", "Rechnung bezahlt"):
@@ -1030,7 +1323,7 @@ def generate_protocols_excel_bytes(addresses: List[models.Address]) -> bytes:
             for row_idx, r_data in enumerate(rows, start=2):
                 ws.append(r_data)
                 ws.row_dimensions[row_idx].height = 21
-                is_done_row = "Abgeschlossen" in [str(x) for x in r_data[:10]]
+                is_done_row = "Abgeschlossen" in [str(x) for x in r_data[:12]]
                 for c_idx in range(1, len(r_data) + 1):
                     cell = ws.cell(row=row_idx, column=c_idx)
                     cell.font = body_font
@@ -1058,6 +1351,44 @@ def generate_protocols_excel_bytes(addresses: List[models.Address]) -> bytes:
 # FASTAPI ENDPOINTS (/api/v1/protocol/*)
 # ==============================================================================
 
+@router.get(
+    "/teams",
+    summary="List Field Teams from Projects & Objects module for Ausbau Team selection",
+)
+def list_field_teams_for_protocol(
+    db: Session = Depends(database.get_db),
+):
+    """Returns all Field Teams defined in the Projects & Objects module (`teams` table)."""
+    try:
+        teams = db.query(models.Team).order_by(models.Team.name.asc()).all()
+        if not teams:
+            first_emp = db.query(models.Employee).first()
+            first_proj = db.query(models.Project).first()
+            for default_name in ("Techno(Lorch)", "Team Süd (Glasfaser)", "Team Nord (Tiefbau & NE4)"):
+                t = models.Team(
+                    id=str(uuid.uuid4()),
+                    name=default_name,
+                    leader_id=first_emp.id if first_emp else None,
+                    member_ids=[first_emp.id] if first_emp else [],
+                    project_id=first_proj.id if first_proj else None,
+                    notes="Field Team",
+                )
+                db.add(t)
+            db.commit()
+            teams = db.query(models.Team).order_by(models.Team.name.asc()).all()
+        return [
+            {
+                "id": t.id,
+                "name": t.name,
+                "leader_id": t.leader_id,
+                "member_ids": t.member_ids or [],
+            }
+            for t in teams
+        ]
+    except Exception:
+        return []
+
+
 @router.post(
     "/upload",
     response_model=schemas.ProtocolExtractedResponse,
@@ -1067,11 +1398,6 @@ def generate_protocols_excel_bytes(addresses: List[models.Address]) -> bytes:
 async def upload_and_parse_protocol(
     file: UploadFile = File(..., description="Standardized UGG Hausbegehungsprotokoll PDF file"),
 ) -> schemas.ProtocolExtractedResponse:
-    """
-    Receives an uploaded 'UGG Hausbegehungsprotokoll' PDF, parses it locally on-premise
-    using PyMuPDF/pdfplumber/pypdf, and returns the structured JSON payload (including
-    base64-encoded PDF for persistence on confirm) for Human-in-the-Loop verification.
-    """
     _ensure_protocol_columns()
     filename = file.filename or "UGG_Hausbegehungsprotokoll.pdf"
     if not filename.lower().endswith(".pdf") and file.content_type != "application/pdf":
@@ -1096,7 +1422,6 @@ def _sync_unit_ausbau_flags(
     reserve: Optional[bool],
     ohne: Optional[bool],
 ) -> Tuple[str, bool, bool, bool]:
-    """Keeps we_ausbau_art ('TA Installation' | 'Reserve' | 'Ohne') and boolean flags synchronized."""
     if we_ausbau_art in ("TA Installation", "Reserve", "Ohne"):
         return (
             we_ausbau_art,
@@ -1138,6 +1463,12 @@ def confirm_and_save_protocol(
         digits = "".join(ch for ch in clean_proj if ch.isdigit())
         clean_adress_id = f"ABW{digits[-9:].zfill(9)}" if digits else f"ABW{str(uuid.uuid4().int)[:9]}"
 
+    ausbau_typ_val = (payload.ausbau_typ or payload.loesungsoption or "Metalkanal").strip()
+    norm_ort = normalize_gemeinde_ort(payload.ort, payload.plz)
+    norm_ab_termin = format_date_dd_mm_yyyy(payload.ausbautermin)
+    norm_abg_datum = format_date_dd_mm_yyyy(payload.abgeschlossen_datum)
+    norm_rest_termin = format_date_dd_mm_yyyy(payload.restarbeit_termin)
+
     if existing:
         if not overwrite:
             raise HTTPException(
@@ -1145,28 +1476,30 @@ def confirm_and_save_protocol(
                 detail=f"Ein Protokoll mit der Projektnummer '{clean_proj}' existiert bereits.",
             )
         existing.adress_id = clean_adress_id
-        existing.datum = payload.datum.strip()
-        existing.hausbegeher = payload.hausbegeher.strip()
+        existing.datum = format_date_dd_mm_yyyy(payload.datum)
+        existing.hausbegeher = ""
         existing.team = (payload.team or "").strip()
         existing.building_status = (payload.building_status or "Ausbau terminiert").strip()
         existing.is_priority = bool(payload.is_priority)
-        existing.ausbau_typ = (payload.ausbau_typ or "Metalkanal").strip()
-        existing.ausbautermin = (payload.ausbautermin or "").strip()
-        existing.restarbeit_termin = (payload.restarbeit_termin or "").strip()
+        existing.ausbau_typ = ausbau_typ_val
+        existing.ausbautermin = norm_ab_termin
+        existing.abgeschlossen_datum = norm_abg_datum
+        existing.restarbeit_termin = norm_rest_termin
         existing.plz = payload.plz.strip()
-        existing.ort = payload.ort.strip()
+        existing.ort = norm_ort or payload.ort.strip()
         existing.strasse = payload.strasse.strip()
         existing.hausnummer = payload.hausnummer.strip()
-        existing.owner_name = payload.owner_name.strip()
-        existing.owner_telefon = payload.owner_telefon.strip()
-        existing.owner_email = payload.owner_email.strip()
+        existing.owner_name = ""
+        existing.owner_telefon = ""
+        existing.owner_email = ""
         existing.total_we = payload.total_we
-        existing.ne3_status = payload.ne3_status.strip()
-        existing.loesungsoption = payload.loesungsoption.strip()
+        existing.ne3_status = ""
+        existing.loesungsoption = ausbau_typ_val
         existing.flexrohr = bool(payload.flexrohr)
         existing.huep_installiert = bool(payload.huep_installiert)
         existing.spleissen_fertig = bool(payload.spleissen_fertig)
-        existing.upload_done = bool(payload.upload_done or payload.pdf_base64)
+        # Fotos Uploaded (upload_done) is ONLY checked when explicitly set, NEVER auto-checked on Hausbegehungsprotokoll upload
+        existing.upload_done = bool(payload.upload_done)
         existing.genehmigt = bool(payload.genehmigt)
         existing.rechnung_erstellt = bool(payload.rechnung_erstellt)
         existing.rechnung_bezahlt = bool(payload.rechnung_bezahlt)
@@ -1197,33 +1530,35 @@ def confirm_and_save_protocol(
             )
         db.commit()
         db.refresh(existing)
+        sync_protocol_address_to_erp(db, existing)
         return _serialize_address(existing)
 
     new_address = models.Address(
         adress_id=clean_adress_id,
         projektnummer=clean_proj,
-        datum=payload.datum.strip(),
-        hausbegeher=payload.hausbegeher.strip(),
-        team=(payload.team or f"Techno({payload.ort.strip()})").strip(),
+        datum=format_date_dd_mm_yyyy(payload.datum),
+        hausbegeher="",
+        team=(payload.team or "").strip(),
         building_status=(payload.building_status or "Ausbau terminiert").strip(),
         is_priority=bool(payload.is_priority),
-        ausbau_typ=(payload.ausbau_typ or "Metalkanal").strip(),
-        ausbautermin=(payload.ausbautermin or "").strip(),
-        restarbeit_termin=(payload.restarbeit_termin or "").strip(),
+        ausbau_typ=ausbau_typ_val,
+        ausbautermin=norm_ab_termin,
+        abgeschlossen_datum=norm_abg_datum,
+        restarbeit_termin=norm_rest_termin,
         plz=payload.plz.strip(),
-        ort=payload.ort.strip(),
+        ort=norm_ort or payload.ort.strip(),
         strasse=payload.strasse.strip(),
         hausnummer=payload.hausnummer.strip(),
-        owner_name=payload.owner_name.strip(),
-        owner_telefon=payload.owner_telefon.strip(),
-        owner_email=payload.owner_email.strip(),
+        owner_name="",
+        owner_telefon="",
+        owner_email="",
         total_we=payload.total_we,
-        ne3_status=payload.ne3_status.strip(),
-        loesungsoption=payload.loesungsoption.strip(),
+        ne3_status="",
+        loesungsoption=ausbau_typ_val,
         flexrohr=bool(payload.flexrohr),
         huep_installiert=bool(payload.huep_installiert),
         spleissen_fertig=bool(payload.spleissen_fertig),
-        upload_done=bool(payload.upload_done or payload.pdf_base64),
+        upload_done=bool(payload.upload_done),
         genehmigt=bool(payload.genehmigt),
         rechnung_erstellt=bool(payload.rechnung_erstellt),
         rechnung_bezahlt=bool(payload.rechnung_bezahlt),
@@ -1254,6 +1589,7 @@ def confirm_and_save_protocol(
 
     db.commit()
     db.refresh(new_address)
+    sync_protocol_address_to_erp(db, new_address)
     return _serialize_address(new_address)
 
 
@@ -1272,6 +1608,19 @@ def list_protocol_addresses(
         .order_by(models.Address.created_at.desc())
         .all()
     )
+    dirty_changed = False
+    for a in addresses:
+        cleaned_ort = normalize_gemeinde_ort(a.ort, a.plz)
+        if cleaned_ort and a.ort != cleaned_ort:
+            a.ort = cleaned_ort
+            dirty_changed = True
+    if dirty_changed:
+        try:
+            db.commit()
+        except Exception:
+            db.rollback()
+    for a in addresses:
+        sync_protocol_address_to_erp(db, a)
     return [_serialize_address(a) for a in addresses]
 
 
@@ -1299,7 +1648,7 @@ def get_protocol_address(
 @router.put(
     "/addresses/{address_id}",
     response_model=schemas.AddressOut,
-    summary="Update an existing Master Address and optionally its units",
+    summary="Update an existing Master Address",
 )
 def update_protocol_address(
     address_id: UUID,
@@ -1319,8 +1668,6 @@ def update_protocol_address(
     if payload.adress_id is not None:
         address_record.adress_id = payload.adress_id.strip()
     address_record.projektnummer = payload.projektnummer.strip()
-    address_record.datum = payload.datum.strip()
-    address_record.hausbegeher = payload.hausbegeher.strip()
     if payload.team is not None:
         address_record.team = payload.team.strip()
     if payload.building_status is not None:
@@ -1329,20 +1676,18 @@ def update_protocol_address(
         address_record.is_priority = bool(payload.is_priority)
     if payload.ausbau_typ is not None:
         address_record.ausbau_typ = payload.ausbau_typ.strip()
+        address_record.loesungsoption = payload.ausbau_typ.strip()
     if payload.ausbautermin is not None:
-        address_record.ausbautermin = payload.ausbautermin.strip()
+        address_record.ausbautermin = format_date_dd_mm_yyyy(payload.ausbautermin)
+    if payload.abgeschlossen_datum is not None:
+        address_record.abgeschlossen_datum = format_date_dd_mm_yyyy(payload.abgeschlossen_datum)
     if payload.restarbeit_termin is not None:
-        address_record.restarbeit_termin = payload.restarbeit_termin.strip()
+        address_record.restarbeit_termin = format_date_dd_mm_yyyy(payload.restarbeit_termin)
     address_record.plz = payload.plz.strip()
-    address_record.ort = payload.ort.strip()
+    address_record.ort = normalize_gemeinde_ort(payload.ort, payload.plz) or payload.ort.strip()
     address_record.strasse = payload.strasse.strip()
     address_record.hausnummer = payload.hausnummer.strip()
-    address_record.owner_name = payload.owner_name.strip()
-    address_record.owner_telefon = payload.owner_telefon.strip()
-    address_record.owner_email = payload.owner_email.strip()
     address_record.total_we = payload.total_we
-    address_record.ne3_status = payload.ne3_status.strip()
-    address_record.loesungsoption = payload.loesungsoption.strip()
     if payload.flexrohr is not None:
         address_record.flexrohr = bool(payload.flexrohr)
     if payload.huep_installiert is not None:
@@ -1360,10 +1705,10 @@ def update_protocol_address(
     if payload.pdf_base64:
         address_record.pdf_base64 = payload.pdf_base64
         address_record.pdf_filename = payload.pdf_filename or f"UGG_{address_record.projektnummer}.pdf"
-        address_record.upload_done = True
 
     db.commit()
     db.refresh(address_record)
+    sync_protocol_address_to_erp(db, address_record)
     return _serialize_address(address_record)
 
 
@@ -1391,10 +1736,23 @@ def patch_protocol_address(
     for field, value in update_data.items():
         if isinstance(value, str):
             value = value.strip()
+        if field in ("ausbautermin", "abgeschlossen_datum", "restarbeit_termin"):
+            value = format_date_dd_mm_yyyy(value)
+        elif field == "ort":
+            value = normalize_gemeinde_ort(value, address_record.plz)
         setattr(address_record, field, value)
+        if field == "ausbau_typ":
+            address_record.loesungsoption = value
+
+    # Auto-set abgeschlossen_datum to today (DD.MM.YYYY) if status changed to Abgeschlossen and date is empty
+    if update_data.get("building_status") == "Abgeschlossen" and not getattr(
+        address_record, "abgeschlossen_datum", None
+    ):
+        address_record.abgeschlossen_datum = datetime.utcnow().strftime("%d.%m.%Y")
 
     db.commit()
     db.refresh(address_record)
+    sync_protocol_address_to_erp(db, address_record)
     return _serialize_address(address_record)
 
 
@@ -1515,7 +1873,6 @@ async def upload_building_pdf(
 
     address_record.pdf_filename = file.filename or f"UGG_Protokoll_{address_record.projektnummer}.pdf"
     address_record.pdf_base64 = base64.b64encode(pdf_bytes).decode("ascii")
-    address_record.upload_done = True
 
     db.commit()
     db.refresh(address_record)
@@ -1535,6 +1892,14 @@ def delete_protocol_address(
     address_record = db.query(models.Address).filter(models.Address.id == address_id).first()
     if not address_record:
         raise HTTPException(status_code=404, detail="Adresse wurde nicht gefunden.")
+    try:
+        for b_obj in db.query(models.BuildingObject).all():
+            attrs = b_obj.attributes or {}
+            if str(attrs.get("protocol_address_id", "")) == str(address_id):
+                db.query(models.Assignment).filter(models.Assignment.object_id == b_obj.id).delete()
+                db.delete(b_obj)
+    except Exception:
+        pass
     db.delete(address_record)
     db.commit()
     return {"status": "deleted", "id": str(address_id)}
@@ -1604,7 +1969,6 @@ def update_protocol_unit(
 
     update_data = payload.model_dump(exclude_unset=True)
 
-    # Synchronize TA Installation / Reserve / Ohne when any of them is updated
     if "we_ausbau_art" in update_data:
         art = update_data["we_ausbau_art"]
         unit_record.we_ausbau_art = art
@@ -1704,28 +2068,20 @@ def download_sample_ugg_pdf(
 
         lines = [
             (50, 55, 16, "UGG Hausbegehungsprotokoll"),
-            (50, 80, 11, f"UGG-Projektnummer: {projektnummer}"),
-            (50, 96, 11, f"Adress-ID: {adress_id}"),
-            (50, 112, 11, f"Datum/Uhrzeit: {datetime.now().strftime('%d.%m.%Y %H:%M')}"),
-            (50, 128, 11, "Hausbegeher: Lukas Weber"),
-            (50, 160, 13, "Eigentümer"),
-            (50, 180, 11, "Vorname: Heiko   Nachname: Burgstaller-Pflüger"),
-            (50, 198, 11, "Telefon: 071729349333"),
-            (50, 216, 11, "E-Mail: hb@km-hausverwaltung.de"),
-            (50, 248, 13, "Objekt-Adresse"),
-            (50, 268, 11, "PLZ: 73547   Ort: Lorch"),
-            (50, 286, 11, "Straße: Zollgasse   Nr: 2"),
-            (50, 304, 11, "WE: 4"),
-            (50, 338, 13, "Zählung"),
-            (50, 358, 11, "Etage      Unit-ID"),
-            (50, 376, 11, "EG         001"),
-            (50, 394, 11, "1. OG      002"),
-            (50, 412, 11, "2. OG      003"),
-            (50, 430, 11, "DG         004"),
-            (50, 468, 13, "NE3 Status"),
-            (50, 488, 11, "[x] Vorhanden / Geklärt    [ ] Offen"),
-            (50, 518, 12, "Lösungsoption 1"),
-            (50, 536, 11, "Metalkanal"),
+            (50, 82, 11, f"UGG-Projektnummer: {projektnummer}"),
+            (50, 100, 11, f"Adress-ID: {adress_id}"),
+            (50, 134, 13, "Objekt-Adresse"),
+            (50, 154, 11, "PLZ: 73547   Ort: Lorch"),
+            (50, 172, 11, "Straße: Zollgasse   Nr: 2"),
+            (50, 190, 11, "WE: 4"),
+            (50, 224, 13, "Zählung"),
+            (50, 244, 11, "Etage      Unit-ID"),
+            (50, 262, 11, "EG         001"),
+            (50, 280, 11, "1. OG      002"),
+            (50, 298, 11, "2. OG      003"),
+            (50, 316, 11, "DG         004"),
+            (50, 354, 12, "Lösungsoption 1 / Ausbau-Typ"),
+            (50, 372, 11, "Metalkanal"),
         ]
         for x, y, size, text_line in lines:
             page.insert_text((x, y), text_line, fontsize=size)
@@ -1737,12 +2093,6 @@ def download_sample_ugg_pdf(
             "BT /F1 12 Tf 50 780 Td (UGG Hausbegehungsprotokoll) Tj "
             f"0 -18 Td (UGG-Projektnummer: {projektnummer}) Tj "
             f"0 -18 Td (Adress-ID: {adress_id}) Tj "
-            "0 -18 Td (Datum/Uhrzeit: 15.11.2026 08:01) Tj "
-            "0 -18 Td (Hausbegeher: Lukas Weber) Tj "
-            "0 -22 Td (Eigentuemer) Tj "
-            "0 -18 Td (Vorname: Heiko   Nachname: Burgstaller-Pflueger) Tj "
-            "0 -18 Td (Telefon: 071729349333) Tj "
-            "0 -18 Td (E-Mail: hb@km-hausverwaltung.de) Tj "
             "0 -22 Td (Objekt-Adresse) Tj "
             "0 -18 Td (PLZ: 73547   Ort: Lorch) Tj "
             "0 -18 Td (Strasse: Zollgasse   Nr: 2) Tj "
@@ -1753,8 +2103,7 @@ def download_sample_ugg_pdf(
             "0 -18 Td (1. OG   002) Tj "
             "0 -18 Td (2. OG   003) Tj "
             "0 -18 Td (DG      004) Tj "
-            "0 -22 Td (NE3 Status: [x] Vorhanden) Tj "
-            "0 -18 Td (Loesungsoption 1) Tj "
+            "0 -22 Td (Loesungsoption 1) Tj "
             "0 -18 Td (Metalkanal) Tj ET"
         ).encode("latin-1")
         pdf_bytes = (
