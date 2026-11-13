@@ -544,9 +544,11 @@ class Address(Base):
     id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
     adress_id = Column(String(100), nullable=True, index=True, default="")       # e.g., "ABW007413530"
     projektnummer = Column(String(100), unique=True, nullable=False, index=True)  # e.g., "N4E241593436" (WE Nummer)
+    project_id = Column(String(36), nullable=True, index=True, default="")       # Linked Project ID
+    project_name = Column(String(150), nullable=True, default="UGG")             # Linked Project Name (e.g., "UGG")
     datum = Column(String(100), nullable=False)                                  # HBG Datum/Uhrzeit
     hausbegeher = Column(String(150), nullable=True)
-    team = Column(String(150), nullable=True, default="")                        # e.g., "Techno(Lorch)"
+    team = Column(String(150), nullable=True, default="")                        # e.g., "Team Lorch"
     building_status = Column(String(100), nullable=True, default="Ausbau terminiert")  # Building Status
     is_priority = Column(Boolean, nullable=True, default=False)                  # Priority Star
     ausbau_typ = Column(String(100), nullable=True, default="Metalkanal")        # Metalkanal, Leerrohr-Kamin, etc.
@@ -565,6 +567,7 @@ class Address(Base):
     loesungsoption = Column(String(255), nullable=True)                          # e.g., "kabelkanal"
 
     # Whole-Building Technical & Billing Checkboxes (selective for whole building, not Wohnungen)
+    metalkanal_installiert = Column(Boolean, nullable=True, default=False)
     flexrohr = Column(Boolean, nullable=True, default=False)
     huep_installiert = Column(Boolean, nullable=True, default=False)
     spleissen_fertig = Column(Boolean, nullable=True, default=False)
@@ -587,6 +590,26 @@ class Address(Base):
         order_by="Unit.unit_id",
         lazy="selectin",
     )
+
+
+class ProtocolInvoice(Base):
+    __tablename__ = "protocol_invoices"
+
+    id = Column(String(36), primary_key=True, default=gen_uuid, index=True)
+    rechnungsnummer = Column(String(100), nullable=False, index=True)
+    titel = Column(String(255), nullable=True, default="")
+    project_id = Column(String(36), nullable=True, default="")
+    project_name = Column(String(150), nullable=True, default="UGG")
+    gemeinde = Column(String(150), nullable=True, default="")
+    rechnungsdatum = Column(String(50), nullable=True, default="")               # DD.MM.YYYY
+    faelligkeitsdatum = Column(String(50), nullable=True, default="")            # DD.MM.YYYY
+    bezahlt_datum = Column(String(50), nullable=True, default="")                # DD.MM.YYYY
+    betrag_netto = Column(Numeric(12, 2), nullable=True, default=0.00)
+    status = Column(String(50), nullable=False, default="Waiting for Payment")   # "Waiting for Payment" | "Paid"
+    bezahlt = Column(Boolean, nullable=False, default=False)
+    address_ids = Column(JSON, nullable=True, default=list)                      # List of Address UUID strings
+    notes = Column(Text, nullable=True, default="")
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 
 class Unit(Base):

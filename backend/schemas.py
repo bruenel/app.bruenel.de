@@ -377,9 +377,11 @@ class ProtocolExtractedResponse(BaseModel):
     """Returned by POST /api/v1/protocol/upload for Human-in-the-Loop verification (not yet saved to DB)."""
     adress_id: str = Field(default="", description="Address ID, e.g., 'ABW007413530'")
     projektnummer: str = Field(default="", description="UGG-Projektnummer / WE Nummer, e.g., 'N4E241593436'")
+    project_id: Optional[str] = Field(default="")
+    project_name: Optional[str] = Field(default="UGG")
     datum: str = Field(default="", description="HBG Datum/Uhrzeit of inspection")
     hausbegeher: str = Field(default="", description="Name of field inspector")
-    team: str = Field(default="", description="Assigned team, e.g., 'Techno(Lorch)'")
+    team: str = Field(default="", description="Assigned team, e.g., 'Team Lorch'")
     building_status: str = Field(default="Ausbau terminiert", description="Building status")
     is_priority: bool = Field(default=False)
     ausbau_typ: str = Field(default="Metalkanal", description="Metalkanal | Leerrohr-Kamin | Kabelkanal")
@@ -396,6 +398,7 @@ class ProtocolExtractedResponse(BaseModel):
     total_we: int = Field(default=1, ge=1, description="Total number of Wohneinheiten (WE)")
     ne3_status: str = Field(default="", description="Extracted checkbox status for NE3")
     loesungsoption: str = Field(default="", description="Extracted text below Lösungsoption 1")
+    metalkanal_installiert: bool = Field(default=False)
     flexrohr: bool = Field(default=False)
     huep_installiert: bool = Field(default=False)
     spleissen_fertig: bool = Field(default=False)
@@ -413,6 +416,8 @@ class ProtocolConfirmRequest(BaseModel):
     """Payload submitted to POST /api/v1/protocol/confirm after Human-in-the-Loop verification."""
     adress_id: Optional[str] = Field(default="")
     projektnummer: str = Field(..., min_length=1)
+    project_id: Optional[str] = Field(default="")
+    project_name: Optional[str] = Field(default="UGG")
     datum: str = Field(default="")
     hausbegeher: str = Field(default="")
     team: Optional[str] = Field(default="")
@@ -432,6 +437,7 @@ class ProtocolConfirmRequest(BaseModel):
     total_we: int = Field(..., ge=1)
     ne3_status: str = Field(default="")
     loesungsoption: str = Field(default="")
+    metalkanal_installiert: Optional[bool] = Field(default=False)
     flexrohr: Optional[bool] = Field(default=False)
     huep_installiert: Optional[bool] = Field(default=False)
     spleissen_fertig: Optional[bool] = Field(default=False)
@@ -449,6 +455,8 @@ class AddressPatchRequest(BaseModel):
     """Partial update payload for a Master Building Address."""
     adress_id: Optional[str] = None
     projektnummer: Optional[str] = None
+    project_id: Optional[str] = None
+    project_name: Optional[str] = None
     datum: Optional[str] = None
     hausbegeher: Optional[str] = None
     team: Optional[str] = None
@@ -468,6 +476,7 @@ class AddressPatchRequest(BaseModel):
     total_we: Optional[int] = None
     ne3_status: Optional[str] = None
     loesungsoption: Optional[str] = None
+    metalkanal_installiert: Optional[bool] = None
     flexrohr: Optional[bool] = None
     huep_installiert: Optional[bool] = None
     spleissen_fertig: Optional[bool] = None
@@ -516,6 +525,8 @@ class AddressOut(BaseModel):
     id: UUID
     adress_id: Optional[str] = ""
     projektnummer: str
+    project_id: Optional[str] = ""
+    project_name: Optional[str] = "UGG"
     datum: str
     hausbegeher: Optional[str] = ""
     team: Optional[str] = ""
@@ -535,6 +546,7 @@ class AddressOut(BaseModel):
     total_we: int
     ne3_status: Optional[str] = ""
     loesungsoption: Optional[str] = ""
+    metalkanal_installiert: Optional[bool] = False
     flexrohr: Optional[bool] = False
     huep_installiert: Optional[bool] = False
     spleissen_fertig: Optional[bool] = False
@@ -547,6 +559,62 @@ class AddressOut(BaseModel):
     comments: Optional[List[Dict[str, Any]]] = []
     created_at: Optional[datetime] = None
     units: List[UnitOut] = []
+
+    class Config:
+        from_attributes = True
+
+
+class ProtocolInvoiceCreate(BaseModel):
+    rechnungsnummer: Optional[str] = ""
+    titel: Optional[str] = ""
+    project_id: Optional[str] = ""
+    project_name: Optional[str] = "UGG"
+    gemeinde: Optional[str] = ""
+    rechnungsdatum: Optional[str] = ""
+    faelligkeitsdatum: Optional[str] = ""
+    bezahlt_datum: Optional[str] = ""
+    betrag_netto: Optional[float] = 0.0
+    status: Optional[str] = "Waiting for Payment"
+    bezahlt: Optional[bool] = False
+    address_ids: List[str] = Field(default_factory=list)
+    notes: Optional[str] = ""
+
+
+class ProtocolInvoicePatch(BaseModel):
+    rechnungsnummer: Optional[str] = None
+    titel: Optional[str] = None
+    project_id: Optional[str] = None
+    project_name: Optional[str] = None
+    gemeinde: Optional[str] = None
+    rechnungsdatum: Optional[str] = None
+    faelligkeitsdatum: Optional[str] = None
+    bezahlt_datum: Optional[str] = None
+    betrag_netto: Optional[float] = None
+    status: Optional[str] = None
+    bezahlt: Optional[bool] = None
+    address_ids: Optional[List[str]] = None
+    notes: Optional[str] = None
+
+
+class ProtocolInvoiceOut(BaseModel):
+    id: str
+    rechnungsnummer: str
+    titel: Optional[str] = ""
+    project_id: Optional[str] = ""
+    project_name: Optional[str] = "UGG"
+    gemeinde: Optional[str] = ""
+    rechnungsdatum: Optional[str] = ""
+    faelligkeitsdatum: Optional[str] = ""
+    bezahlt_datum: Optional[str] = ""
+    betrag_netto: Optional[float] = 0.0
+    status: str = "Waiting for Payment"
+    bezahlt: bool = False
+    address_ids: List[str] = []
+    objects: List[Dict[str, Any]] = []
+    total_objects: int = 0
+    total_we: int = 0
+    notes: Optional[str] = ""
+    created_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True

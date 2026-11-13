@@ -195,32 +195,50 @@ def sync_protocol_address_to_erp(db: Session, addr: models.Address) -> None:
             db.add(region)
             db.flush()
 
-        # 2. Project sync
-        project = (
-            db.query(models.Project)
-            .filter(models.Project.region_id == region.id)
-            .first()
-        )
+        # 2. Project sync (syncs with Projects & Regions in Projects & Objects)
+        desired_proj_id = (getattr(addr, "project_id", "") or "").strip()
+        desired_proj_name = (getattr(addr, "project_name", "") or "UGG").strip() or "UGG"
+        project = None
+        if desired_proj_id:
+            project = db.query(models.Project).filter(models.Project.id == desired_proj_id).first()
+        if not project and desired_proj_name:
+            project = (
+                db.query(models.Project)
+                .filter(func.lower(models.Project.name) == desired_proj_name.lower())
+                .first()
+            )
+            if not project and desired_proj_name.upper() == "UGG":
+                project = (
+                    db.query(models.Project)
+                    .filter(
+                        (models.Project.name.ilike("%UGG%")) | (models.Project.code.ilike("%UGG%"))
+                    )
+                    .first()
+                )
         if not project:
             project = (
                 db.query(models.Project)
-                .filter(models.Project.name.ilike(f"%{city_str}%"))
+                .filter(models.Project.region_id == region.id)
                 .first()
             )
         if not project:
-            project = db.query(models.Project).order_by(models.Project.created_at.asc()).first()
-        if not project:
             project = models.Project(
                 id=str(uuid.uuid4()),
-                name=f"UGG Glasfaser Ausbau {city_str}",
-                code=f"UGG-{plz_str}",
-                client_name="Unsere Grüne Glasfaser (UGG)",
+                name=desired_proj_name if desired_proj_name else "UGG",
+                code=f"UGG-{plz_str}" if desired_proj_name.upper().startswith("UGG") else desired_proj_name[:12].upper(),
+                client_name="Unsere Grüne Glasfaser (UGG)" if desired_proj_name.upper().startswith("UGG") else desired_proj_name,
                 kst=1000,
                 status="Active",
                 region_id=region.id,
             )
             db.add(project)
             db.flush()
+        elif not project.region_id:
+            project.region_id = region.id
+
+        addr.project_id = project.id
+        if not getattr(addr, "project_name", None):
+            addr.project_name = "UGG" if "ugg" in (project.name or "").lower() else project.name
 
         # 3. Team sync with Projects & Objects -> Field Teams
         raw_team_name = (addr.team or "").strip()
@@ -245,7 +263,7 @@ def sync_protocol_address_to_erp(db: Session, addr: models.Address) -> None:
                 .first()
             )
 
-        # 4. BuildingObject sync in Projects & Objects -> Building Objects
+        # 4. BuildingObject sync in Projects & Objects -> Objects & Properties
         street_house = f"{addr.strasse or ''} {addr.hausnummer or ''}".strip()
         full_address = f"{street_house}, {plz_str} {city_str}".strip(", ")
         b_status = (addr.building_status or "Ausbau terminiert").strip()
@@ -271,13 +289,15 @@ def sync_protocol_address_to_erp(db: Session, addr: models.Address) -> None:
         units_cnt = max(1, int(addr.total_we or len(addr.units or []) or 1))
         ausbau_typ_str = addr.ausbau_typ or "Metalkanal"
         notes_summary = (
-            f"Adress-ID: {addr.adress_id or '-'} | WE-Nr: {addr.projektnummer} | "
+            f"Projekt: {addr.project_name or 'UGG'} | Adress-ID: {addr.adress_id or '-'} | WE-Nr: {addr.projektnummer} | "
             f"Ausbau-Typ: {ausbau_typ_str} | Team: {team_name or '-'} | "
             f"Ausbau Datum: {format_date_dd_mm_yyyy(addr.ausbautermin) or '-'}"
         )
         merged_attrs = {
             **(b_obj.attributes if b_obj and isinstance(b_obj.attributes, dict) else {}),
             "protocol_address_id": str(addr.id),
+            "project_id": addr.project_id or project.id,
+            "project_name": addr.project_name or "UGG",
             "adress_id": addr.adress_id or "",
             "projektnummer": addr.projektnummer or "",
             "ausbau_typ": ausbau_typ_str,
@@ -333,9 +353,9 @@ def sync_protocol_address_to_erp(db: Session, addr: models.Address) -> None:
             .filter(models.Assignment.object_id == b_obj.id)
             .first()
         )
-        task_title = f"UGG Ausbau ({ausbau_typ_str}): {street_house}, {city_str} [{addr.adress_id or addr.projektnummer}]"
+        task_title = f"{addr.project_name or 'UGG'} Ausbau ({ausbau_typ_str}): {street_house}, {city_str} [{addr.adress_id or addr.projektnummer}]"
         task_instructions = (
-            f"Adress-ID: {addr.adress_id or '-'} | Projektnummer: {addr.projektnummer} | "
+            f"Projekt: {addr.project_name or 'UGG'} | Adress-ID: {addr.adress_id or '-'} | Projektnummer: {addr.projektnummer} | "
             f"Einheiten: {units_cnt} WE | Ausbau-Typ: {ausbau_typ_str} | "
             f"Ausbau Datum: {format_date_dd_mm_yyyy(addr.ausbautermin) or '-'} | "
             f"Restarbeit Termin: {format_date_dd_mm_yyyy(addr.restarbeit_termin) or '-'}"
@@ -394,6 +414,7 @@ def sync_protocol_address_to_erp(db: Session, addr: models.Address) -> None:
                 task_status=mapped_task_status,
                 checklist=[
                     {"label": f"Ausbau ({ausbau_typ_str}) durchführen ({units_cnt} WE)", "done": b_status == "Abgeschlossen"},
+                    {"label": "Metalkanal installed", "done": bool(getattr(addr, "metalkanal_installiert", False))},
                     {"label": "HÜP & Spleißen prüfen", "done": bool(addr.huep_installiert and addr.spleissen_fertig)},
                     {"label": "Fotos Uploaded", "done": bool(addr.upload_done)},
                 ],
@@ -408,13 +429,18 @@ def sync_protocol_address_to_erp(db: Session, addr: models.Address) -> None:
 
 
 def _ensure_protocol_columns() -> None:
-    """Safely ensures all newly added columns exist on `addresses` and `units` in PostgreSQL/SQLite."""
+    """Safely ensures all newly added columns and tables exist on `addresses`, `units`, and `protocol_invoices`."""
     global _SCHEMA_CHECKED
     if _SCHEMA_CHECKED or database.engine is None:
         return
     try:
+        models.Base.metadata.create_all(
+            bind=database.engine,
+            tables=[models.ProtocolInvoice.__table__],
+            checkfirst=True,
+        )
         insp = inspect(database.engine)
-        for table_name in ("addresses", "units"):
+        for table_name in ("addresses", "units", "protocol_invoices"):
             if table_name in models.Base.metadata.tables and insp.has_table(table_name):
                 table_obj = models.Base.metadata.tables[table_name]
                 existing_cols = {c["name"] for c in insp.get_columns(table_name)}
@@ -439,6 +465,8 @@ def _serialize_address(addr: models.Address) -> schemas.AddressOut:
             if getattr(u, "ta_installiert", False)
             else ("Reserve" if getattr(u, "reserve", False) else ("Ohne" if getattr(u, "ohne", False) else "TA Installation"))
         )
+        if we_art not in ("TA Installation", "Reserve", "Ohne"):
+            we_art = "Ohne" if getattr(u, "ohne", False) else ("Reserve" if getattr(u, "reserve", False) else "TA Installation")
         units_out.append(
             schemas.UnitOut(
                 id=u.id,
@@ -457,11 +485,16 @@ def _serialize_address(addr: models.Address) -> schemas.AddressOut:
 
     ausbau_typ = getattr(addr, "ausbau_typ", None) or getattr(addr, "loesungsoption", None) or "Metalkanal"
     norm_ort = normalize_gemeinde_ort(addr.ort, addr.plz)
+    proj_name = getattr(addr, "project_name", None) or "UGG"
+    if "ugg" in proj_name.lower() and len(proj_name) > 15:
+        proj_name = "UGG"
 
     return schemas.AddressOut(
         id=addr.id,
         adress_id=getattr(addr, "adress_id", "") or "",
         projektnummer=addr.projektnummer or "",
+        project_id=getattr(addr, "project_id", "") or "",
+        project_name=proj_name,
         datum=format_date_dd_mm_yyyy(addr.datum),
         hausbegeher="",
         team=getattr(addr, "team", "") or "",
@@ -481,6 +514,7 @@ def _serialize_address(addr: models.Address) -> schemas.AddressOut:
         total_we=addr.total_we or max(1, len(units_out)),
         ne3_status="",
         loesungsoption=ausbau_typ,
+        metalkanal_installiert=bool(getattr(addr, "metalkanal_installiert", False)),
         flexrohr=bool(getattr(addr, "flexrohr", False)),
         huep_installiert=bool(getattr(addr, "huep_installiert", False)),
         spleissen_fertig=bool(getattr(addr, "spleissen_fertig", False)),
@@ -882,10 +916,12 @@ def parse_ugg_protocol_pdf(pdf_bytes: bytes, filename: str = "protokoll.pdf") ->
         ],
         raw_text,
     )
-    if not adress_id and projektnummer:
-        digits = "".join(ch for ch in projektnummer if ch.isdigit())
-        if digits:
-            adress_id = f"ABW{digits[-9:].zfill(9)}"
+    if not adress_id:
+        for k, v in widgets.items():
+            kl = k.lower()
+            if ("adress_id" in kl or "address_id" in kl or "adressid" in kl) and v:
+                adress_id = _normalize_whitespace(str(v))
+                break
 
     plz, ort, strasse, hausnummer, total_we = _parse_address_details(raw_text, widgets)
     units = _parse_zaehlung_units(raw_text, tables, total_we)
@@ -896,8 +932,10 @@ def parse_ugg_protocol_pdf(pdf_bytes: bytes, filename: str = "protokoll.pdf") ->
     pdf_b64 = base64.b64encode(pdf_bytes).decode("ascii")
 
     return schemas.ProtocolExtractedResponse(
-        adress_id=adress_id,
+        adress_id=adress_id or "",
         projektnummer=projektnummer,
+        project_id="",
+        project_name="UGG",
         datum="",
         hausbegeher="",
         team="",
@@ -917,6 +955,7 @@ def parse_ugg_protocol_pdf(pdf_bytes: bytes, filename: str = "protokoll.pdf") ->
         total_we=total_we,
         ne3_status="",
         loesungsoption=ausbau_typ,
+        metalkanal_installiert=False,
         flexrohr=False,
         huep_installiert=False,
         spleissen_fertig=False,
@@ -1018,18 +1057,11 @@ def _build_xlsx_fallback(sheets: List[Tuple[str, List[str], List[List[Any]]]]) -
 
 def generate_protocols_excel_bytes(addresses: List[models.Address]) -> bytes:
     """
-    Builds a clean, multi-sheet Excel (.xlsx) file WITHOUT unnecessary fields
-    (removed Hausbegeher, NE3 Status, Eigentümer info, Email, separate Lösungsoption, WE-Status, and HBG Datum).
-    Includes:
-      - Ausbau-Typ (Metalkanal, Leerrohr-Kamin)
-      - Status & Fortschritt (%)
-      - Ausbau Datum, Abgeschlossen Datum, Restarbeit Termin (DD.MM.YYYY)
-      - Ausbau Team (from Projects & Objects)
-      - Adress ID2, WE Nummer, PLZ, Ort (normalized Gemeinde), Straße, Etage, Wohnung
-      - Per-Wohnung: TA Installation, Reserve, Ohne
-      - Whole-Building: Flexrohr, HÜP installiert, Spleißen fertig, Fotos Uploaded, Genehmigt, Rechnung erstellt, Rechnung bezahlt
+    Builds a clean, multi-sheet Excel (.xlsx) file WITHOUT unnecessary fields.
+    Includes Projekt, Metalkanal installed, unit breakdown (TA / Reserve / Ohne), Fotos Uploaded, etc.
     """
     tracking_headers = [
+        "Projekt",
         "Ausbau-Typ",
         "Status",
         "Fortschritt (%)",
@@ -1047,6 +1079,7 @@ def generate_protocols_excel_bytes(addresses: List[models.Address]) -> bytes:
         "TA Installation",
         "Reserve",
         "Ohne",
+        "Metalkanal installed",
         "Flexrohr",
         "HÜP installiert",
         "Spleißen fertig",
@@ -1058,6 +1091,7 @@ def generate_protocols_excel_bytes(addresses: List[models.Address]) -> bytes:
     tracking_rows: List[List[Any]] = []
 
     building_headers = [
+        "Projekt",
         "Adress-ID",
         "WE Nummer",
         "PLZ",
@@ -1066,12 +1100,14 @@ def generate_protocols_excel_bytes(addresses: List[models.Address]) -> bytes:
         "Haus",
         "Einheiten (WE)",
         "Fortschritt (%)",
+        "WE Aufteilung",
         "Ausbau-Typ",
         "Ausbau Team",
         "Status",
         "Ausbau Datum",
         "Abgeschlossen Datum",
         "Restarbeit Termin",
+        "Metalkanal installed",
         "Flexrohr",
         "HÜP installiert",
         "Spleißen fertig",
@@ -1084,6 +1120,7 @@ def generate_protocols_excel_bytes(addresses: List[models.Address]) -> bytes:
     building_rows: List[List[Any]] = []
 
     unit_headers = [
+        "Projekt",
         "Adress-ID",
         "WE Nummer",
         "Adresse",
@@ -1099,9 +1136,24 @@ def generate_protocols_excel_bytes(addresses: List[models.Address]) -> bytes:
         units_list = list(addr.units or [])
         total_units = max(len(units_list), addr.total_we or 1)
         b_status = getattr(addr, "building_status", None) or "Ausbau terminiert"
+        proj_name = getattr(addr, "project_name", None) or "UGG"
+
+        ta_cnt = 0
+        res_cnt = 0
+        ohne_cnt = 0
+        for u in units_list:
+            we_art = getattr(u, "we_ausbau_art", None)
+            if we_art == "Reserve" or getattr(u, "reserve", False):
+                res_cnt += 1
+            elif we_art == "Ohne" or getattr(u, "ohne", False):
+                ohne_cnt += 1
+            else:
+                ta_cnt += 1
+        breakdown_str = f"{ta_cnt}/{total_units} TA · {res_cnt} Reserve · {ohne_cnt} Ohne"
 
         # Calculate building completion percentage
         checks = [
+            bool(getattr(addr, "metalkanal_installiert", False)),
             bool(getattr(addr, "flexrohr", False)),
             bool(getattr(addr, "huep_installiert", False)),
             bool(getattr(addr, "spleissen_fertig", False)),
@@ -1119,7 +1171,7 @@ def generate_protocols_excel_bytes(addresses: List[models.Address]) -> bytes:
                 pct = 25
             elif b_status == "Restarbeiten" and pct < 65:
                 pct = 65
-        progress_label = f"{pct}% ({total_units} WE)"
+        progress_label = f"{pct}% ({breakdown_str})"
 
         ausbau_typ = getattr(addr, "ausbau_typ", None) or "Metalkanal"
         ab_termin = format_date_dd_mm_yyyy(getattr(addr, "ausbautermin", ""))
@@ -1130,6 +1182,7 @@ def generate_protocols_excel_bytes(addresses: List[models.Address]) -> bytes:
         norm_ort = normalize_gemeinde_ort(addr.ort, addr.plz)
         full_street = f"{addr.strasse or ''} {addr.hausnummer or ''}".strip()
 
+        b_metal = "Ja" if getattr(addr, "metalkanal_installiert", False) else "Nein"
         b_flex = "Ja" if getattr(addr, "flexrohr", False) else "Nein"
         b_huep = "Ja" if getattr(addr, "huep_installiert", False) else "Nein"
         b_spleiss = "Ja" if getattr(addr, "spleissen_fertig", False) else "Nein"
@@ -1143,6 +1196,7 @@ def generate_protocols_excel_bytes(addresses: List[models.Address]) -> bytes:
 
         building_rows.append(
             [
+                proj_name,
                 adr_id,
                 addr.projektnummer or "",
                 addr.plz or "",
@@ -1151,12 +1205,14 @@ def generate_protocols_excel_bytes(addresses: List[models.Address]) -> bytes:
                 addr.hausnummer or "",
                 addr.total_we or len(units_list),
                 f"{pct}%",
+                breakdown_str,
                 ausbau_typ,
                 team_str,
                 b_status,
                 ab_termin,
                 abg_datum,
                 rest_termin,
+                b_metal,
                 b_flex,
                 b_huep,
                 b_spleiss,
@@ -1181,6 +1237,7 @@ def generate_protocols_excel_bytes(addresses: List[models.Address]) -> bytes:
 
                 tracking_rows.append(
                     [
+                        proj_name,
                         ausbau_typ,
                         b_status,
                         progress_label,
@@ -1198,6 +1255,7 @@ def generate_protocols_excel_bytes(addresses: List[models.Address]) -> bytes:
                         ta_str,
                         res_str,
                         ohne_str,
+                        b_metal,
                         b_flex,
                         b_huep,
                         b_spleiss,
@@ -1210,6 +1268,7 @@ def generate_protocols_excel_bytes(addresses: List[models.Address]) -> bytes:
 
                 unit_rows.append(
                     [
+                        proj_name,
                         adr_id,
                         addr.projektnummer or "",
                         f"{full_street}, {addr.plz or ''} {norm_ort}",
@@ -1223,6 +1282,7 @@ def generate_protocols_excel_bytes(addresses: List[models.Address]) -> bytes:
         else:
             tracking_rows.append(
                 [
+                    proj_name,
                     ausbau_typ,
                     b_status,
                     progress_label,
@@ -1240,6 +1300,7 @@ def generate_protocols_excel_bytes(addresses: List[models.Address]) -> bytes:
                     "Nein",
                     "Nein",
                     "Ja",
+                    b_metal,
                     b_flex,
                     b_huep,
                     b_spleiss,
@@ -1351,6 +1412,56 @@ def generate_protocols_excel_bytes(addresses: List[models.Address]) -> bytes:
 # ==============================================================================
 # FASTAPI ENDPOINTS (/api/v1/protocol/*)
 # ==============================================================================
+
+@router.get(
+    "/projects",
+    summary="List Active Projects from Projects & Regions module for Project filtering & assignment",
+)
+def list_projects_for_protocol(
+    db: Session = Depends(database.get_db),
+):
+    """Returns all Projects defined in `projects` table (ensuring 'UGG' exists)."""
+    _ensure_protocol_columns()
+    try:
+        projects = db.query(models.Project).order_by(models.Project.created_at.asc()).all()
+        has_ugg = any("ugg" in (p.name or "").lower() or "ugg" in (p.code or "").lower() for p in projects)
+        if not has_ugg:
+            region = db.query(models.Region).first()
+            ugg_proj = models.Project(
+                id=str(uuid.uuid4()),
+                name="UGG",
+                code="UGG",
+                client_name="Unsere Grüne Glasfaser (UGG)",
+                kst=1000,
+                status="Active",
+                region_id=region.id if region else None,
+            )
+            db.add(ugg_proj)
+            db.commit()
+            projects = db.query(models.Project).order_by(models.Project.created_at.asc()).all()
+
+        out = []
+        seen_names = set()
+        for p in projects:
+            display_name = "UGG" if (p.name or "").strip().upper().startswith("UGG GLASFASER") else (p.name or "UGG").strip()
+            key = display_name.lower()
+            if key not in seen_names:
+                seen_names.add(key)
+            out.append(
+                {
+                    "id": p.id,
+                    "name": p.name,
+                    "display_name": display_name,
+                    "code": p.code or "",
+                    "client_name": p.client_name or "",
+                    "region_id": p.region_id or "",
+                    "status": p.status or "Active",
+                }
+            )
+        return out
+    except Exception:
+        return [{"id": "ugg-default", "name": "UGG", "display_name": "UGG", "code": "UGG", "status": "Active"}]
+
 
 @router.get(
     "/teams",
@@ -1468,10 +1579,10 @@ def confirm_and_save_protocol(
         .first()
     )
 
+    # Keep adress_id empty if not explicitly provided — never fabricate a random number
     clean_adress_id = (payload.adress_id or "").strip()
-    if not clean_adress_id:
-        digits = "".join(ch for ch in clean_proj if ch.isdigit())
-        clean_adress_id = f"ABW{digits[-9:].zfill(9)}" if digits else f"ABW{str(uuid.uuid4().int)[:9]}"
+    proj_id_val = (payload.project_id or "").strip()
+    proj_name_val = (payload.project_name or "UGG").strip() or "UGG"
 
     ausbau_typ_val = (payload.ausbau_typ or payload.loesungsoption or "Metalkanal").strip()
     norm_ort = normalize_gemeinde_ort(payload.ort, payload.plz)
@@ -1483,9 +1594,11 @@ def confirm_and_save_protocol(
         if not overwrite:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail=f"Ein Protokoll mit der Projektnummer '{clean_proj}' existiert bereits.",
+                detail=f"Ein Objekt mit der WE-Nummer '{clean_proj}' existiert bereits.",
             )
         existing.adress_id = clean_adress_id
+        existing.project_id = proj_id_val
+        existing.project_name = proj_name_val
         existing.datum = format_date_dd_mm_yyyy(payload.datum)
         existing.hausbegeher = ""
         existing.team = (payload.team or "").strip()
@@ -1505,6 +1618,7 @@ def confirm_and_save_protocol(
         existing.total_we = payload.total_we
         existing.ne3_status = ""
         existing.loesungsoption = ausbau_typ_val
+        existing.metalkanal_installiert = bool(payload.metalkanal_installiert)
         existing.flexrohr = bool(payload.flexrohr)
         existing.huep_installiert = bool(payload.huep_installiert)
         existing.spleissen_fertig = bool(payload.spleissen_fertig)
@@ -1546,6 +1660,8 @@ def confirm_and_save_protocol(
     new_address = models.Address(
         adress_id=clean_adress_id,
         projektnummer=clean_proj,
+        project_id=proj_id_val,
+        project_name=proj_name_val,
         datum=format_date_dd_mm_yyyy(payload.datum),
         hausbegeher="",
         team=(payload.team or "").strip(),
@@ -1565,6 +1681,7 @@ def confirm_and_save_protocol(
         total_we=payload.total_we,
         ne3_status="",
         loesungsoption=ausbau_typ_val,
+        metalkanal_installiert=bool(payload.metalkanal_installiert),
         flexrohr=bool(payload.flexrohr),
         huep_installiert=bool(payload.huep_installiert),
         spleissen_fertig=bool(payload.spleissen_fertig),
@@ -1624,6 +1741,14 @@ def list_protocol_addresses(
         if cleaned_ort and a.ort != cleaned_ort:
             a.ort = cleaned_ort
             dirty_changed = True
+        # Clear any previously fabricated ABW address IDs derived from projektnummer digits
+        proj_digits = "".join(ch for ch in (a.projektnummer or "") if ch.isdigit())
+        if proj_digits and a.adress_id == f"ABW{proj_digits[-9:].zfill(9)}":
+            a.adress_id = ""
+            dirty_changed = True
+        if not getattr(a, "project_name", None):
+            a.project_name = "UGG"
+            dirty_changed = True
     if dirty_changed:
         try:
             db.commit()
@@ -1678,6 +1803,10 @@ def update_protocol_address(
     if payload.adress_id is not None:
         address_record.adress_id = payload.adress_id.strip()
     address_record.projektnummer = payload.projektnummer.strip()
+    if payload.project_id is not None:
+        address_record.project_id = payload.project_id.strip()
+    if payload.project_name is not None:
+        address_record.project_name = payload.project_name.strip() or "UGG"
     if payload.team is not None:
         address_record.team = payload.team.strip()
     if payload.building_status is not None:
@@ -1698,6 +1827,8 @@ def update_protocol_address(
     address_record.strasse = payload.strasse.strip()
     address_record.hausnummer = payload.hausnummer.strip()
     address_record.total_we = payload.total_we
+    if payload.metalkanal_installiert is not None:
+        address_record.metalkanal_installiert = bool(payload.metalkanal_installiert)
     if payload.flexrohr is not None:
         address_record.flexrohr = bool(payload.flexrohr)
     if payload.huep_installiert is not None:
@@ -2134,3 +2265,251 @@ def download_sample_ugg_pdf(
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="UGG_Hausbegehungsprotokoll_{projektnummer}.pdf"'},
     )
+
+
+# ==============================================================================
+# ABRECHNUNG (INVOICING FOR COMPLETED OBJECTS) ENDPOINTS (/api/v1/protocol/invoices)
+# ==============================================================================
+
+def _serialize_protocol_invoice(db: Session, inv: models.ProtocolInvoice) -> schemas.ProtocolInvoiceOut:
+    raw_ids = [str(x) for x in (inv.address_ids or []) if x]
+    linked_objs = []
+    total_we = 0
+    if raw_ids:
+        all_addrs = db.query(models.Address).options(selectinload(models.Address.units)).all()
+        addr_map = {str(a.id): a for a in all_addrs}
+        for aid in raw_ids:
+            a = addr_map.get(aid)
+            if a:
+                we_cnt = int(a.total_we or len(a.units or []) or 1)
+                total_we += we_cnt
+                linked_objs.append(
+                    {
+                        "id": str(a.id),
+                        "adress_id": a.adress_id or "",
+                        "projektnummer": a.projektnummer or "",
+                        "project_name": getattr(a, "project_name", None) or "UGG",
+                        "strasse": a.strasse or "",
+                        "hausnummer": a.hausnummer or "",
+                        "plz": a.plz or "",
+                        "ort": normalize_gemeinde_ort(a.ort, a.plz) or a.ort or "",
+                        "total_we": we_cnt,
+                        "ausbau_typ": a.ausbau_typ or "Metalkanal",
+                        "building_status": a.building_status or "Abgeschlossen",
+                        "abgeschlossen_datum": format_date_dd_mm_yyyy(getattr(a, "abgeschlossen_datum", "")),
+                        "rechnung_erstellt": bool(a.rechnung_erstellt),
+                        "rechnung_bezahlt": bool(a.rechnung_bezahlt),
+                    }
+                )
+
+    is_paid = bool(inv.bezahlt) or (inv.status or "").lower() in ("paid", "bezahlt")
+    status_str = "Paid" if is_paid else "Waiting for Payment"
+
+    return schemas.ProtocolInvoiceOut(
+        id=str(inv.id),
+        rechnungsnummer=inv.rechnungsnummer or "",
+        titel=inv.titel or "",
+        project_id=inv.project_id or "",
+        project_name=inv.project_name or "UGG",
+        gemeinde=inv.gemeinde or "",
+        rechnungsdatum=format_date_dd_mm_yyyy(inv.rechnungsdatum),
+        faelligkeitsdatum=format_date_dd_mm_yyyy(inv.faelligkeitsdatum),
+        bezahlt_datum=format_date_dd_mm_yyyy(inv.bezahlt_datum),
+        betrag_netto=float(inv.betrag_netto or 0.0),
+        status=status_str,
+        bezahlt=is_paid,
+        address_ids=raw_ids,
+        objects=linked_objs,
+        total_objects=len(linked_objs),
+        total_we=total_we,
+        notes=inv.notes or "",
+        created_at=inv.created_at,
+    )
+
+
+def _sync_invoice_checklist_flags(
+    db: Session,
+    address_ids: List[str],
+    is_paid: bool,
+    previous_address_ids: Optional[List[str]] = None,
+) -> None:
+    """
+    Synchronizes the building checklist flags (`rechnung_erstellt` and `rechnung_bezahlt`)
+    on all objects linked to a Rechnung.
+    """
+    target_set = {str(x) for x in (address_ids or []) if x}
+    prev_set = {str(x) for x in (previous_address_ids or []) if x}
+    removed_set = prev_set - target_set
+
+    all_addrs = db.query(models.Address).all()
+    for a in all_addrs:
+        aid = str(a.id)
+        if aid in target_set:
+            a.rechnung_erstellt = True
+            a.rechnung_bezahlt = bool(is_paid)
+        elif aid in removed_set:
+            a.rechnung_erstellt = False
+            a.rechnung_bezahlt = False
+
+
+@router.get(
+    "/invoices",
+    response_model=List[schemas.ProtocolInvoiceOut],
+    summary="List all Abrechnung invoices with linked completed objects",
+)
+def list_protocol_invoices(
+    db: Session = Depends(database.get_db),
+) -> List[schemas.ProtocolInvoiceOut]:
+    _ensure_protocol_columns()
+    invoices = (
+        db.query(models.ProtocolInvoice)
+        .order_by(models.ProtocolInvoice.created_at.desc())
+        .all()
+    )
+    return [_serialize_protocol_invoice(db, inv) for inv in invoices]
+
+
+@router.post(
+    "/invoices",
+    response_model=schemas.ProtocolInvoiceOut,
+    status_code=status.HTTP_201_CREATED,
+    summary="Issue a new Rechnung for selected Abgeschlossen objects and auto-check rechnung_erstellt",
+)
+def create_protocol_invoice(
+    payload: schemas.ProtocolInvoiceCreate,
+    db: Session = Depends(database.get_db),
+) -> schemas.ProtocolInvoiceOut:
+    _ensure_protocol_columns()
+    count_existing = db.query(models.ProtocolInvoice).count()
+    re_nr = (payload.rechnungsnummer or "").strip()
+    if not re_nr:
+        re_nr = f"RE-{datetime.utcnow().year}-{count_existing + 1:03d}"
+
+    is_paid = bool(payload.bezahlt) or (payload.status or "").lower() in ("paid", "bezahlt")
+    status_val = "Paid" if is_paid else "Waiting for Payment"
+    today_de = datetime.utcnow().strftime("%d.%m.%Y")
+    re_datum = format_date_dd_mm_yyyy(payload.rechnungsdatum) or today_de
+    bez_datum = format_date_dd_mm_yyyy(payload.bezahlt_datum) or (today_de if is_paid else "")
+
+    clean_ids = [str(x) for x in (payload.address_ids or []) if x]
+
+    # Derive gemeinde / project_name from selected objects if not provided
+    gemeinde_val = (payload.gemeinde or "").strip()
+    proj_name_val = (payload.project_name or "").strip()
+    if clean_ids and (not gemeinde_val or not proj_name_val):
+        all_addrs = db.query(models.Address).all()
+        selected_addrs = [a for a in all_addrs if str(a.id) in set(clean_ids)]
+        if not gemeinde_val and selected_addrs:
+            orts = sorted({normalize_gemeinde_ort(a.ort, a.plz) or a.ort for a in selected_addrs if a.ort})
+            gemeinde_val = ", ".join(orts)
+        if not proj_name_val and selected_addrs:
+            proj_name_val = getattr(selected_addrs[0], "project_name", None) or "UGG"
+
+    inv = models.ProtocolInvoice(
+        id=str(uuid.uuid4()),
+        rechnungsnummer=re_nr,
+        titel=(payload.titel or "").strip(),
+        project_id=(payload.project_id or "").strip(),
+        project_name=proj_name_val or "UGG",
+        gemeinde=gemeinde_val,
+        rechnungsdatum=re_datum,
+        faelligkeitsdatum=format_date_dd_mm_yyyy(payload.faelligkeitsdatum),
+        bezahlt_datum=bez_datum,
+        betrag_netto=float(payload.betrag_netto or 0.0),
+        status=status_val,
+        bezahlt=is_paid,
+        address_ids=clean_ids,
+        notes=(payload.notes or "").strip(),
+    )
+    db.add(inv)
+    _sync_invoice_checklist_flags(db, clean_ids, is_paid=is_paid)
+    db.commit()
+    db.refresh(inv)
+    return _serialize_protocol_invoice(db, inv)
+
+
+@router.patch(
+    "/invoices/{invoice_id}",
+    response_model=schemas.ProtocolInvoiceOut,
+    summary="Update a Rechnung or mark it as Paid (automatically checks rechnung_bezahlt on all its objects)",
+)
+def patch_protocol_invoice(
+    invoice_id: str,
+    payload: schemas.ProtocolInvoicePatch,
+    db: Session = Depends(database.get_db),
+) -> schemas.ProtocolInvoiceOut:
+    _ensure_protocol_columns()
+    inv = db.query(models.ProtocolInvoice).filter(models.ProtocolInvoice.id == invoice_id).first()
+    if not inv:
+        raise HTTPException(status_code=404, detail="Rechnung wurde nicht gefunden.")
+
+    prev_ids = list(inv.address_ids or [])
+    update_data = payload.model_dump(exclude_unset=True)
+
+    if "rechnungsnummer" in update_data and update_data["rechnungsnummer"] is not None:
+        inv.rechnungsnummer = update_data["rechnungsnummer"].strip()
+    if "titel" in update_data and update_data["titel"] is not None:
+        inv.titel = update_data["titel"].strip()
+    if "project_id" in update_data and update_data["project_id"] is not None:
+        inv.project_id = update_data["project_id"].strip()
+    if "project_name" in update_data and update_data["project_name"] is not None:
+        inv.project_name = update_data["project_name"].strip() or "UGG"
+    if "gemeinde" in update_data and update_data["gemeinde"] is not None:
+        inv.gemeinde = update_data["gemeinde"].strip()
+    if "rechnungsdatum" in update_data and update_data["rechnungsdatum"] is not None:
+        inv.rechnungsdatum = format_date_dd_mm_yyyy(update_data["rechnungsdatum"])
+    if "faelligkeitsdatum" in update_data and update_data["faelligkeitsdatum"] is not None:
+        inv.faelligkeitsdatum = format_date_dd_mm_yyyy(update_data["faelligkeitsdatum"])
+    if "bezahlt_datum" in update_data and update_data["bezahlt_datum"] is not None:
+        inv.bezahlt_datum = format_date_dd_mm_yyyy(update_data["bezahlt_datum"])
+    if "betrag_netto" in update_data and update_data["betrag_netto"] is not None:
+        inv.betrag_netto = float(update_data["betrag_netto"] or 0.0)
+    if "notes" in update_data and update_data["notes"] is not None:
+        inv.notes = update_data["notes"].strip()
+    if "address_ids" in update_data and update_data["address_ids"] is not None:
+        inv.address_ids = [str(x) for x in update_data["address_ids"] if x]
+
+    if "bezahlt" in update_data and update_data["bezahlt"] is not None:
+        inv.bezahlt = bool(update_data["bezahlt"])
+        inv.status = "Paid" if inv.bezahlt else "Waiting for Payment"
+    elif "status" in update_data and update_data["status"] is not None:
+        st_lower = update_data["status"].strip().lower()
+        inv.bezahlt = st_lower in ("paid", "bezahlt")
+        inv.status = "Paid" if inv.bezahlt else "Waiting for Payment"
+
+    if inv.bezahlt and not inv.bezahlt_datum:
+        inv.bezahlt_datum = datetime.utcnow().strftime("%d.%m.%Y")
+    elif not inv.bezahlt and "bezahlt" in update_data and not update_data.get("bezahlt_datum"):
+        inv.bezahlt_datum = ""
+
+    _sync_invoice_checklist_flags(
+        db,
+        list(inv.address_ids or []),
+        is_paid=bool(inv.bezahlt),
+        previous_address_ids=prev_ids,
+    )
+    db.commit()
+    db.refresh(inv)
+    return _serialize_protocol_invoice(db, inv)
+
+
+@router.delete(
+    "/invoices/{invoice_id}",
+    status_code=status.HTTP_200_OK,
+    summary="Delete a Rechnung and reset billing checkboxes on its objects",
+)
+def delete_protocol_invoice(
+    invoice_id: str,
+    db: Session = Depends(database.get_db),
+):
+    _ensure_protocol_columns()
+    inv = db.query(models.ProtocolInvoice).filter(models.ProtocolInvoice.id == invoice_id).first()
+    if not inv:
+        raise HTTPException(status_code=404, detail="Rechnung wurde nicht gefunden.")
+
+    prev_ids = list(inv.address_ids or [])
+    _sync_invoice_checklist_flags(db, [], is_paid=False, previous_address_ids=prev_ids)
+    db.delete(inv)
+    db.commit()
+    return {"status": "deleted", "id": invoice_id}
+

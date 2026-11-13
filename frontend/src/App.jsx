@@ -39,8 +39,8 @@ export const NAV = [
   {
     id: 'projects', label: 'Projects & Objects', icon: Building2, base: '/projects', activeBases: ['/projects', '/protocol'], mod: 'mod_projects',
     children: [
-      { to: '/projects/protocol', label: 'UGG Protokoll & AI' },
-      { to: '/projects/objects', label: 'Building Objects' },
+      { to: '/projects/objects', label: 'Objects & Properties' },
+      { to: '/projects/abrechnung', label: 'Abrechnung' },
       { to: '/projects/tasks', label: 'Task Calendar & Assignments' },
       { to: '/projects/teams', label: 'Field Teams' },
       { to: '/projects/projects', label: 'Projects & Regions' },
@@ -135,10 +135,10 @@ export const NAV = [
 
 const QUICK_ACTIONS = [
   { label: 'Arbeitszeiten erfassen', icon: Clock, href: 'https://www.bruenel.de/timenet', mod: null },
-  { label: 'UGG Protokoll & AI', icon: Sparkles, to: '/projects/protocol', action: 'upload-protocol', mod: 'mod_projects' },
+  { label: 'Objects & Properties', icon: Building2, to: '/projects/objects', action: 'upload-protocol', mod: 'mod_projects' },
+  { label: 'Abrechnung (Rechnungen)', icon: Receipt, to: '/projects/abrechnung', action: 'abrechnung', mod: 'mod_projects' },
   { label: 'New Employee', icon: UserPlus, to: '/hr/employees', action: 'add-employee', mod: 'mod_hr' },
   { label: 'Assign Task', icon: ClipboardList, to: '/projects/tasks', action: 'add-task', mod: 'mod_projects' },
-  { label: 'New Building Object', icon: Building2, to: '/projects/objects', action: 'add-object', mod: 'mod_projects' },
   { label: 'Material Buchen / Schwund', icon: ArrowRightLeft, to: '/inventory/stock', action: 'buchen', mod: 'mod_inventory' },
   { label: 'Record Expense', icon: FilePlus2, to: '/accounting/expenses', action: 'add-expense', mod: 'mod_accounting' },
 ];
@@ -674,9 +674,12 @@ export default function App() {
       <ManagementLayout user={user} logout={logout} onSwitchToPortal={() => togglePortalMode('portal')}>
         <Routes>
           <Route path="/" element={<ExecutiveDashboard user={user} />} />
-          <Route path="/projects/protocol" element={<ProtocolExtractorModule user={user} />} />
-          <Route path="/projects/:section?" element={<ProjectsObjectsModule user={user} />} />
-          <Route path="/protocol/:section?" element={<ProtocolExtractorModule user={user} />} />
+          <Route path="/projects" element={<Navigate to="/projects/objects" replace />} />
+          <Route path="/projects/objects" element={<ProtocolExtractorModule user={user} mode="objects" />} />
+          <Route path="/projects/protocol" element={<ProtocolExtractorModule user={user} mode="objects" />} />
+          <Route path="/projects/abrechnung" element={<ProtocolExtractorModule user={user} mode="abrechnung" />} />
+          <Route path="/projects/:section" element={<ProjectsObjectsModule user={user} />} />
+          <Route path="/protocol/:section?" element={<ProtocolExtractorModule user={user} mode="objects" />} />
           <Route path="/hr/:section?" element={<HRManagementModule user={user} />} />
           <Route path="/inventory/:section?" element={<InventoryLedgerModule user={user} />} />
           <Route path="/fleet/:section?" element={<FleetEquipmentModule user={user} />} />
