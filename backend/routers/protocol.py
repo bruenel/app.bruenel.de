@@ -44,10 +44,18 @@ PLZ_TO_GEMEINDE: Dict[str, str] = {
     "73655": "Plüderhausen",
     "73650": "Winterbach",
     "73630": "Remshalden",
+    "77756": "Hausach",
+    "77736": "Zell am Harmersbach",
+    "77799": "Ortenberg",
 }
 
 CANONICAL_CITIES: List[Tuple[str, str]] = [
     ("lorch", "Lorch"),
+    ("hausach", "Hausach"),
+    ("ausach", "Hausach"),
+    ("zell am harmersbach", "Zell am Harmersbach"),
+    ("ortenberg", "Ortenberg"),
+    ("oberkirch", "Oberkirch"),
     ("schw", "Schwäbisch Gmünd"),
     ("gmünd", "Schwäbisch Gmünd"),
     ("gmuend", "Schwäbisch Gmünd"),
