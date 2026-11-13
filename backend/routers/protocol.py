@@ -223,7 +223,20 @@ def sync_protocol_address_to_erp(db: Session, addr: models.Address) -> None:
             db.flush()
 
         # 3. Team sync with Projects & Objects -> Field Teams
-        team_name = (addr.team or "").strip()
+        raw_team_name = (addr.team or "").strip()
+        if re.search(r"\d+\.\d+", raw_team_name) or "ortsteil" in raw_team_name.lower() or raw_team_name.lower().startswith("techno("):
+            city_team = (
+                db.query(models.Team)
+                .filter(
+                    models.Team.name.ilike(f"%{city_str}%"),
+                    ~models.Team.name.ilike("Techno(%"),
+                )
+                .first()
+            )
+            addr.team = city_team.name if city_team else ""
+            raw_team_name = addr.team
+
+        team_name = raw_team_name
         team_obj = None
         if team_name:
             team_obj = (
@@ -231,18 +244,6 @@ def sync_protocol_address_to_erp(db: Session, addr: models.Address) -> None:
                 .filter(func.lower(models.Team.name) == team_name.lower())
                 .first()
             )
-            if not team_obj:
-                first_emp = db.query(models.Employee).first()
-                team_obj = models.Team(
-                    id=str(uuid.uuid4()),
-                    name=team_name,
-                    leader_id=first_emp.id if first_emp else None,
-                    member_ids=[first_emp.id] if first_emp else [],
-                    project_id=project.id,
-                    notes=f"Ausbau-Team ({city_str})",
-                )
-                db.add(team_obj)
-                db.flush()
 
         # 4. BuildingObject sync in Projects & Objects -> Building Objects
         street_house = f"{addr.strasse or ''} {addr.hausnummer or ''}".strip()
@@ -1360,20 +1361,29 @@ def list_field_teams_for_protocol(
 ):
     """Returns all Field Teams defined in the Projects & Objects module (`teams` table)."""
     try:
+        noisy_teams = (
+            db.query(models.Team)
+            .filter(models.Team.name.ilike("Techno(%"))
+            .all()
+        )
+        if noisy_teams:
+            for nt in noisy_teams:
+                db.delete(nt)
+            db.commit()
+
         teams = db.query(models.Team).order_by(models.Team.name.asc()).all()
         if not teams:
             first_emp = db.query(models.Employee).first()
             first_proj = db.query(models.Project).first()
-            for default_name in ("Techno(Lorch)", "Team Süd (Glasfaser)", "Team Nord (Tiefbau & NE4)"):
-                t = models.Team(
-                    id=str(uuid.uuid4()),
-                    name=default_name,
-                    leader_id=first_emp.id if first_emp else None,
-                    member_ids=[first_emp.id] if first_emp else [],
-                    project_id=first_proj.id if first_proj else None,
-                    notes="Field Team",
-                )
-                db.add(t)
+            t = models.Team(
+                id=str(uuid.uuid4()),
+                name="Team Lorch",
+                leader_id=first_emp.id if first_emp else None,
+                member_ids=[first_emp.id] if first_emp else [],
+                project_id=first_proj.id if first_proj else None,
+                notes="Field Team",
+            )
+            db.add(t)
             db.commit()
             teams = db.query(models.Team).order_by(models.Team.name.asc()).all()
         return [
