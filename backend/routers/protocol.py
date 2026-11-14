@@ -1435,53 +1435,68 @@ def generate_protocols_summary_excel_bytes(addresses: List[models.Address]) -> b
     """
     Builds the single-sheet 'Summary' Excel (.xlsx) workbook (only main buildings)
     matching the exact columns, two-row Persian/German header layout, colors, and
-    Ja (Green) / Nein (Red) conditional formatting from Techniknetz-Status.
-    Columns A..AG (33 columns):
-      Row 1 (Persian): شماره | تاریخ | شهر | شماره آیدی خانه | | پلاک | تعداد واحد | وضعیت | (I..Z empty) | انبار | باکس مرکزی | فیوژن کردن | عکس | فاکتور | Karimi | توضیحات
-      Row 2 (German):  Nr. | Datum | Stadt | Haus ID | Adress | Haus Nr. | WE | TA Installed | Kabel kanal | Auskundung | (K empty red divider) | TA001..TA015 | Keller | APL | Spleiß | Fotos | Rechnung | Dropbox | Bemerkung
+    Ja (Green) / Nein (Red) conditional formatting.
+    Columns A..AJ (36 columns):
+      Row 1 (Persian): شماره | تاریخ | شهر | شماره آیدی خانه | | پلاک | تعداد واحد | وضعیت | رزرو | نوع ساخت | تیم | (L..AC empty) | انبار | باکس مرکزی | فیوژن کردن | عکس | فاکتور | Karimi | توضیحات
+      Row 2 (German):  Nr. | Datum Ausbau | Stadt | Haus ID | Adress | Haus Nr. | WE | TA Installed | Reserved | Ausbau Type | Ausbau Team | Kabel kanal | Auskundung | (N empty red divider) | TA001..TA015 | Keller | APL | Spleiß | Fotos | Rechnung | Dropbox | Bemerkung
+    Coloring rules (NO blue color anywhere):
+      - Datum Ausbau, Stadt, Haus ID, Adress, Haus Nr., WE (Cols B..G):
+        GREEN (#00B050) if ALL active TA001..TA015 AND Keller, APL, Spleiß, Fotos are "Ja";
+        YELLOW (#FFFF00) if at least one of them is "Nein".
+      - TA Installed (Col H):
+        GREEN (#00B050) if all TAs for the building are installed ("Ja");
+        YELLOW (#FFFF00) if at least one TA is not installed ("Nein").
+      - Ja / Nein columns (Kabel kanal, Auskundung, TA001..TA015, Keller, APL, Spleiß, Fotos, Rechnung, Dropbox):
+        "Ja" = GREEN (#00B050), "Nein" = RED (#FF0000).
     """
     persian_headers = [
-        "شماره",               # A
-        "تاریخ",               # B
-        "شهر",                 # C
-        "شماره آیدی خانه",     # D
-        "",                    # E
-        "پلاک",                # F
-        "تعداد واحد",          # G
-        "وضعیت",               # H
-        "",                    # I (Kabel kanal)
-        "",                    # J (Auskundung)
-        "",                    # K (Red divider)
-        *["" for _ in range(15)],  # L..Z (TA001..TA015)
-        "انبار",               # AA (Keller)
-        "باکس مرکزی",          # AB (APL)
-        "فیوژن کردن",          # AC (Spleiß)
-        "عکس",                 # AD (Fotos)
-        "فاکتور",              # AE (Rechnung)
-        "Karimi",              # AF (Dropbox)
-        "توضیحات",             # AG (Bemerkung)
+        "شماره",               # A (1)
+        "تاریخ",               # B (2)
+        "شهر",                 # C (3)
+        "شماره آیدی خانه",     # D (4)
+        "",                    # E (5)
+        "پلاک",                # F (6)
+        "تعداد واحد",          # G (7)
+        "وضعیت",               # H (8)
+        "رزرو",                # I (9: Reserved)
+        "نوع ساخت",            # J (10: Ausbau Type)
+        "تیم",                 # K (11: Ausbau Team)
+        "",                    # L (12: Kabel kanal)
+        "",                    # M (13: Auskundung)
+        "",                    # N (14: Red divider)
+        *["" for _ in range(15)],  # O..AC (15..29: TA001..TA015)
+        "انبار",               # AD (30: Keller)
+        "باکس مرکزی",          # AE (31: APL)
+        "فیوژن کردن",          # AF (32: Spleiß)
+        "عکس",                 # AG (33: Fotos)
+        "فاکتور",              # AH (34: Rechnung)
+        "Karimi",              # AI (35: Dropbox)
+        "توضیحات",             # AJ (36: Bemerkung)
     ]
 
     german_headers = [
-        "Nr.",                 # A
-        "Datum",               # B
-        "Stadt",               # C
-        "Haus ID",             # D
-        "Adress",              # E
-        "Haus Nr.",            # F
-        "WE",                  # G
-        "TA Installed",        # H
-        "Kabel kanal",         # I
-        "Auskundung",          # J
-        "",                    # K (Red separator column)
-        *[f"TA{i:03d}" for i in range(1, 16)],  # L..Z (TA001..TA015)
-        "Keller",              # AA
-        "APL",                 # AB
-        "Spleiß",              # AC
-        "Fotos",               # AD
-        "Rechnung",            # AE
-        "Dropbox",             # AF
-        "Bemerkung",           # AG
+        "Nr.",                 # A (1)
+        "Datum Ausbau",        # B (2)
+        "Stadt",               # C (3)
+        "Haus ID",             # D (4)
+        "Adress",              # E (5)
+        "Haus Nr.",            # F (6)
+        "WE",                  # G (7)
+        "TA Installed",        # H (8)
+        "Reserved",            # I (9)
+        "Ausbau Type",         # J (10)
+        "Ausbau Team",         # K (11)
+        "Kabel kanal",         # L (12)
+        "Auskundung",          # M (13)
+        "",                    # N (14: Red separator column)
+        *[f"TA{i:03d}" for i in range(1, 16)],  # O..AC (15..29: TA001..TA015)
+        "Keller",              # AD (30)
+        "APL",                 # AE (31)
+        "Spleiß",              # AF (32)
+        "Fotos",               # AG (33)
+        "Rechnung",            # AH (34)
+        "Dropbox",             # AI (35)
+        "Bemerkung",           # AJ (36)
     ]
 
     summary_rows_meta: List[Dict[str, Any]] = []
@@ -1497,6 +1512,13 @@ def generate_protocols_summary_excel_bytes(addresses: List[models.Address]) -> b
         units_sorted = sorted(units_list, key=_unit_sort_key)
         total_units = max(len(units_sorted), int(addr.total_we or 1))
         b_status = (getattr(addr, "building_status", None) or "Ausbau terminiert").strip()
+
+        # Count reserved units across all units of this building
+        res_cnt = 0
+        for u in units_sorted:
+            we_art = getattr(u, "we_ausbau_art", None)
+            if we_art == "Reserve" or getattr(u, "reserve", False):
+                res_cnt += 1
 
         # Map units into slots 1..total_units
         unit_by_slot: Dict[int, Any] = {}
@@ -1583,6 +1605,8 @@ def generate_protocols_summary_excel_bytes(addresses: List[models.Address]) -> b
         haus_nr_val: Any = int(haus_nr_raw) if haus_nr_raw.isdigit() else haus_nr_raw
 
         ta_installed_str = f"{ta_cnt}/{total_units}"
+        ausbau_typ_str = (getattr(addr, "ausbau_typ", None) or "Metalkanal").strip()
+        team_str = (getattr(addr, "team", None) or "").strip()
 
         kabel_kanal_val = "Ja" if getattr(addr, "metalkanal_installiert", False) else "Nein"
         has_auskundung = bool(
@@ -1611,41 +1635,62 @@ def generate_protocols_summary_excel_bytes(addresses: List[models.Address]) -> b
         ]
         bemerkung_str = " / ".join(str(c.get("text", "")).strip() for c in comments_list)
 
+        # Evaluate conditions for coloring:
+        # 1) TA Installed is Green iff all TAs are installed (all active TA cells are "Ja" and ta_cnt == total_units)
+        active_ta_cells = [c for c in ta_cells if c in ("Ja", "Nein")]
+        all_ta_installed = (
+            total_units > 0
+            and ta_cnt >= total_units
+            and len(active_ta_cells) > 0
+            and all(c == "Ja" for c in active_ta_cells)
+        )
+
+        # 2) Datum Ausbau..WE (Cols B..G) are Green iff all TA001..TA015 AND Keller, APL, Spleiß, Fotos are "Ja"
+        all_ta_and_tech_yes = (
+            all_ta_installed
+            and keller_val == "Ja"
+            and apl_val == "Ja"
+            and spleiss_val == "Ja"
+            and fotos_val == "Ja"
+        )
+
         row_values = [
-            idx,                # A: Nr.
-            datum_str,          # B: Datum
-            norm_ort,           # C: Stadt
-            haus_id,            # D: Haus ID
-            strasse_str,        # E: Adress
-            haus_nr_val,        # F: Haus Nr.
-            total_units,        # G: WE
-            ta_installed_str,   # H: TA Installed
-            kabel_kanal_val,    # I: Kabel kanal
-            auskundung_val,     # J: Auskundung
-            "",                 # K: Red separator column
-            *ta_cells,          # L..Z: TA001..TA015
-            keller_val,         # AA: Keller
-            apl_val,            # AB: APL
-            spleiss_val,        # AC: Spleiß
-            fotos_val,          # AD: Fotos
-            rechnung_val,       # AE: Rechnung
-            dropbox_val,        # AF: Dropbox
-            bemerkung_str,      # AG: Bemerkung
+            idx,                # A (1): Nr.
+            datum_str,          # B (2): Datum Ausbau
+            norm_ort,           # C (3): Stadt
+            haus_id,            # D (4): Haus ID
+            strasse_str,        # E (5): Adress
+            haus_nr_val,        # F (6): Haus Nr.
+            total_units,        # G (7): WE
+            ta_installed_str,   # H (8): TA Installed
+            res_cnt,            # I (9): Reserved
+            ausbau_typ_str,     # J (10): Ausbau Type
+            team_str,           # K (11): Ausbau Team
+            kabel_kanal_val,    # L (12): Kabel kanal
+            auskundung_val,     # M (13): Auskundung
+            "",                 # N (14): Red separator column
+            *ta_cells,          # O..AC (15..29): TA001..TA015
+            keller_val,         # AD (30): Keller
+            apl_val,            # AE (31): APL
+            spleiss_val,        # AF (32): Spleiß
+            fotos_val,          # AG (33): Fotos
+            rechnung_val,       # AH (34): Rechnung
+            dropbox_val,        # AI (35): Dropbox
+            bemerkung_str,      # AJ (36): Bemerkung
         ]
 
         summary_rows_meta.append(
             {
                 "values": row_values,
-                "status": b_status,
-                "ta_cnt": ta_cnt,
-                "total_units": total_units,
+                "all_ta_installed": all_ta_installed,
+                "all_ta_and_tech_yes": all_ta_and_tech_yes,
                 "has_comment": bool(bemerkung_str),
             }
         )
 
     try:
         from openpyxl import Workbook
-        from openpyxl.formatting.rule import CellIsRule
+        from openpyxl.formatting.rule import CellIsRule, FormulaRule
         from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
         from openpyxl.utils import get_column_letter
         from openpyxl.worksheet.datavalidation import DataValidation
@@ -1656,11 +1701,9 @@ def generate_protocols_summary_excel_bytes(addresses: List[models.Address]) -> b
         ws.views.sheetView[0].showGridLines = True
         ws.freeze_panes = "A3"
 
-        # Fills matching the exact screenshot hex colors
-        blue_fill = PatternFill(start_color="00B0F0", end_color="00B0F0", fill_type="solid")
+        # Fills (NO blue anywhere — only Green, Yellow, and Red)
         green_fill = PatternFill(start_color="00B050", end_color="00B050", fill_type="solid")
         red_fill = PatternFill(start_color="FF0000", end_color="FF0000", fill_type="solid")
-        orange_fill = PatternFill(start_color="FFC000", end_color="FFC000", fill_type="solid")
         yellow_fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
 
         header_font = Font(name="Calibri", size=11, bold=True, color="000000")
@@ -1691,59 +1734,59 @@ def generate_protocols_summary_excel_bytes(addresses: List[models.Address]) -> b
             c2.font = header_font
             c2.border = thin_black_border
             c2.alignment = Alignment(
-                horizontal="center" if col_idx in (1, 6, 7, 8) or (12 <= col_idx <= 32) else "left",
+                horizontal="center" if col_idx in (1, 6, 7, 8, 9) or (12 <= col_idx <= 35) else "left",
                 vertical="center",
             )
 
         # Data Rows (starting at row 3)
-        ja_nein_col_indices = {9, 10, *range(12, 27), *range(27, 33)}
+        # Ja/Nein columns: L (12), M (13), O..AC (15..29), AD..AI (30..35)
+        ja_nein_col_indices = {12, 13, *range(15, 30), *range(30, 36)}
 
         for r_offset, meta in enumerate(summary_rows_meta):
             row_idx = r_offset + 3
             r_vals = meta["values"]
-            b_status = meta["status"]
-            ta_cnt = meta["ta_cnt"]
-            total_units = meta["total_units"]
+            all_ta_installed = meta["all_ta_installed"]
+            all_ta_and_tech_yes = meta["all_ta_and_tech_yes"]
 
             ws.append(r_vals)
             ws.row_dimensions[row_idx].height = 20
 
-            if b_status == "Abgeschlossen":
-                main_row_fill = blue_fill
-            elif b_status in ("Restarbeiten", "In Bearbeitung"):
-                main_row_fill = orange_fill
-            else:
-                main_row_fill = yellow_fill
+            # Cols B..G (Datum Ausbau, Stadt, Haus ID, Adress, Haus Nr., WE):
+            # Green if all TA001..TA015 + Keller + APL + Spleiß + Fotos are "Ja", else Yellow
+            main_row_fill = green_fill if all_ta_and_tech_yes else yellow_fill
+
+            # Col H (TA Installed):
+            # Green if all TAs for this building are installed, else Yellow
+            ta_installed_fill = green_fill if all_ta_installed else yellow_fill
 
             for col_idx in range(1, len(r_vals) + 1):
                 cell = ws.cell(row=row_idx, column=col_idx)
                 cell.font = body_font
                 cell.border = thin_black_border
-                val_str = str(cell.value or "").strip()
+                val_str = str(cell.value if cell.value is not None else "").strip()
 
                 if col_idx == 1:
-                    # Col A: Nr. (white background)
+                    # Col A: Nr.
                     cell.alignment = Alignment(horizontal="right", vertical="center")
                 elif 2 <= col_idx <= 7:
-                    # Cols B..G: Datum, Stadt, Haus ID, Adress, Haus Nr., WE
+                    # Cols B..G: Datum Ausbau, Stadt, Haus ID, Adress, Haus Nr., WE
                     cell.fill = main_row_fill
                     cell.alignment = Alignment(
                         horizontal="center" if col_idx in (2, 6, 7) else "left",
                         vertical="center",
                     )
                 elif col_idx == 8:
-                    # Col H: TA Installed
+                    # Col H: TA Installed (Green if all TA installed, else Yellow)
+                    cell.fill = ta_installed_fill
                     cell.alignment = Alignment(horizontal="center", vertical="center")
-                    if b_status == "Abgeschlossen" and ta_cnt >= total_units:
-                        cell.fill = blue_fill
-                    elif ta_cnt >= total_units and total_units > 0:
-                        cell.fill = green_fill
-                    elif ta_cnt > 0:
-                        cell.fill = orange_fill
-                    else:
-                        cell.fill = yellow_fill
-                elif col_idx == 11:
-                    # Col K: Solid red divider column
+                elif col_idx == 9:
+                    # Col I: Reserved
+                    cell.alignment = Alignment(horizontal="center", vertical="center")
+                elif col_idx in (10, 11):
+                    # Cols J, K: Ausbau Type, Ausbau Team
+                    cell.alignment = Alignment(horizontal="left", vertical="center")
+                elif col_idx == 14:
+                    # Col N: Solid red divider column
                     cell.fill = red_fill
                 elif col_idx in ja_nein_col_indices:
                     cell.alignment = Alignment(horizontal="center", vertical="center")
@@ -1753,10 +1796,10 @@ def generate_protocols_summary_excel_bytes(addresses: List[models.Address]) -> b
                     elif val_str.lower() == "nein":
                         cell.fill = red_fill
                         cell.font = nein_white_font
-                elif col_idx == 33:
-                    # Col AG: Bemerkung
+                elif col_idx == 36:
+                    # Col AJ: Bemerkung
                     cell.alignment = Alignment(horizontal="left", vertical="center")
-                    if meta["has_comment"] and b_status != "Abgeschlossen":
+                    if meta["has_comment"] and not all_ta_and_tech_yes:
                         cell.fill = yellow_fill
 
         # Append extra empty bordered grid rows to match the sheet look
@@ -1770,11 +1813,11 @@ def generate_protocols_summary_excel_bytes(addresses: List[models.Address]) -> b
                 if col_idx in ja_nein_col_indices:
                     c_empty.alignment = Alignment(horizontal="center", vertical="center")
 
-        # Add AutoFilter on Row 2 (A2:AG...)
-        ws.auto_filter.ref = f"A2:AG{max(last_data_row, 3)}"
+        # Add AutoFilter on Row 2 (A2:AJ...)
+        ws.auto_filter.ref = f"A2:AJ{max(last_data_row, 3)}"
 
-        # Add Conditional Formatting (Ja -> Green, Nein -> Red) & DataValidation on Ja/Nein ranges
-        cf_ranges = f"I3:J{total_grid_rows} L3:Z{total_grid_rows} AA3:AF{total_grid_rows}"
+        # 1) Conditional Formatting (Ja -> Green, Nein -> Red) & DataValidation on Ja/Nein ranges
+        cf_ranges = f"L3:M{total_grid_rows} O3:AC{total_grid_rows} AD3:AI{total_grid_rows}"
         ja_rule = CellIsRule(
             operator="equal",
             formula=['"Ja"'],
@@ -1793,33 +1836,75 @@ def generate_protocols_summary_excel_bytes(addresses: List[models.Address]) -> b
             ws.conditional_formatting.add(rng, ja_rule)
             ws.conditional_formatting.add(rng, nein_rule)
 
+        # 2) Dynamic Excel Conditional Formatting for Datum Ausbau..WE (B3:G...) based on TA001..TA015 + Keller..Fotos (O..AG)
+        if last_data_row >= 3:
+            b_to_g_range = f"B3:G{last_data_row}"
+            ws.conditional_formatting.add(
+                b_to_g_range,
+                FormulaRule(
+                    formula=['COUNTIF($O3:$AG3,"Nein")>0'],
+                    stopIfTrue=True,
+                    fill=yellow_fill,
+                ),
+            )
+            ws.conditional_formatting.add(
+                b_to_g_range,
+                FormulaRule(
+                    formula=['AND(COUNTIF($O3:$AC3,"Ja")>0,COUNTIF($O3:$AG3,"Nein")=0)'],
+                    stopIfTrue=True,
+                    fill=green_fill,
+                ),
+            )
+
+            # 3) Dynamic Excel Conditional Formatting for TA Installed (H3:H...) based on TA001..TA015 (O..AC)
+            h_range = f"H3:H{last_data_row}"
+            ws.conditional_formatting.add(
+                h_range,
+                FormulaRule(
+                    formula=['COUNTIF($O3:$AC3,"Nein")>0'],
+                    stopIfTrue=True,
+                    fill=yellow_fill,
+                ),
+            )
+            ws.conditional_formatting.add(
+                h_range,
+                FormulaRule(
+                    formula=['AND(COUNTIF($O3:$AC3,"Ja")>0,COUNTIF($O3:$AC3,"Nein")=0)'],
+                    stopIfTrue=True,
+                    fill=green_fill,
+                ),
+            )
+
         dv = DataValidation(type="list", formula1='"Ja,Nein"', allow_blank=True)
         ws.add_data_validation(dv)
         for rng in cf_ranges.split():
             dv.add(rng)
 
-        # Exact column widths matching Techniknetz-Status
+        # Column widths
         col_widths = {
             "A": 6.5,
-            "B": 14.5,
+            "B": 15.0,
             "C": 22.0,
             "D": 18.0,
             "E": 26.5,
             "F": 10.0,
-            "G": 11.0,
+            "G": 10.0,
             "H": 13.5,
-            "I": 13.0,
-            "J": 13.0,
-            "K": 9.5,
-            "AA": 12.5,
-            "AB": 12.5,
-            "AC": 12.5,
+            "I": 11.5,
+            "J": 16.0,
+            "K": 18.0,
+            "L": 13.0,
+            "M": 13.0,
+            "N": 9.5,
             "AD": 12.5,
             "AE": 12.5,
             "AF": 12.5,
-            "AG": 55.0,
+            "AG": 12.5,
+            "AH": 12.5,
+            "AI": 12.5,
+            "AJ": 55.0,
         }
-        for i in range(12, 27):
+        for i in range(15, 30):
             col_widths[get_column_letter(i)] = 10.5
         for col_letter, width in col_widths.items():
             ws.column_dimensions[col_letter].width = width
@@ -1829,7 +1914,6 @@ def generate_protocols_summary_excel_bytes(addresses: List[models.Address]) -> b
         out.seek(0)
         return out.getvalue()
     except Exception:
-        fallback_rows = [[m["values"] for m in summary_rows_meta]]
         return _build_xlsx_fallback([("Summary", german_headers, [m["values"] for m in summary_rows_meta])])
 
 

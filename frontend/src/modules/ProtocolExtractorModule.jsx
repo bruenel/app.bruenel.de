@@ -840,6 +840,9 @@ function exportAddressesSummaryToCsv(addresses, filename = 'UGG_Summary_Export.c
     'پلاک',
     'تعداد واحد',
     'وضعیت',
+    'رزرو',
+    'نوع ساخت',
+    'تیم',
     '',
     '',
     '',
@@ -855,13 +858,16 @@ function exportAddressesSummaryToCsv(addresses, filename = 'UGG_Summary_Export.c
 
   const germanHeaders = [
     'Nr.',
-    'Datum',
+    'Datum Ausbau',
     'Stadt',
     'Haus ID',
     'Adress',
     'Haus Nr.',
     'WE',
     'TA Installed',
+    'Reserved',
+    'Ausbau Type',
+    'Ausbau Team',
     'Kabel kanal',
     'Auskundung',
     '',
@@ -881,6 +887,7 @@ function exportAddressesSummaryToCsv(addresses, filename = 'UGG_Summary_Export.c
       String(a?.unit_id || '').localeCompare(String(b?.unit_id || ''), 'de', { numeric: true })
     );
     const totalUnits = Math.max(units.length, Number(addr.total_we) || 1);
+    const resCnt = units.filter((u) => normalizeWeArt(u) === 'Reserve').length;
     let taCnt = 0;
     const taCells = [];
     for (let slot = 1; slot <= 15; slot += 1) {
@@ -913,6 +920,9 @@ function exportAddressesSummaryToCsv(addresses, filename = 'UGG_Summary_Export.c
       addr.hausnummer || '',
       totalUnits,
       `${taCnt}/${totalUnits}`,
+      resCnt,
+      addr.ausbau_typ || 'Metalkanal',
+      addr.team || '',
       addr.metalkanal_installiert ? 'Ja' : 'Nein',
       addr.datum || addr.pdf_filename || addr.projektnummer ? 'Ja' : 'Nein',
       '',
