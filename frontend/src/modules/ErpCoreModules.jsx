@@ -11,6 +11,7 @@ import { fetchWithToken, uploadMediaFile, resolveMediaUrl, TIER_LABELS, formatEu
 import { TASK_STATUS_CONFIG, getStatusStyle } from '../core/i18n';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { PageHead, SubTabs, useQuickAction, Empty, downloadCsv, confirmDelete } from '../components/ui';
+import { MasterCalendarModule } from './ErpOperationsModules';
 
 // ==============================================================================
 // EXECUTIVE COMMAND DASHBOARD (app.bruenel.de Overview)
@@ -1617,118 +1618,192 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
       )}
 
       {/* Sub-navigation Tabs */}
-      <SubTabs base="/hr" active={showAddEmp ? 'register' : tab} items={[
-        { id: 'employees', label: 'Employees, Freelancers & Candidates', count: employees.length },
-        ...(showAddEmp ? [{ id: 'register', label: editingEmpId ? `Personalakte: ${newEmp.first_name} ${newEmp.last_name}` : 'Mitarbeiter erfassen (Vollbild)' }] : []),
-        { id: 'timelogs', label: 'Working Hours & Smart Search', count: timeLogs.length },
-        { id: 'leaves', label: 'Holiday (Urlaub)', count: leaves.length },
-        { id: 'sickness', label: 'Sickness (AU)', count: sickness.length },
-        { id: 'documents', label: 'Documents (Dokumente & Lohnabrechnung)', count: employees.reduce((acc, e) => acc + ((e.documents || []).length), 0) },
-      ]} />
+      {!showAddEmp && (
+        <SubTabs base="/hr" active={tab} items={[
+          { id: 'employees', label: 'Mitarbeiter & Übersicht', count: employees.length },
+          { id: 'timelogs', label: 'Arbeitszeiten & Überstunden', count: timeLogs.length },
+          { id: 'leaves', label: 'Urlaub (Holiday)', count: leaves.length },
+          { id: 'sickness', label: 'Krankheit (AU)', count: sickness.length },
+          { id: 'documents', label: 'Dokumente & Lohnabrechnung', count: employees.reduce((acc, e) => acc + ((e.documents || []).length), 0) },
+        ]} />
+      )}
 
       {/* =====================================================================
-          CLEAN, STATIC MODERN FORM: REGISTER / EDIT EMPLOYEE (FULL-SCREEN PLATFORM TAB)
+          COMPACT EMPLOYEE OBJECT VIEW (PERSONALAKTE — MATCHES OBJECTS & PROPERTIES)
          ===================================================================== */}
-      {showAddEmp && (
+      {showAddEmp && (() => {
+        const empLogsAll = editingEmpId ? timeLogs.filter((l) => l.employee_id === editingEmpId) : [];
+        const empMonthLogs = empLogsAll.filter((l) => String(l.date || '').startsWith(biMonth));
+        const empMonthHours = empMonthLogs.reduce((s, l) => s + Number(l.net_hours ?? l.total_hours ?? 0), 0);
+        const empQuotaHours = Number(newEmp.attributes?.monthly_contract_hours || 160);
+        const empOvertimeHours = Math.max(0, Number((empMonthHours - empQuotaHours).toFixed(1)));
+        const empLeavesAll = editingEmpId ? leaves.filter((l) => l.employee_id === editingEmpId) : [];
+        const empSicknessAll = editingEmpId ? sickness.filter((s) => s.employee_id === editingEmpId) : [];
+        const empPayslipsAll = editingEmpId
+          ? [
+              ...payslips.filter((p) => p.employee_id === editingEmpId).map((p) => ({
+                id: p.id,
+                source: 'payslip',
+                title: `Lohnabrechnung ${String(p.period_month).padStart(2, '0')}/${p.period_year}`,
+                period: `${String(p.period_month).padStart(2, '0')}.${p.period_year}`,
+                gross: p.gross_amount,
+                net: p.net_amount,
+                bonus: p.bonus_amount,
+                date: p.issued_at ? String(p.issued_at).slice(0, 10) : '',
+                url: p.pdf_url || p.file_url || '',
+                notes: p.notes || '',
+              })),
+              ...(newEmp.documents || [])
+                .filter((d) => (d.category || d.reference_type || '').toLowerCase().includes('lohnabrechnung'))
+                .map((d) => ({
+                  id: d.id,
+                  source: 'doc',
+                  title: d.title || d.file_name || 'Lohnabrechnung PDF',
+                  period: d.payslip_month && d.payslip_year ? `${d.payslip_month}.${d.payslip_year}` : formatDate(d.doc_date || d.created_at),
+                  gross: newEmp.base_salary,
+                  net: null,
+                  bonus: null,
+                  date: d.doc_date || (d.created_at ? String(d.created_at).slice(0, 10) : ''),
+                  url: d.url || d.download_url || d.file_url || '',
+                  notes: d.file_name || '',
+                })),
+            ]
+          : [];
+
+        return (
         <div
           className="glass-panel"
           style={{
             width: '100%',
-            minHeight: '82vh',
             display: 'flex',
             flexDirection: 'column',
             padding: 0,
             overflow: 'hidden',
             background: '#ffffff',
-            borderRadius: '16px',
-            border: '1px solid var(--border)',
-            boxShadow: '0 4px 24px rgba(0,0,0,0.06)',
-            marginTop: '16px',
-            marginBottom: '32px',
+            borderRadius: '12px',
+            border: '1px solid #e2e8f0',
+            boxShadow: '0 2px 12px rgba(15,23,42,0.04)',
+            marginTop: '6px',
+            marginBottom: '20px',
           }}
         >
-          {/* Platform Integrated Full-Screen Header with Back Button */}
-          <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--border)', background: '#f8fafc' }}>
-            <div className="flex-between" style={{ marginBottom: '12px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                <button
-                  type="button"
-                  className="btn-secondary"
-                  onClick={() => setShowAddEmp(false)}
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 700, padding: '7px 14px' }}
-                >
-                  <ArrowLeft size={16} /> Zurück zur Übersicht
-                </button>
-                <div>
-                  <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '1.18rem', margin: 0 }}>
-                    <Briefcase size={20} style={{ color: 'var(--accent)' }} />
-                    {editingEmpId
-                      ? `Personalakte / Master Card: ${newEmp.first_name} ${newEmp.last_name}`
-                      : 'Mitarbeiter, Freelancer & Subunternehmer erfassen (Vollbild-Formular)'}
-                  </h3>
-                  <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: '2px 0 0' }}>
-                    Plattform-integriertes Vollbild-Formular • Wählen Sie unten den Beschäftigungstyp (Vollzeit, Freelancer, Subunternehmer oder IT-Kandidat).
-                  </p>
+          {/* Compact Object Header Bar (matches BuildingDetailView in Objects & Properties) */}
+          <div style={{ padding: '12px 16px', borderBottom: '1px solid #e2e8f0', background: '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className="btn-secondary btn-sm"
+                onClick={() => setShowAddEmp(false)}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontWeight: 700, padding: '6px 11px', background: '#fff', border: '1px solid #cbd5e1', borderRadius: 8 }}
+              >
+                <ArrowLeft size={14} /> Zurück
+              </button>
+              {editingEmpId && (
+                <span style={{ padding: '3px 9px', borderRadius: 6, background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', fontFamily: 'monospace', fontSize: 11.5, fontWeight: 800 }}>
+                  {employees.find((x) => x.id === editingEmpId)?.employee_number || 'EMP'}
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={() => setNewEmp((prev) => ({ ...prev, is_active: !prev.is_active }))}
+                style={{
+                  padding: '3px 9px',
+                  borderRadius: 999,
+                  fontSize: 11,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  border: newEmp.is_active === false ? '1px solid #fca5a5' : '1px solid #86efac',
+                  background: newEmp.is_active === false ? '#fef2f2' : '#dcfce7',
+                  color: newEmp.is_active === false ? '#dc2626' : '#15803d',
+                }}
+                title="Status umschalten (Aktiv / Gesperrt)"
+              >
+                {newEmp.is_active === false ? '🔒 Gesperrt' : '✓ Aktiv'}
+              </button>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <strong style={{ fontSize: 15, fontWeight: 800, color: '#0f172a' }}>
+                    {editingEmpId ? `${newEmp.first_name} ${newEmp.last_name}` : 'Neuer Mitarbeiter / Freelancer'}
+                  </strong>
+                  <span style={{ fontSize: 12, color: '#64748b', fontWeight: 600 }}>
+                    {newEmp.role} · {newEmp.department}
+                  </span>
+                </div>
+                <div style={{ fontSize: 11, color: '#64748b' }}>
+                  {newEmp.email || 'Keine E-Mail'} · {newEmp.phone || 'Kein Telefon'}
                 </div>
               </div>
-              <button type="button" className="btn-secondary btn-sm" onClick={() => setShowAddEmp(false)}>
-                <X size={15} /> Schließen
-              </button>
             </div>
 
-              {/* Quick Employment Type Switcher Bar inside Form Header */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                <span style={{ fontSize: '0.73rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Type:</span>
-                {['Full-time', 'Part-time', 'Minijob', 'Freelancer', 'Subunternehmer', 'Candidate'].map((tp) => {
-                  const active = newEmp.employment_type === tp;
-                  return (
-                    <button
-                      key={tp}
-                      type="button"
-                      onClick={() => handleEmploymentTypeSwitch(tp)}
-                      style={{
-                        padding: '5px 12px',
-                        borderRadius: '999px',
-                        fontSize: '0.76rem',
-                        fontWeight: active ? 700 : 600,
-                        border: active ? '1.5px solid var(--accent)' : '1px solid var(--border)',
-                        background: active ? 'var(--accent-soft)' : '#ffffff',
-                        color: active ? 'var(--accent)' : 'var(--text-main)',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      {tp === 'Candidate' ? 'Candidate (IT Projects)' : tp}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Mac Finder–Style Section Tabs Bar */}
-            <div className="finder-tabs">
-              {[
-                { id: 'personal', num: 1, label: 'Stammdaten & Position' },
-                { id: 'contract', num: 2, label: isFreelanceModal ? 'Freelancing & Verträge' : 'Vertrag & Gehalt' },
-                { id: 'tax', num: 3, label: 'Steuer, KV & Bank' },
-                { id: 'sos', num: 4, label: 'SOS Notfallkontakt' },
-                { id: 'sub', num: 5, label: 'Freelancer / Sub §48b' },
-                { id: 'docs', num: 6, label: `Dokumente`, badge: (newEmp.documents || []).length || null },
-                { id: 'security', num: 7, label: 'Account & Sicherheit' },
-              ].map(st => (
+            {/* Right: Per-Employee KPI Pills + Type Selector + Save/Delete */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              {editingEmpId && (
+                <>
+                  <button type="button" onClick={() => setEmpCardTab('hours')} style={{ padding: '4px 9px', borderRadius: 7, background: empCardTab === 'hours' ? '#fff7ed' : '#fff', border: '1px solid #e2e8f0', fontSize: 11, fontWeight: 700, color: '#0f172a', cursor: 'pointer' }}>
+                    ⏱ {empMonthHours.toFixed(1)} / {empQuotaHours} h {empOvertimeHours > 0 ? `(+${empOvertimeHours}h ÜS)` : ''}
+                  </button>
+                  <button type="button" onClick={() => setEmpCardTab('absence')} style={{ padding: '4px 9px', borderRadius: 7, background: empCardTab === 'absence' ? '#fff7ed' : '#fff', border: '1px solid #e2e8f0', fontSize: 11, fontWeight: 700, color: '#0f172a', cursor: 'pointer' }}>
+                    🌴 Urlaub: {empLeavesAll.length} · 🏥 AU: {empSicknessAll.length}
+                  </button>
+                  <button type="button" onClick={() => setEmpCardTab('payslips')} style={{ padding: '4px 9px', borderRadius: 7, background: empCardTab === 'payslips' ? '#ecfdf5' : '#fff', border: '1px solid #a7f3d0', fontSize: 11, fontWeight: 700, color: '#047857', cursor: 'pointer' }}>
+                    💰 Lohn: {empPayslipsAll.length}
+                  </button>
+                </>
+              )}
+              <select
+                value={newEmp.employment_type}
+                onChange={(e) => handleEmploymentTypeSwitch(e.target.value)}
+                style={{ width: 'auto', padding: '5px 9px', fontSize: 11.5, fontWeight: 700, borderRadius: 7, border: '1px solid #fdba74', background: '#fff7ed', color: '#9a3412' }}
+              >
+                {['Full-time', 'Part-time', 'Minijob', 'Freelancer', 'Subunternehmer', 'Candidate'].map((tp) => (
+                  <option key={tp} value={tp}>{tp}</option>
+                ))}
+              </select>
+              {editingEmpId && (
                 <button
-                  key={st.id}
                   type="button"
-                  className={`finder-tab ${empCardTab === st.id ? 'active' : ''}`}
-                  onClick={() => setEmpCardTab(st.id)}
+                  className="btn-secondary btn-sm"
+                  style={{ color: '#dc2626', borderColor: '#fecaca', background: '#fef2f2', padding: '6px 9px' }}
+                  onClick={() => handleDeleteEmployee(editingEmpId, `${newEmp.first_name} ${newEmp.last_name}`)}
+                  title="Personalakte löschen"
                 >
-                  <span className="ftab-num">{st.num}</span>
-                  {st.label}
-                  {st.badge != null && st.badge > 0 && (
-                    <span className="ftab-badge">{st.badge}</span>
-                  )}
+                  <Trash2 size={13} />
                 </button>
-              ))}
+              )}
             </div>
+          </div>
+
+          {/* Compact Light-Mode Section Tabs Bar */}
+          <div className="finder-tabs" style={{ padding: '6px 14px', background: '#fff', borderBottom: '1px solid #e2e8f0', display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+            {[
+              { id: 'personal', num: 1, label: 'Master Card (Stammdaten)' },
+              { id: 'contract', num: 2, label: isFreelanceModal ? 'Freelancer & Verträge' : 'Vertrag & Gehalt' },
+              { id: 'tax', num: 3, label: 'Steuer, KV & Bank' },
+              ...(editingEmpId ? [
+                { id: 'hours', num: 4, label: 'Arbeitszeiten & Überstunden', badge: empLogsAll.length || null },
+                { id: 'absence', num: 5, label: 'Krankheit (AU) & Urlaub', badge: (empSicknessAll.length + empLeavesAll.length) || null },
+                { id: 'payslips', num: 6, label: 'Lohnabrechnung', badge: empPayslipsAll.length || null },
+              ] : []),
+              { id: 'docs', num: editingEmpId ? 7 : 4, label: 'Dokumente & KI-Scanner', badge: (newEmp.documents || []).length || null },
+              { id: 'sos', num: editingEmpId ? 8 : 5, label: 'SOS Notfall' },
+              { id: 'sub', num: editingEmpId ? 9 : 6, label: 'Sub §48b' },
+              { id: 'security', num: editingEmpId ? 10 : 7, label: 'Account & OTP' },
+            ].map((st) => (
+              <button
+                key={st.id}
+                type="button"
+                className={`finder-tab ${empCardTab === st.id ? 'active' : ''}`}
+                onClick={() => setEmpCardTab(st.id)}
+                style={{ padding: '6px 11px', fontSize: 12 }}
+              >
+                <span className="ftab-num">{st.num}</span>
+                {st.label}
+                {st.badge != null && st.badge > 0 && (
+                  <span className="ftab-badge">{st.badge}</span>
+                )}
+              </button>
+            ))}
+          </div>
 
             {/* Static-Height Scrollable Form Body */}
             <form onSubmit={handleSaveEmployeeCard} style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -2900,10 +2975,320 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                       </div>
                     </div>
                   </div>
+                )}
+
+                {/* SECTION 8: ARBEITSZEITEN & ÜBERSTUNDEN (PER EMPLOYEE) */}
+                {editingEmpId && empCardTab === 'hours' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 10 }}>
+                      {[
+                        { label: `Stunden (${biMonth})`, val: `${empMonthHours.toFixed(1)} h`, sub: `Soll: ${empQuotaHours} h` },
+                        { label: 'Überstunden (Monat)', val: `${empOvertimeHours} h`, sub: `Satz: ${formatEuro(newEmp.attributes?.overtime_rate || 28.5)}/h`, color: empOvertimeHours > 0 ? '#ea580c' : '#0f172a' },
+                        { label: 'Schichten (Monat)', val: `${empMonthLogs.length}`, sub: `Gesamt: ${empLogsAll.length} Einträge` },
+                        { label: 'Wochenlimit', val: `${newEmp.attributes?.weekly_hours || 40} h/Woche`, sub: newEmp.employment_type },
+                      ].map((k, i) => (
+                        <div key={i} style={{ padding: '10px 12px', borderRadius: 10, background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+                          <div style={{ fontSize: 11, color: '#64748b', fontWeight: 700 }}>{k.label}</div>
+                          <div style={{ fontSize: 16, fontWeight: 800, color: k.color || '#0f172a', marginTop: 2 }}>{k.val}</div>
+                          <div style={{ fontSize: 11, color: '#64748b' }}>{k.sub}</div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Inline Quick-Add Working Hours for this Employee */}
+                    <div style={{ padding: '10px 12px', borderRadius: 10, background: '#f8fafc', border: '1px solid #e2e8f0', display: 'grid', gridTemplateColumns: '1fr 1.2fr 0.8fr 0.8fr 0.7fr 1.2fr auto', gap: 8, alignItems: 'end' }}>
+                      <div>
+                        <label style={{ fontSize: 11 }}>Datum</label>
+                        <DateInput value={manualTimeForm.date} onChange={(e) => setManualTimeForm({ ...manualTimeForm, date: e.target.value })} />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 11 }}>Projekt</label>
+                        <select value={manualTimeForm.project_id} onChange={(e) => setManualTimeForm({ ...manualTimeForm, project_id: e.target.value })}>
+                          <option value="">— Allgemein —</option>
+                          {projects.map((p) => (<option key={p.id} value={p.id}>{p.name}</option>))}
+                        </select>
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 11 }}>Start</label>
+                        <TimeInput value={manualTimeForm.check_in_time} onChange={(e) => setManualTimeForm({ ...manualTimeForm, check_in_time: e.target.value })} />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 11 }}>Ende</label>
+                        <TimeInput value={manualTimeForm.check_out_time} onChange={(e) => setManualTimeForm({ ...manualTimeForm, check_out_time: e.target.value })} />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 11 }}>Pause (m)</label>
+                        <input type="number" min="0" value={manualTimeForm.break_minutes} onChange={(e) => setManualTimeForm({ ...manualTimeForm, break_minutes: e.target.value })} />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 11 }}>Notiz / Tätigkeit</label>
+                        <input placeholder="z.B. Montage / Spleißen..." value={manualTimeForm.notes} onChange={(e) => setManualTimeForm({ ...manualTimeForm, notes: e.target.value })} />
+                      </div>
+                      <button
+                        type="button"
+                        className="btn-primary btn-sm"
+                        style={{ height: 36 }}
+                        onClick={async () => {
+                          try {
+                            await fetchWithToken('/api/v1/hr/time-logs/manual', {
+                              method: 'POST',
+                              body: JSON.stringify({
+                                employee_id: editingEmpId,
+                                project_id: manualTimeForm.project_id || null,
+                                date: manualTimeForm.date,
+                                check_in_time: manualTimeForm.check_in_time,
+                                check_out_time: manualTimeForm.check_out_time,
+                                break_minutes: parseInt(manualTimeForm.break_minutes || 0, 10),
+                                status: 'Approved',
+                                notes: manualTimeForm.notes,
+                              }),
+                            });
+                            loadAll();
+                          } catch (err) { alert(err.message); }
+                        }}
+                      >
+                        <Plus size={13} /> Arbeitszeit buchen
+                      </button>
+                    </div>
+
+                    <div style={{ border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+                        <thead>
+                          <tr style={{ background: '#f1f5f9', color: '#475569', fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase' }}>
+                            <th style={{ padding: '8px 10px', textAlign: 'left' }}>Datum</th>
+                            <th style={{ padding: '8px 10px', textAlign: 'left' }}>Projekt</th>
+                            <th style={{ padding: '8px 10px', textAlign: 'left' }}>Start – Ende</th>
+                            <th style={{ padding: '8px 10px', textAlign: 'left' }}>Pause</th>
+                            <th style={{ padding: '8px 10px', textAlign: 'left' }}>Netto</th>
+                            <th style={{ padding: '8px 10px', textAlign: 'left' }}>Status</th>
+                            <th style={{ padding: '8px 10px', textAlign: 'right' }}>Aktion</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {empLogsAll.length === 0 ? (
+                            <tr><td colSpan={7} style={{ padding: 20, textAlign: 'center', color: '#64748b' }}>Noch keine Arbeitszeiten für diesen Mitarbeiter erfasst.</td></tr>
+                          ) : empLogsAll.map((l) => (
+                            <tr key={l.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                              <td style={{ padding: '8px 10px', fontWeight: 700 }}>{formatDate(l.date)}</td>
+                              <td style={{ padding: '8px 10px' }}>{l.project_name || '—'}</td>
+                              <td style={{ padding: '8px 10px' }}>{fmtTimeInput(l.check_in_time) || '—'} – {fmtTimeInput(l.check_out_time) || 'Aktiv'}</td>
+                              <td style={{ padding: '8px 10px' }}>{l.break_minutes || 0} min</td>
+                              <td style={{ padding: '8px 10px', fontWeight: 800, color: '#0f172a' }}>{l.net_hours ?? l.total_hours ?? 0} h</td>
+                              <td style={{ padding: '8px 10px' }}>
+                                <span className="badge" style={{ background: l.status === 'Approved' ? '#dcfce7' : '#fef3c7', color: l.status === 'Approved' ? '#15803d' : '#b45309' }}>{l.status}</span>
+                              </td>
+                              <td style={{ padding: '8px 10px', textAlign: 'right' }}>
+                                <div style={{ display: 'inline-flex', gap: 6 }}>
+                                  {l.status !== 'Approved' && l.check_out_time && (
+                                    <button type="button" className="btn-primary btn-sm" onClick={() => handleApproveTimeLog(l.id)}><Check size={12} /> Freigeben</button>
+                                  )}
+                                  <button type="button" className="btn-secondary btn-sm" style={{ color: '#dc2626' }} onClick={() => handleDeleteTimeLog(l.id)}><Trash2 size={12} /></button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {/* SECTION 9: KRANKHEIT (AU) & URLAUB (PER EMPLOYEE) */}
+                {editingEmpId && empCardTab === 'absence' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                      {/* Left: Krankmeldung (AU) */}
+                      <div style={{ padding: 12, borderRadius: 10, background: '#fef2f2', border: '1px solid #fecaca', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        <strong style={{ fontSize: 13, color: '#991b1b' }}>🏥 Krankmeldung (AU) für {newEmp.first_name} erfassen</strong>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                          <div><label style={{ fontSize: 11 }}>Von</label><DateInput value={newSickForm.start_date} onChange={(e) => setNewSickForm({ ...newSickForm, start_date: e.target.value })} /></div>
+                          <div><label style={{ fontSize: 11 }}>Bis</label><DateInput value={newSickForm.end_date} onChange={(e) => setNewSickForm({ ...newSickForm, end_date: e.target.value })} /></div>
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8, alignItems: 'end' }}>
+                          <div><label style={{ fontSize: 11 }}>Notiz / Diagnose</label><input placeholder="Arzt / AU..." value={newSickForm.symptoms_note} onChange={(e) => setNewSickForm({ ...newSickForm, symptoms_note: e.target.value })} /></div>
+                          <div><label style={{ fontSize: 11 }}>AU-Attest (PDF/Foto)</label><input type="file" accept=".pdf,image/*" onChange={(e) => setSickAuFile(e.target.files?.[0] || null)} /></div>
+                          <button type="button" className="btn-primary btn-sm" style={{ height: 36 }} onClick={async () => {
+                            try {
+                              let docId = null;
+                              if (sickAuFile) {
+                                const up = await uploadMediaFile({ file: sickAuFile, referenceType: 'SicknessAU', referenceId: editingEmpId, employeeId: editingEmpId, title: `AU ${newSickForm.start_date}` });
+                                docId = up.document_id;
+                              }
+                              await fetchWithToken('/api/v1/hr/sickness', {
+                                method: 'POST',
+                                body: JSON.stringify({ employee_id: editingEmpId, start_date: newSickForm.start_date, end_date: newSickForm.end_date, doctor_visited: true, symptoms_note: newSickForm.symptoms_note, au_document_id: docId }),
+                              });
+                              setSickAuFile(null);
+                              loadAll();
+                            } catch (err) { alert(err.message); }
+                          }}><Plus size={13} /> AU speichern</button>
+                        </div>
+                      </div>
+
+                      {/* Right: Urlaub */}
+                      <div style={{ padding: 12, borderRadius: 10, background: '#f0fdf4', border: '1px solid #bbf7d0', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        <strong style={{ fontSize: 13, color: '#166534' }}>🌴 Urlaub für {newEmp.first_name} eintragen (Anspruch: {newEmp.annual_leave_days || 28} Tage)</strong>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+                          <div>
+                            <label style={{ fontSize: 11 }}>Art</label>
+                            <select value={newLeaveForm.type} onChange={(e) => setNewLeaveForm({ ...newLeaveForm, type: e.target.value })}>
+                              <option value="Annual Leave">Erholungsurlaub</option>
+                              <option value="Special Leave">Sonderurlaub</option>
+                              <option value="Unpaid Leave">Unbezahlt</option>
+                            </select>
+                          </div>
+                          <div><label style={{ fontSize: 11 }}>Von</label><DateInput value={newLeaveForm.start_date} onChange={(e) => setNewLeaveForm({ ...newLeaveForm, start_date: e.target.value })} /></div>
+                          <div><label style={{ fontSize: 11 }}>Bis</label><DateInput value={newLeaveForm.end_date} onChange={(e) => setNewLeaveForm({ ...newLeaveForm, end_date: e.target.value })} /></div>
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'end' }}>
+                          <div><label style={{ fontSize: 11 }}>Grund / Notiz</label><input placeholder="Sommerurlaub..." value={newLeaveForm.reason} onChange={(e) => setNewLeaveForm({ ...newLeaveForm, reason: e.target.value })} /></div>
+                          <button type="button" className="btn-primary btn-sm" style={{ height: 36 }} onClick={async () => {
+                            try {
+                              await fetchWithToken('/api/v1/hr/leave-requests', {
+                                method: 'POST',
+                                body: JSON.stringify({ employee_id: editingEmpId, type: newLeaveForm.type, start_date: newLeaveForm.start_date, end_date: newLeaveForm.end_date, reason: newLeaveForm.reason, status: 'Approved' }),
+                              });
+                              loadAll();
+                            } catch (err) { alert(err.message); }
+                          }}><Plus size={13} /> Urlaub buchen</button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Tables: Sickness & Leaves */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                      <div style={{ border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden' }}>
+                        <div style={{ padding: '8px 12px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', fontWeight: 700, fontSize: 12 }}>Krankmeldungen (AU) ({empSicknessAll.length})</div>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                          <tbody>
+                            {empSicknessAll.length === 0 ? (
+                              <tr><td style={{ padding: 14, color: '#64748b' }}>Keine Krankmeldungen vorhanden.</td></tr>
+                            ) : empSicknessAll.map((s) => (
+                              <tr key={s.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                <td style={{ padding: '8px 10px', fontWeight: 700 }}>{formatDate(s.start_date)} – {formatDate(s.end_date)}</td>
+                                <td style={{ padding: '8px 10px' }}>{s.symptoms_note || '—'}</td>
+                                <td style={{ padding: '8px 10px' }}>{s.au_document_url ? <a href={resolveMediaUrl(s.au_document_url)} target="_blank" rel="noreferrer" style={{ color: '#FF6B00', fontWeight: 700 }}>AU PDF</a> : '—'}</td>
+                                <td style={{ padding: '8px 10px', textAlign: 'right' }}>
+                                  <button type="button" className="btn-secondary btn-sm" style={{ color: '#dc2626' }} onClick={() => handleDeleteSickness(s.id)}><Trash2 size={12} /></button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      <div style={{ border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden' }}>
+                        <div style={{ padding: '8px 12px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', fontWeight: 700, fontSize: 12 }}>Urlaub & Abwesenheit ({empLeavesAll.length})</div>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                          <tbody>
+                            {empLeavesAll.length === 0 ? (
+                              <tr><td style={{ padding: 14, color: '#64748b' }}>Keine Urlaubsanträge vorhanden.</td></tr>
+                            ) : empLeavesAll.map((lv) => (
+                              <tr key={lv.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                <td style={{ padding: '8px 10px', fontWeight: 700 }}>{formatDate(lv.start_date)} – {formatDate(lv.end_date)}</td>
+                                <td style={{ padding: '8px 10px' }}>{lv.type}</td>
+                                <td style={{ padding: '8px 10px' }}><span className="badge">{lv.status}</span></td>
+                                <td style={{ padding: '8px 10px', textAlign: 'right' }}>
+                                  <button type="button" className="btn-secondary btn-sm" style={{ color: '#dc2626' }} onClick={() => handleDeleteLeave(lv.id)}><Trash2 size={12} /></button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* SECTION 10: LOHNABRECHNUNG (PER EMPLOYEE) */}
+                {editingEmpId && empCardTab === 'payslips' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    <div style={{ padding: 12, borderRadius: 10, background: '#ecfdf5', border: '1px solid #a7f3d0', display: 'flex', alignItems: 'end', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+                      <div>
+                        <strong style={{ fontSize: 13, color: '#065f46' }}>💰 Monatliche Lohnabrechnung (PDF) für {newEmp.first_name} {newEmp.last_name} hochladen</strong>
+                        <div style={{ fontSize: 11.5, color: '#047857' }}>Erscheint sofort in der Akte und im Mitarbeiter-Portal zum PDF-Download.</div>
+                      </div>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'end', flexWrap: 'wrap' }}>
+                        <div>
+                          <label style={{ fontSize: 11 }}>Monat & Jahr</label>
+                          <div style={{ display: 'flex', gap: 4 }}>
+                            <select value={docPayslipMonth} onChange={(e) => setDocPayslipMonth(e.target.value)} style={{ width: 'auto', fontWeight: 700 }}>
+                              {MONTH_OPTIONS.map((m) => (<option key={m.value} value={m.value}>{m.label}</option>))}
+                            </select>
+                            <select value={docPayslipYear} onChange={(e) => setDocPayslipYear(e.target.value)} style={{ width: 85, fontWeight: 700 }}>
+                              {YEAR_OPTIONS.map((yr) => (<option key={yr} value={yr}>{yr}</option>))}
+                            </select>
+                          </div>
+                        </div>
+                        <div>
+                          <label style={{ fontSize: 11 }}>Notiz (Optional)</label>
+                          <input placeholder="z.B. inkl. Prämie" value={customDocLabel} onChange={(e) => setCustomDocLabel(e.target.value)} style={{ width: 150 }} />
+                        </div>
+                        <label className="btn-primary btn-sm" style={{ cursor: 'pointer', height: 36, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                          <Upload size={13} /> {uploadingEmpDoc ? 'Lädt hoch...' : `PDF wählen & bereitstellen (${docPayslipMonth}/${docPayslipYear})`}
+                          <input
+                            type="file"
+                            accept=".pdf,image/*"
+                            style={{ display: 'none' }}
+                            onChange={async (ev) => {
+                              const files = Array.from(ev.target.files || []);
+                              if (!files.length) return;
+                              setDocCategory('Lohnabrechnung');
+                              await executeDocUpload(editingEmpId, files);
+                              ev.target.value = '';
+                            }}
+                          />
+                        </label>
+                      </div>
+                    </div>
+
+                    <div style={{ border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+                        <thead>
+                          <tr style={{ background: '#f1f5f9', color: '#475569', fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase' }}>
+                            <th style={{ padding: '8px 10px', textAlign: 'left' }}>Zeitraum</th>
+                            <th style={{ padding: '8px 10px', textAlign: 'left' }}>Bezeichnung</th>
+                            <th style={{ padding: '8px 10px', textAlign: 'left' }}>Brutto / Grundgehalt</th>
+                            <th style={{ padding: '8px 10px', textAlign: 'left' }}>Datum</th>
+                            <th style={{ padding: '8px 10px', textAlign: 'right' }}>PDF / Aktion</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {empPayslipsAll.length === 0 ? (
+                            <tr><td colSpan={5} style={{ padding: 20, textAlign: 'center', color: '#64748b' }}>Noch keine Lohnabrechnungen für diesen Mitarbeiter hinterlegt.</td></tr>
+                          ) : empPayslipsAll.map((sl) => (
+                            <tr key={`${sl.source}-${sl.id}`} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                              <td style={{ padding: '8px 10px', fontWeight: 800, color: '#047857' }}>{sl.period}</td>
+                              <td style={{ padding: '8px 10px', fontWeight: 600 }}>{sl.title}</td>
+                              <td style={{ padding: '8px 10px' }}>{formatEuro(sl.gross || newEmp.base_salary || 0)}</td>
+                              <td style={{ padding: '8px 10px' }}>{formatDate(sl.date)}</td>
+                              <td style={{ padding: '8px 10px', textAlign: 'right' }}>
+                                <div style={{ display: 'inline-flex', gap: 6 }}>
+                                  {sl.url && (
+                                    <a href={resolveMediaUrl(sl.url)} target="_blank" rel="noreferrer" className="btn-secondary btn-sm" style={{ textDecoration: 'none', color: '#FF6B00', fontWeight: 700 }}>
+                                      <Download size={12} /> PDF öffnen
+                                    </a>
+                                  )}
+                                  <button
+                                    type="button"
+                                    className="btn-secondary btn-sm"
+                                    style={{ color: '#dc2626' }}
+                                    onClick={() => sl.source === 'payslip' ? handleDeletePayslip(sl.id) : handleDeleteEmpDocument(sl.id)}
+                                  >
+                                    <Trash2 size={12} />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
                 )}              </div>
 
               {/* Fixed Static Footer */}
-              <div className="flex-between" style={{ padding: '14px 24px', borderTop: '1px solid var(--border)', background: '#f8fafc' }}>
+              <div className="flex-between" style={{ padding: '12px 18px', borderTop: '1px solid #e2e8f0', background: '#f8fafc' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                   {editingEmpId && (
                     <button
@@ -2916,7 +3301,7 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                     </button>
                   )}
                   <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
-                    Active Mode: <strong>{newEmp.employment_type}</strong> • Position: <strong>{newEmp.role}</strong> • Abteilung: <strong>{newEmp.department}</strong>
+                    Typ: <strong>{newEmp.employment_type}</strong> • Position: <strong>{newEmp.role}</strong> • Abteilung: <strong>{newEmp.department}</strong>
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: '10px' }}>
@@ -2924,16 +3309,17 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                     <ArrowLeft size={14} /> Zurück zur Übersicht
                   </button>
                   <button type="submit" className="btn-primary">
-                    <Check size={15} /> {editingEmpId ? 'Save Employee Master Card' : 'Create Account & Save Personalakte'}
+                    <Check size={15} /> {editingEmpId ? 'Änderungen speichern' : 'Mitarbeiter anlegen & speichern'}
                   </button>
                 </div>
               </div>
             </form>
         </div>
-      )}
+        );
+      })()}
 
       {/* Tab Content */}
-      {tab === 'employees' && (() => {
+      {!showAddEmp && tab === 'employees' && (() => {
         const monthHours = {};
         timeLogs.forEach((l) => {
           if (!l.employee_id || !String(l.date || '').startsWith(biMonth)) return;
@@ -3073,7 +3459,7 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                             {projects.map((p) => (<option key={p.id} value={p.id}>{p.code} · {p.name}</option>))}
                           </select>
                         </td>
-                        <td style={{ padding: '9px 10px', minWidth: 130 }}>
+                        <td style={{ padding: '9px 10px', minWidth: 130 }} onClick={(ev) => { ev.stopPropagation(); openEditEmployeeModal(e); setEmpCardTab('hours'); }} title="Arbeitszeiten & Überstunden öffnen">
                           <div style={{ fontSize: 11, fontWeight: 700, color: over ? '#dc2626' : '#0f172a' }}>{hrs.toFixed(1)} h / {quota} h</div>
                           <div style={{ height: 5, borderRadius: 999, background: '#e2e8f0', overflow: 'hidden', marginTop: 3 }}>
                             <div style={{ width: `${Math.max(3, pct)}%`, height: '100%', background: over ? '#dc2626' : '#FF6B00' }} />
@@ -3083,9 +3469,17 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                           {isSub ? `${formatEuro(attr.tagessatz || 640)}/Tag` : e.base_salary > 0 ? `${formatEuro(e.base_salary)}/Mo` : `${formatEuro(e.hourly_rate)}/h`}
                         </td>
                         <td style={{ padding: '9px 10px' }} onClick={(ev) => ev.stopPropagation()}>
-                          <button type="button" className="btn-secondary btn-sm" style={{ padding: '3px 8px', fontSize: 11 }} onClick={() => { openEditEmployeeModal(e); setEmpCardTab('docs'); }}>
-                            <Upload size={11} /> {(e.documents || []).length}
-                          </button>
+                          <div style={{ display: 'inline-flex', gap: 4, flexWrap: 'wrap' }}>
+                            <button type="button" className="btn-secondary btn-sm" style={{ padding: '3px 7px', fontSize: 10.5 }} onClick={() => { openEditEmployeeModal(e); setEmpCardTab('absence'); }} title="Krankheit (AU) & Urlaub">
+                              🏥/🌴
+                            </button>
+                            <button type="button" className="btn-secondary btn-sm" style={{ padding: '3px 7px', fontSize: 10.5, color: '#047857' }} onClick={() => { openEditEmployeeModal(e); setEmpCardTab('payslips'); }} title="Lohnabrechnung">
+                              💰
+                            </button>
+                            <button type="button" className="btn-secondary btn-sm" style={{ padding: '3px 7px', fontSize: 10.5 }} onClick={() => { openEditEmployeeModal(e); setEmpCardTab('docs'); }} title="Dokumente">
+                              <Upload size={11} /> {(e.documents || []).length}
+                            </button>
+                          </div>
                         </td>
                         <td style={{ padding: '9px 10px', textAlign: 'right' }} onClick={(ev) => ev.stopPropagation()}>
                           <button type="button" className="btn-secondary btn-sm" style={{ color: '#dc2626', padding: '4px 7px' }} onClick={() => handleDeleteEmployee(e.id, e.full_name)}>
@@ -3102,7 +3496,7 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
         );
       })()}
 
-      {tab === 'timelogs' && (
+      {!showAddEmp && tab === 'timelogs' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
           {/* Smart Instant Character-by-Character Employee Search + Selective Billing Month + Add Manual Working Hours Bar */}
           <div className="glass-panel" style={{ padding: '16px 18px' }}>
@@ -3690,7 +4084,7 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
         </div>
       )}
 
-      {tab === 'leaves' && (
+      {!showAddEmp && tab === 'leaves' && (
         <div className="glass-panel">
           <div className="toolbar" style={{ marginBottom: 16 }}>
             <select value={leaveFilter} onChange={(e) => setLeaveFilter(e.target.value)}>
@@ -3804,7 +4198,7 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
         </div>
       )}
 
-      {tab === 'sickness' && (
+      {!showAddEmp && tab === 'sickness' && (
         <div className="glass-panel">
           <div className="toolbar" style={{ marginBottom: 16 }}>
             <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
@@ -3900,7 +4294,7 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
         </div>
       )}
 
-      {(tab === 'documents' || tab === 'payslips') && (() => {
+      {!showAddEmp && (tab === 'documents' || tab === 'payslips') && (() => {
         const allEmployeeDocs = employees.flatMap(emp =>
           (emp.documents || []).map(doc => ({
             ...doc,
@@ -5366,213 +5760,70 @@ export const ProjectsObjectsModule = () => {
       )}
 
       {tab === 'tasks' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          {/* Filter Bar: Overall vs Individual Employee Calendar + Drag & Drop Hint + View Switcher */}
-          <div className="glass-panel" style={{ padding: '14px 18px' }}>
-            <div className="flex-between" style={{ flexWrap: 'wrap', gap: '12px' }}>
-              <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-                <select value={empCalFilter} onChange={e => setEmpCalFilter(e.target.value)} style={{ width: 'auto', fontWeight: 600 }}>
-                  <option value="">Overall Calendar (All Employees)</option>
-                  {employees.map(emp => (
-                    <option key={emp.id} value={emp.id}>Employee Calendar: {emp.full_name}</option>
-                  ))}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          {/* Unified Adaptive Calendar (Monat / Woche / Tag / Liste) with Objects & Properties sync */}
+          <MasterCalendarModule embeddedInProjects />
+
+          {/* Compact Field Assignments & Documentation Table */}
+          <div className="glass-panel" style={{ padding: '12px 14px', borderRadius: 12, background: '#fff', border: '1px solid #e2e8f0' }}>
+            <div className="flex-between" style={{ marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <strong style={{ fontSize: 13.5, color: '#0f172a' }}>Einsatz-Aufgaben & Baustellen-Dokumentation ({filteredTasks.length})</strong>
+                <select value={empCalFilter} onChange={e => setEmpCalFilter(e.target.value)} style={{ width: 'auto', fontSize: 12, padding: '4px 8px' }}>
+                  <option value="">Alle Mitarbeiter</option>
+                  {employees.map(emp => (<option key={emp.id} value={emp.id}>{emp.full_name}</option>))}
                 </select>
-                <select value={teamCalFilter} onChange={e => setTeamCalFilter(e.target.value)} style={{ width: 'auto' }}>
-                  <option value="">All Teams</option>
-                  {teams.map(tm => (
-                    <option key={tm.id} value={tm.id}>{tm.name}</option>
-                  ))}
+                <select value={teamCalFilter} onChange={e => setTeamCalFilter(e.target.value)} style={{ width: 'auto', fontSize: 12, padding: '4px 8px' }}>
+                  <option value="">Alle Teams</option>
+                  {teams.map(tm => (<option key={tm.id} value={tm.id}>{tm.name}</option>))}
                 </select>
-                <div style={{ display: 'flex', gap: '10px', fontSize: '0.75rem', fontWeight: 600, marginLeft: '6px' }}>
-                  {Object.values(TASK_STATUS_CONFIG).map(st => (
-                    <span key={st.key} style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
-                      <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: st.hex || st.color }} />
-                      {st.en}
-                    </span>
-                  ))}
-                </div>
               </div>
-
-              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                <button className="btn-secondary btn-sm" onClick={() => {
-                  const d = new Date(calCursor);
-                  taskViewMode === 'month' ? d.setMonth(d.getMonth() - 1) : d.setDate(d.getDate() - 7);
-                  setCalCursor(d);
-                }}><ChevronLeft size={14} /></button>
-                <button className="btn-secondary btn-sm" onClick={() => setCalCursor(new Date())}>Today</button>
-                <button className="btn-secondary btn-sm" onClick={() => {
-                  const d = new Date(calCursor);
-                  taskViewMode === 'month' ? d.setMonth(d.getMonth() + 1) : d.setDate(d.getDate() + 7);
-                  setCalCursor(d);
-                }}><ChevronRight size={14} /></button>
-
-                <div className="subtabs" style={{ marginLeft: '6px' }}>
-                  <button className={`subtab ${taskViewMode === 'week' ? 'active' : ''}`} onClick={() => setTaskViewMode('week')}>Week (Drag & Drop)</button>
-                  <button className={`subtab ${taskViewMode === 'month' ? 'active' : ''}`} onClick={() => setTaskViewMode('month')}>Month (Drag & Drop)</button>
-                  <button className={`subtab ${taskViewMode === 'table' ? 'active' : ''}`} onClick={() => setTaskViewMode('table')}>Table</button>
-                </div>
-              </div>
+              <button className="btn-primary btn-sm" onClick={() => setShowAddTask(true)}>
+                <Plus size={14} /> Neue Aufgabe / Einsatz zuweisen
+              </button>
             </div>
-          </div>
-
-          {taskViewMode === 'week' && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: '10px' }}>
-              {weekCols.map(col => (
-                <div
-                  key={col.iso}
-                  onDragOver={e => e.preventDefault()}
-                  onDrop={() => handleTaskDropOnDate(col.iso)}
-                  className="glass-panel"
-                  style={{
-                    padding: '12px',
-                    minHeight: '280px',
-                    border: col.isToday ? '2px solid var(--accent)' : '1px solid var(--border)',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '8px',
-                  }}
-                >
-                  <div className="flex-between" style={{ borderBottom: '1px solid var(--border)', paddingBottom: '6px' }}>
-                    <strong style={{ fontSize: '0.8rem' }}>{col.label}</strong>
-                    <span className="badge">{col.tasks.length}</span>
-                  </div>
-                  {col.tasks.map(a => {
-                    const st = getStatusStyle(a.task_status);
-                    return (
-                      <div
-                        key={a.id}
-                        draggable
-                        onDragStart={() => setDraggedTaskId(a.id)}
-                        onClick={() => setSelectedTaskDoc(a)}
-                        style={{
-                          padding: '9px',
-                          borderRadius: '8px',
-                          background: st.bg,
-                          borderLeft: `4px solid ${st.hex || st.color}`,
-                          cursor: 'grab',
-                          fontSize: '0.78rem',
-                        }}
-                      >
-                        <div className="flex-between" style={{ marginBottom: '3px' }}>
-                          <span style={{ fontWeight: 700, color: st.color, fontSize: '0.7rem' }}>{a.task_status}</span>
-                          <GripVertical size={12} style={{ color: 'var(--text-muted)' }} />
-                        </div>
-                        <div style={{ fontWeight: 700 }}>{a.title}</div>
-                        <div style={{ fontSize: '0.71rem', color: 'var(--text-secondary)', marginTop: '2px' }}>{a.assignee_label}</div>
-                        <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: '4px', display: 'flex', gap: '8px' }}>
-                          <span><MessageSquare size={10} /> {(a.comments || []).length}</span>
-                          <span><Video size={10} /> {a.media_count || 0}</span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              ))}
-            </div>
-          )}
-
-          {taskViewMode === 'month' && (
-            <div className="glass-panel">
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '8px' }}>
-                {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(d => (
-                  <div key={d} style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textAlign: 'center' }}>{d}</div>
-                ))}
-                {monthCells.map((cell, idx) =>
-                  !cell ? (
-                    <div key={`e-${idx}`} style={{ minHeight: '95px', background: 'var(--surface-2)', borderRadius: '8px', opacity: 0.4 }} />
-                  ) : (
-                    <div
-                      key={cell.iso}
-                      onDragOver={e => e.preventDefault()}
-                      onDrop={() => handleTaskDropOnDate(cell.iso)}
-                      style={{
-                        minHeight: '95px',
-                        padding: '8px',
-                        borderRadius: '8px',
-                        border: cell.isToday ? '2px solid var(--accent)' : '1px solid var(--border)',
-                        background: 'var(--surface)',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: '4px',
-                      }}
-                    >
-                      <div style={{ fontSize: '0.75rem', fontWeight: 700 }}>{cell.day}</div>
-                      {cell.tasks.map(a => {
-                        const st = getStatusStyle(a.task_status);
-                        return (
-                          <div
-                            key={a.id}
-                            draggable
-                            onDragStart={() => setDraggedTaskId(a.id)}
-                            onClick={() => setSelectedTaskDoc(a)}
-                            style={{
-                              padding: '3px 6px',
-                              borderRadius: '5px',
-                              fontSize: '0.7rem',
-                              fontWeight: 600,
-                              background: st.bg,
-                              color: st.color,
-                              borderLeft: `3px solid ${st.hex || st.color}`,
-                              cursor: 'grab',
-                              whiteSpace: 'nowrap',
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                            }}
-                          >
-                            {a.title}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )
-                )}
-              </div>
-            </div>
-          )}
-
-          {taskViewMode === 'table' && (
-            <div className="glass-panel">
-              <table style={{ width: '100%', textAlign: 'left', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', textAlign: 'left', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
                 <thead>
-                  <tr style={{ borderBottom: '1px solid var(--border)', color: 'var(--text-muted)' }}>
-                    <th style={{ padding: '10px 8px' }}>Date</th>
-                    <th style={{ padding: '10px 8px' }}>Assigned Team / Employees</th>
-                    <th style={{ padding: '10px 8px' }}>Task & Instructions</th>
-                    <th style={{ padding: '10px 8px' }}>Building Object / PLZ</th>
-                    <th style={{ padding: '10px 8px' }}>Status</th>
-                    <th style={{ padding: '10px 8px' }}>Documentation</th>
+                  <tr style={{ borderBottom: '1px solid #e2e8f0', background: '#f8fafc', color: '#475569', fontSize: 10.5, textTransform: 'uppercase' }}>
+                    <th style={{ padding: '8px 10px' }}>Datum</th>
+                    <th style={{ padding: '8px 10px' }}>Team / Mitarbeiter</th>
+                    <th style={{ padding: '8px 10px' }}>Aufgabe & Anweisung</th>
+                    <th style={{ padding: '8px 10px' }}>Gebäude / Region</th>
+                    <th style={{ padding: '8px 10px' }}>Status</th>
+                    <th style={{ padding: '8px 10px' }}>Dokumentation</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredTasks.map(a => {
                     const st = getStatusStyle(a.task_status);
                     return (
-                      <tr key={a.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                        <td style={{ padding: '10px 8px', fontWeight: 600 }}>{formatDate(a.date)}</td>
-                        <td style={{ padding: '10px 8px' }}>{a.assignee_label}</td>
-                        <td style={{ padding: '10px 8px' }}>
-                          <div style={{ fontWeight: 600 }}>{a.title}</div>
-                          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{a.instructions}</div>
+                      <tr key={a.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                        <td style={{ padding: '8px 10px', fontWeight: 700 }}>{formatDate(a.date)}</td>
+                        <td style={{ padding: '8px 10px' }}>{a.assignee_label}</td>
+                        <td style={{ padding: '8px 10px' }}>
+                          <div style={{ fontWeight: 700 }}>{a.title}</div>
+                          <div style={{ fontSize: '0.73rem', color: '#64748b' }}>{a.instructions}</div>
                         </td>
-                        <td style={{ padding: '10px 8px' }}>
+                        <td style={{ padding: '8px 10px' }}>
                           <div>{a.object_address}</div>
-                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{a.region_name}</div>
+                          <div style={{ fontSize: '0.72rem', color: '#64748b' }}>{a.region_name}</div>
                         </td>
-                        <td style={{ padding: '10px 8px' }}>
+                        <td style={{ padding: '8px 10px' }}>
                           <select
                             value={a.task_status}
                             onChange={e => handleTaskStatusUpdate(a.id, e.target.value)}
-                            style={{ padding: '4px 8px', fontSize: '0.76rem', fontWeight: 700, color: st.color, background: st.bg, width: 'auto' }}
+                            style={{ padding: '4px 8px', fontSize: '0.75rem', fontWeight: 700, color: st.color, background: st.bg, width: 'auto' }}
                           >
                             {Object.values(TASK_STATUS_CONFIG).map(opt => (
                               <option key={opt.key} value={opt.key}>{opt.en}</option>
                             ))}
                           </select>
                         </td>
-                        <td style={{ padding: '10px 8px' }}>
+                        <td style={{ padding: '8px 10px' }}>
                           <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                             <button className="btn-secondary btn-sm" onClick={() => setSelectedTaskDoc(a)}>
-                              <MessageSquare size={13} /> {(a.comments || []).length} • <Video size={13} /> {a.media_count || 0} Open
+                              <MessageSquare size={12} /> {(a.comments || []).length} • <Video size={12} /> {a.media_count || 0} Öffnen
                             </button>
                             <button
                               type="button"
@@ -5581,7 +5832,7 @@ export const ProjectsObjectsModule = () => {
                               title="Aufgabe löschen"
                               onClick={() => handleDeleteTask(a)}
                             >
-                              <Trash2 size={13} />
+                              <Trash2 size={12} />
                             </button>
                           </div>
                         </td>
@@ -5591,7 +5842,7 @@ export const ProjectsObjectsModule = () => {
                 </tbody>
               </table>
             </div>
-          )}
+          </div>
         </div>
       )}
 
