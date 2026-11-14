@@ -1431,6 +1431,408 @@ def generate_protocols_excel_bytes(addresses: List[models.Address]) -> bytes:
         return _build_xlsx_fallback(sheets_spec)
 
 
+def generate_protocols_summary_excel_bytes(addresses: List[models.Address]) -> bytes:
+    """
+    Builds the single-sheet 'Summary' Excel (.xlsx) workbook (only main buildings)
+    matching the exact columns, two-row Persian/German header layout, colors, and
+    Ja (Green) / Nein (Red) conditional formatting from Techniknetz-Status.
+    Columns A..AG (33 columns):
+      Row 1 (Persian): شماره | تاریخ | شهر | شماره آیدی خانه | | پلاک | تعداد واحد | وضعیت | (I..Z empty) | انبار | باکس مرکزی | فیوژن کردن | عکس | فاکتور | Karimi | توضیحات
+      Row 2 (German):  Nr. | Datum | Stadt | Haus ID | Adress | Haus Nr. | WE | TA Installed | Kabel kanal | Auskundung | (K empty red divider) | TA001..TA015 | Keller | APL | Spleiß | Fotos | Rechnung | Dropbox | Bemerkung
+    """
+    persian_headers = [
+        "شماره",               # A
+        "تاریخ",               # B
+        "شهر",                 # C
+        "شماره آیدی خانه",     # D
+        "",                    # E
+        "پلاک",                # F
+        "تعداد واحد",          # G
+        "وضعیت",               # H
+        "",                    # I (Kabel kanal)
+        "",                    # J (Auskundung)
+        "",                    # K (Red divider)
+        *["" for _ in range(15)],  # L..Z (TA001..TA015)
+        "انبار",               # AA (Keller)
+        "باکس مرکزی",          # AB (APL)
+        "فیوژن کردن",          # AC (Spleiß)
+        "عکس",                 # AD (Fotos)
+        "فاکتور",              # AE (Rechnung)
+        "Karimi",              # AF (Dropbox)
+        "توضیحات",             # AG (Bemerkung)
+    ]
+
+    german_headers = [
+        "Nr.",                 # A
+        "Datum",               # B
+        "Stadt",               # C
+        "Haus ID",             # D
+        "Adress",              # E
+        "Haus Nr.",            # F
+        "WE",                  # G
+        "TA Installed",        # H
+        "Kabel kanal",         # I
+        "Auskundung",          # J
+        "",                    # K (Red separator column)
+        *[f"TA{i:03d}" for i in range(1, 16)],  # L..Z (TA001..TA015)
+        "Keller",              # AA
+        "APL",                 # AB
+        "Spleiß",              # AC
+        "Fotos",               # AD
+        "Rechnung",            # AE
+        "Dropbox",             # AF
+        "Bemerkung",           # AG
+    ]
+
+    summary_rows_meta: List[Dict[str, Any]] = []
+
+    for idx, addr in enumerate(addresses, start=1):
+        units_list = list(addr.units or [])
+
+        def _unit_sort_key(u_obj: Any) -> Tuple[int, str]:
+            raw_id = str(getattr(u_obj, "unit_id", "") or "").strip()
+            digits = "".join(ch for ch in raw_id if ch.isdigit())
+            return (int(digits) if digits else 9999, raw_id)
+
+        units_sorted = sorted(units_list, key=_unit_sort_key)
+        total_units = max(len(units_sorted), int(addr.total_we or 1))
+        b_status = (getattr(addr, "building_status", None) or "Ausbau terminiert").strip()
+
+        # Map units into slots 1..total_units
+        unit_by_slot: Dict[int, Any] = {}
+        unassigned_units: List[Any] = []
+        for u in units_sorted:
+            raw_id = str(getattr(u, "unit_id", "") or "").strip()
+            digits = "".join(ch for ch in raw_id if ch.isdigit())
+            slot_num = int(digits) if digits else 0
+            if 1 <= slot_num <= max(total_units, 15) and slot_num not in unit_by_slot:
+                unit_by_slot[slot_num] = u
+            else:
+                unassigned_units.append(u)
+
+        for slot_num in range(1, max(total_units, 15) + 1):
+            if slot_num not in unit_by_slot and unassigned_units:
+                unit_by_slot[slot_num] = unassigned_units.pop(0)
+
+        any_building_work = any(
+            [
+                bool(getattr(addr, "metalkanal_installiert", False)),
+                bool(getattr(addr, "flexrohr", False)),
+                bool(getattr(addr, "huep_installiert", False)),
+                bool(getattr(addr, "spleissen_fertig", False)),
+                bool(getattr(addr, "upload_done", False)),
+                bool(getattr(addr, "genehmigt", False)),
+                bool(getattr(addr, "rechnung_erstellt", False)),
+                bool(getattr(addr, "rechnung_bezahlt", False)),
+                b_status in ("Abgeschlossen", "Restarbeiten", "In Bearbeitung"),
+            ]
+        )
+
+        ta_cnt = 0
+        ta_cells: List[str] = []
+        for slot_num in range(1, 16):
+            if slot_num > total_units:
+                ta_cells.append("")
+                continue
+            u = unit_by_slot.get(slot_num)
+            if u is not None:
+                we_art = getattr(u, "we_ausbau_art", None)
+                if we_art == "Reserve" or getattr(u, "reserve", False):
+                    ta_cells.append("Nein")
+                elif we_art == "Ohne" or getattr(u, "ohne", False):
+                    ta_cells.append("Nein")
+                else:
+                    if getattr(u, "ta_installiert", False) or any_building_work:
+                        ta_cnt += 1
+                        ta_cells.append("Ja")
+                    else:
+                        ta_cells.append("Nein")
+            else:
+                if b_status == "Abgeschlossen":
+                    ta_cnt += 1
+                    ta_cells.append("Ja")
+                else:
+                    ta_cells.append("Nein")
+
+        # Also count any units > 15 if building has > 15 WE
+        for slot_num in range(16, total_units + 1):
+            u = unit_by_slot.get(slot_num)
+            if u is not None:
+                we_art = getattr(u, "we_ausbau_art", None)
+                if we_art not in ("Reserve", "Ohne") and not getattr(u, "reserve", False) and not getattr(u, "ohne", False):
+                    if getattr(u, "ta_installiert", False) or any_building_work:
+                        ta_cnt += 1
+            elif b_status == "Abgeschlossen":
+                ta_cnt += 1
+
+        raw_date = (
+            getattr(addr, "ausbautermin", None)
+            or getattr(addr, "abgeschlossen_datum", None)
+            or getattr(addr, "datum", None)
+            or ""
+        )
+        datum_str = format_date_dd_mm_yyyy(raw_date)
+        norm_ort = normalize_gemeinde_ort(addr.ort, addr.plz)
+
+        adr_id = (getattr(addr, "adress_id", "") or "").strip()
+        proj_nr = (getattr(addr, "projektnummer", "") or "").strip()
+        haus_id = adr_id if adr_id else proj_nr
+
+        strasse_str = (addr.strasse or "").strip()
+        haus_nr_raw = (addr.hausnummer or "").strip()
+        haus_nr_val: Any = int(haus_nr_raw) if haus_nr_raw.isdigit() else haus_nr_raw
+
+        ta_installed_str = f"{ta_cnt}/{total_units}"
+
+        kabel_kanal_val = "Ja" if getattr(addr, "metalkanal_installiert", False) else "Nein"
+        has_auskundung = bool(
+            getattr(addr, "datum", None)
+            or getattr(addr, "pdf_filename", None)
+            or getattr(addr, "hausbegeher", None)
+            or getattr(addr, "ne3_status", None)
+            or proj_nr
+        )
+        auskundung_val = "Ja" if has_auskundung else "Nein"
+
+        keller_val = "Ja" if getattr(addr, "flexrohr", False) else "Nein"
+        apl_val = "Ja" if getattr(addr, "huep_installiert", False) else "Nein"
+        spleiss_val = "Ja" if getattr(addr, "spleissen_fertig", False) else "Nein"
+        fotos_val = "Ja" if getattr(addr, "upload_done", False) else "Nein"
+        rechnung_val = (
+            "Ja"
+            if (getattr(addr, "rechnung_erstellt", False) or getattr(addr, "rechnung_bezahlt", False))
+            else "Nein"
+        )
+        dropbox_val = "Ja" if getattr(addr, "genehmigt", False) else "Nein"
+
+        comments_list = [
+            c for c in (getattr(addr, "comments", None) or [])
+            if isinstance(c, dict) and str(c.get("text", "")).strip()
+        ]
+        bemerkung_str = " / ".join(str(c.get("text", "")).strip() for c in comments_list)
+
+        row_values = [
+            idx,                # A: Nr.
+            datum_str,          # B: Datum
+            norm_ort,           # C: Stadt
+            haus_id,            # D: Haus ID
+            strasse_str,        # E: Adress
+            haus_nr_val,        # F: Haus Nr.
+            total_units,        # G: WE
+            ta_installed_str,   # H: TA Installed
+            kabel_kanal_val,    # I: Kabel kanal
+            auskundung_val,     # J: Auskundung
+            "",                 # K: Red separator column
+            *ta_cells,          # L..Z: TA001..TA015
+            keller_val,         # AA: Keller
+            apl_val,            # AB: APL
+            spleiss_val,        # AC: Spleiß
+            fotos_val,          # AD: Fotos
+            rechnung_val,       # AE: Rechnung
+            dropbox_val,        # AF: Dropbox
+            bemerkung_str,      # AG: Bemerkung
+        ]
+
+        summary_rows_meta.append(
+            {
+                "values": row_values,
+                "status": b_status,
+                "ta_cnt": ta_cnt,
+                "total_units": total_units,
+                "has_comment": bool(bemerkung_str),
+            }
+        )
+
+    try:
+        from openpyxl import Workbook
+        from openpyxl.formatting.rule import CellIsRule
+        from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+        from openpyxl.utils import get_column_letter
+        from openpyxl.worksheet.datavalidation import DataValidation
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Summary"
+        ws.views.sheetView[0].showGridLines = True
+        ws.freeze_panes = "A3"
+
+        # Fills matching the exact screenshot hex colors
+        blue_fill = PatternFill(start_color="00B0F0", end_color="00B0F0", fill_type="solid")
+        green_fill = PatternFill(start_color="00B050", end_color="00B050", fill_type="solid")
+        red_fill = PatternFill(start_color="FF0000", end_color="FF0000", fill_type="solid")
+        orange_fill = PatternFill(start_color="FFC000", end_color="FFC000", fill_type="solid")
+        yellow_fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
+
+        header_font = Font(name="Calibri", size=11, bold=True, color="000000")
+        body_font = Font(name="Calibri", size=11, bold=False, color="000000")
+        ja_nein_font = Font(name="Calibri", size=10, bold=True, color="000000")
+        nein_white_font = Font(name="Calibri", size=10, bold=True, color="FFFFFF")
+
+        thin_black_border = Border(
+            left=Side(style="thin", color="000000"),
+            right=Side(style="thin", color="000000"),
+            top=Side(style="thin", color="000000"),
+            bottom=Side(style="thin", color="000000"),
+        )
+
+        # Row 1: Persian labels
+        ws.append(persian_headers)
+        ws.row_dimensions[1].height = 20
+        for col_idx in range(1, len(persian_headers) + 1):
+            c1 = ws.cell(row=1, column=col_idx)
+            c1.font = header_font
+            c1.alignment = Alignment(horizontal="center", vertical="center")
+
+        # Row 2: German headers with thin black border
+        ws.append(german_headers)
+        ws.row_dimensions[2].height = 21
+        for col_idx in range(1, len(german_headers) + 1):
+            c2 = ws.cell(row=2, column=col_idx)
+            c2.font = header_font
+            c2.border = thin_black_border
+            c2.alignment = Alignment(
+                horizontal="center" if col_idx in (1, 6, 7, 8) or (12 <= col_idx <= 32) else "left",
+                vertical="center",
+            )
+
+        # Data Rows (starting at row 3)
+        ja_nein_col_indices = {9, 10, *range(12, 27), *range(27, 33)}
+
+        for r_offset, meta in enumerate(summary_rows_meta):
+            row_idx = r_offset + 3
+            r_vals = meta["values"]
+            b_status = meta["status"]
+            ta_cnt = meta["ta_cnt"]
+            total_units = meta["total_units"]
+
+            ws.append(r_vals)
+            ws.row_dimensions[row_idx].height = 20
+
+            if b_status == "Abgeschlossen":
+                main_row_fill = blue_fill
+            elif b_status in ("Restarbeiten", "In Bearbeitung"):
+                main_row_fill = orange_fill
+            else:
+                main_row_fill = yellow_fill
+
+            for col_idx in range(1, len(r_vals) + 1):
+                cell = ws.cell(row=row_idx, column=col_idx)
+                cell.font = body_font
+                cell.border = thin_black_border
+                val_str = str(cell.value or "").strip()
+
+                if col_idx == 1:
+                    # Col A: Nr. (white background)
+                    cell.alignment = Alignment(horizontal="right", vertical="center")
+                elif 2 <= col_idx <= 7:
+                    # Cols B..G: Datum, Stadt, Haus ID, Adress, Haus Nr., WE
+                    cell.fill = main_row_fill
+                    cell.alignment = Alignment(
+                        horizontal="center" if col_idx in (2, 6, 7) else "left",
+                        vertical="center",
+                    )
+                elif col_idx == 8:
+                    # Col H: TA Installed
+                    cell.alignment = Alignment(horizontal="center", vertical="center")
+                    if b_status == "Abgeschlossen" and ta_cnt >= total_units:
+                        cell.fill = blue_fill
+                    elif ta_cnt >= total_units and total_units > 0:
+                        cell.fill = green_fill
+                    elif ta_cnt > 0:
+                        cell.fill = orange_fill
+                    else:
+                        cell.fill = yellow_fill
+                elif col_idx == 11:
+                    # Col K: Solid red divider column
+                    cell.fill = red_fill
+                elif col_idx in ja_nein_col_indices:
+                    cell.alignment = Alignment(horizontal="center", vertical="center")
+                    if val_str.lower() == "ja":
+                        cell.fill = green_fill
+                        cell.font = ja_nein_font
+                    elif val_str.lower() == "nein":
+                        cell.fill = red_fill
+                        cell.font = nein_white_font
+                elif col_idx == 33:
+                    # Col AG: Bemerkung
+                    cell.alignment = Alignment(horizontal="left", vertical="center")
+                    if meta["has_comment"] and b_status != "Abgeschlossen":
+                        cell.fill = yellow_fill
+
+        # Append extra empty bordered grid rows to match the sheet look
+        last_data_row = len(summary_rows_meta) + 2
+        total_grid_rows = max(last_data_row + 12, 22)
+        for empty_r in range(last_data_row + 1, total_grid_rows + 1):
+            ws.row_dimensions[empty_r].height = 20
+            for col_idx in range(1, len(german_headers) + 1):
+                c_empty = ws.cell(row=empty_r, column=col_idx, value="")
+                c_empty.border = thin_black_border
+                if col_idx in ja_nein_col_indices:
+                    c_empty.alignment = Alignment(horizontal="center", vertical="center")
+
+        # Add AutoFilter on Row 2 (A2:AG...)
+        ws.auto_filter.ref = f"A2:AG{max(last_data_row, 3)}"
+
+        # Add Conditional Formatting (Ja -> Green, Nein -> Red) & DataValidation on Ja/Nein ranges
+        cf_ranges = f"I3:J{total_grid_rows} L3:Z{total_grid_rows} AA3:AF{total_grid_rows}"
+        ja_rule = CellIsRule(
+            operator="equal",
+            formula=['"Ja"'],
+            stopIfTrue=True,
+            fill=green_fill,
+            font=ja_nein_font,
+        )
+        nein_rule = CellIsRule(
+            operator="equal",
+            formula=['"Nein"'],
+            stopIfTrue=True,
+            fill=red_fill,
+            font=nein_white_font,
+        )
+        for rng in cf_ranges.split():
+            ws.conditional_formatting.add(rng, ja_rule)
+            ws.conditional_formatting.add(rng, nein_rule)
+
+        dv = DataValidation(type="list", formula1='"Ja,Nein"', allow_blank=True)
+        ws.add_data_validation(dv)
+        for rng in cf_ranges.split():
+            dv.add(rng)
+
+        # Exact column widths matching Techniknetz-Status
+        col_widths = {
+            "A": 6.5,
+            "B": 14.5,
+            "C": 22.0,
+            "D": 18.0,
+            "E": 26.5,
+            "F": 10.0,
+            "G": 11.0,
+            "H": 13.5,
+            "I": 13.0,
+            "J": 13.0,
+            "K": 9.5,
+            "AA": 12.5,
+            "AB": 12.5,
+            "AC": 12.5,
+            "AD": 12.5,
+            "AE": 12.5,
+            "AF": 12.5,
+            "AG": 55.0,
+        }
+        for i in range(12, 27):
+            col_widths[get_column_letter(i)] = 10.5
+        for col_letter, width in col_widths.items():
+            ws.column_dimensions[col_letter].width = width
+
+        out = io.BytesIO()
+        wb.save(out)
+        out.seek(0)
+        return out.getvalue()
+    except Exception:
+        fallback_rows = [[m["values"] for m in summary_rows_meta]]
+        return _build_xlsx_fallback([("Summary", german_headers, [m["values"] for m in summary_rows_meta])])
+
+
 # ==============================================================================
 # FASTAPI ENDPOINTS (/api/v1/protocol/*)
 # ==============================================================================
@@ -2187,10 +2589,11 @@ def delete_protocol_unit(
 
 @router.get(
     "/export/excel",
-    summary="Export all or selected UGG protocols (Master + Detail) as an Excel (.xlsx) workbook",
+    summary="Export all or selected UGG protocols (All Data or Summary) as an Excel (.xlsx) workbook",
 )
 def export_protocols_excel(
     address_id: Optional[UUID] = Query(default=None, description="Optional single address UUID to export"),
+    mode: str = Query(default="all", description="Export variation: 'all' (All Data) or 'summary' (Summary - main building only)"),
     db: Session = Depends(database.get_db),
 ):
     _ensure_protocol_columns()
@@ -2199,13 +2602,25 @@ def export_protocols_excel(
         query = query.filter(models.Address.id == address_id)
     addresses = query.order_by(models.Address.created_at.desc()).all()
 
-    xlsx_bytes = generate_protocols_excel_bytes(addresses)
+    is_summary = (mode or "all").strip().lower() == "summary"
+    if is_summary:
+        xlsx_bytes = generate_protocols_summary_excel_bytes(addresses)
+    else:
+        xlsx_bytes = generate_protocols_excel_bytes(addresses)
+
     timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M")
-    filename = (
-        f"UGG_Protokoll_{addresses[0].projektnummer}_{timestamp}.xlsx"
-        if (address_id and addresses)
-        else f"UGG_Ausbau_Tracking_Export_{timestamp}.xlsx"
-    )
+    if is_summary:
+        filename = (
+            f"UGG_Summary_{addresses[0].adress_id or addresses[0].projektnummer}_{timestamp}.xlsx"
+            if (address_id and addresses)
+            else f"UGG_Summary_Export_{timestamp}.xlsx"
+        )
+    else:
+        filename = (
+            f"UGG_Protokoll_{addresses[0].projektnummer}_{timestamp}.xlsx"
+            if (address_id and addresses)
+            else f"UGG_Ausbau_Tracking_Export_{timestamp}.xlsx"
+        )
 
     return StreamingResponse(
         io.BytesIO(xlsx_bytes),

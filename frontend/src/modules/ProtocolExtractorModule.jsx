@@ -25,6 +25,7 @@ import {
   Calendar,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Check,
   Send,
   Users,
@@ -828,6 +829,318 @@ function exportAddressesToCsv(addresses, filename = 'Objects_Properties_Export.c
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
 }
+
+function exportAddressesSummaryToCsv(addresses, filename = 'UGG_Summary_Export.csv') {
+  const persianHeaders = [
+    'شماره',
+    'تاریخ',
+    'شهر',
+    'شماره آیدی خانه',
+    '',
+    'پلاک',
+    'تعداد واحد',
+    'وضعیت',
+    '',
+    '',
+    '',
+    ...Array.from({ length: 15 }, () => ''),
+    'انبار',
+    'باکس مرکزی',
+    'فیوژن کردن',
+    'عکس',
+    'فاکتور',
+    'Karimi',
+    'توضیحات',
+  ];
+
+  const germanHeaders = [
+    'Nr.',
+    'Datum',
+    'Stadt',
+    'Haus ID',
+    'Adress',
+    'Haus Nr.',
+    'WE',
+    'TA Installed',
+    'Kabel kanal',
+    'Auskundung',
+    '',
+    ...Array.from({ length: 15 }, (_, i) => `TA${String(i + 1).padStart(3, '0')}`),
+    'Keller',
+    'APL',
+    'Spleiß',
+    'Fotos',
+    'Rechnung',
+    'Dropbox',
+    'Bemerkung',
+  ];
+
+  const rows = addresses.map((addr, idx) => {
+    const units = Array.isArray(addr.units) ? [...addr.units] : [];
+    units.sort((a, b) =>
+      String(a?.unit_id || '').localeCompare(String(b?.unit_id || ''), 'de', { numeric: true })
+    );
+    const totalUnits = Math.max(units.length, Number(addr.total_we) || 1);
+    let taCnt = 0;
+    const taCells = [];
+    for (let slot = 1; slot <= 15; slot += 1) {
+      if (slot > totalUnits) {
+        taCells.push('');
+      } else {
+        const u = units[slot - 1];
+        const weArt = u ? normalizeWeArt(u) : addr.building_status === 'Abgeschlossen' ? 'TA Installation' : 'Ohne';
+        if (weArt === 'TA Installation') {
+          taCnt += 1;
+          taCells.push('Ja');
+        } else {
+          taCells.push('Nein');
+        }
+      }
+    }
+    const normOrt = normalizeGemeinde(addr.ort, addr.plz);
+    const datumStr = toDdMmYyyy(addr.ausbautermin || addr.abgeschlossen_datum || addr.datum);
+    const hausId = addr.adress_id || addr.projektnummer || '';
+    const comments = Array.isArray(addr.comments)
+      ? addr.comments.map((c) => String(c?.text || '').trim()).filter(Boolean).join(' / ')
+      : '';
+
+    return [
+      idx + 1,
+      datumStr,
+      normOrt,
+      hausId,
+      addr.strasse || '',
+      addr.hausnummer || '',
+      totalUnits,
+      `${taCnt}/${totalUnits}`,
+      addr.metalkanal_installiert ? 'Ja' : 'Nein',
+      addr.datum || addr.pdf_filename || addr.projektnummer ? 'Ja' : 'Nein',
+      '',
+      ...taCells,
+      addr.flexrohr ? 'Ja' : 'Nein',
+      addr.huep_installiert ? 'Ja' : 'Nein',
+      addr.spleissen_fertig ? 'Ja' : 'Nein',
+      addr.upload_done ? 'Ja' : 'Nein',
+      addr.rechnung_erstellt || addr.rechnung_bezahlt ? 'Ja' : 'Nein',
+      addr.genehmigt ? 'Ja' : 'Nein',
+      comments,
+    ];
+  });
+
+  const escapeCell = (val) => `"${String(val ?? '').replace(/"/g, '""')}"`;
+  const csvContent =
+    '\uFEFF' +
+    [
+      persianHeaders.map(escapeCell).join(';'),
+      germanHeaders.map(escapeCell).join(';'),
+      ...rows.map((r) => r.map(escapeCell).join(';')),
+    ].join('\r\n');
+
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.setAttribute('download', filename);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+/* =============================================================================
+   EXCEL EXPORT DROPDOWN BUTTON (2 Variations: "All Data" & "Summary")
+============================================================================= */
+export const ExcelExportDropdownButton = ({
+  onSelectMode,
+  disabled = false,
+  exporting = false,
+  variant = 'primary',
+}) => {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const handleOutside = (e) => {
+      if (containerRef.current && !containerRef.current.contains(e.target)) {
+        setOpen(false);
+      }
+    };
+    const handleEsc = (e) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('mousedown', handleOutside);
+    document.addEventListener('keydown', handleEsc);
+    return () => {
+      document.removeEventListener('mousedown', handleOutside);
+      document.removeEventListener('keydown', handleEsc);
+    };
+  }, [open]);
+
+  const isSecondary = variant === 'secondary';
+
+  return (
+    <div ref={containerRef} style={{ position: 'relative', display: 'inline-block' }}>
+      <button
+        type="button"
+        className={isSecondary ? 'btn-secondary btn-sm' : 'btn-primary btn-sm'}
+        disabled={disabled || exporting}
+        onClick={() => setOpen((prev) => !prev)}
+        style={
+          isSecondary
+            ? {
+                padding: '5px 10px',
+                fontSize: 11.5,
+                color: '#15803d',
+                borderColor: '#86efac',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
+              }
+            : {
+                background: '#16a34a',
+                borderColor: '#16a34a',
+                padding: '6px 12px',
+                fontSize: 12,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+              }
+        }
+      >
+        <FileSpreadsheet size={isSecondary ? 13 : 14} />
+        <span>{exporting ? 'Export…' : 'Excel'}</span>
+        <ChevronDown
+          size={13}
+          style={{
+            transition: 'transform 0.15s ease',
+            transform: open ? 'rotate(180deg)' : 'rotate(0deg)',
+          }}
+        />
+      </button>
+
+      {open && (
+        <div
+          style={{
+            position: 'absolute',
+            right: 0,
+            top: 'calc(100% + 6px)',
+            zIndex: 150,
+            minWidth: 270,
+            background: '#ffffff',
+            border: '1px solid #e2e8f0',
+            borderRadius: 10,
+            boxShadow: '0 12px 28px rgba(15, 23, 42, 0.16)',
+            padding: 6,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 4,
+          }}
+        >
+          <div
+            style={{
+              padding: '4px 8px',
+              fontSize: 10.5,
+              fontWeight: 800,
+              textTransform: 'uppercase',
+              letterSpacing: '0.04em',
+              color: '#64748b',
+              borderBottom: '1px solid #f1f5f9',
+            }}
+          >
+            Excel Export Variation wählen
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              setOpen(false);
+              onSelectMode('all');
+            }}
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'flex-start',
+              gap: 2,
+              width: '100%',
+              padding: '8px 10px',
+              border: '1px solid transparent',
+              borderRadius: 8,
+              background: '#f8fafc',
+              cursor: 'pointer',
+              textAlign: 'left',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = '#f0fdf4';
+              e.currentTarget.style.borderColor = '#86efac';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = '#f8fafc';
+              e.currentTarget.style.borderColor = 'transparent';
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 700, color: '#0f172a' }}>
+              <FileSpreadsheet size={13} style={{ color: '#16a34a' }} />
+              <span>All Data</span>
+            </div>
+            <span style={{ fontSize: 11, color: '#64748b' }}>
+              Alle Daten wie bisher (Ausbau-Tracking, Gebäude & Wohnungen)
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setOpen(false);
+              onSelectMode('summary');
+            }}
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'flex-start',
+              gap: 2,
+              width: '100%',
+              padding: '8px 10px',
+              border: '1px solid transparent',
+              borderRadius: 8,
+              background: '#f8fafc',
+              cursor: 'pointer',
+              textAlign: 'left',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = '#f0fdf4';
+              e.currentTarget.style.borderColor = '#86efac';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = '#f8fafc';
+              e.currentTarget.style.borderColor = 'transparent';
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 700, color: '#0f172a' }}>
+              <Building2 size={13} style={{ color: '#0284c7' }} />
+              <span>Summary</span>
+              <span
+                style={{
+                  fontSize: 10,
+                  fontWeight: 700,
+                  padding: '1px 6px',
+                  borderRadius: 999,
+                  background: '#dcfce7',
+                  color: '#15803d',
+                }}
+              >
+                Ja = Grün / Nein = Rot
+              </span>
+            </div>
+            <span style={{ fontSize: 11, color: '#64748b' }}>
+              Nur Hauptgebäude (TA001–TA015, Keller, APL, Spleiß, Fotos, Rechnung, Dropbox)
+            </span>
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
 
 /* =============================================================================
    WHOLE-BUILDING CHECKLIST ITEMS DEFINITION
@@ -1974,15 +2287,10 @@ export const BuildingDetailView = ({
             </button>
           )}
 
-          <button
-            type="button"
-            className="btn-secondary btn-sm"
-            onClick={() => onExportSingleExcel(building)}
-            style={{ padding: '5px 10px', fontSize: 11.5, color: '#15803d', borderColor: '#86efac' }}
-          >
-            <FileSpreadsheet size={13} />
-            <span>Excel</span>
-          </button>
+          <ExcelExportDropdownButton
+            variant="secondary"
+            onSelectMode={(mode) => onExportSingleExcel(building, mode)}
+          />
 
           <button
             type="button"
@@ -4587,12 +4895,17 @@ export function ProtocolExtractorModule({ user, mode = 'objects' }) {
     }
   };
 
-  const handleDownloadExcelWorkbook = async (singleAddress = null) => {
+  const handleDownloadExcelWorkbook = async (singleAddress = null, exportMode = 'all') => {
+    const isSummary = exportMode === 'summary';
     setExportingExcel(true);
     try {
       const token = getToken();
-      const query = singleAddress ? `?address_id=${encodeURIComponent(singleAddress.id)}` : '';
-      const res = await fetch(`${API_URL}/api/v1/protocol/export/excel${query}`, {
+      const params = new URLSearchParams();
+      params.set('mode', isSummary ? 'summary' : 'all');
+      if (singleAddress?.id) {
+        params.set('address_id', singleAddress.id);
+      }
+      const res = await fetch(`${API_URL}/api/v1/protocol/export/excel?${params.toString()}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       if (!res.ok) throw new Error(`Export fehlgeschlagen (${res.status})`);
@@ -4601,21 +4914,40 @@ export function ProtocolExtractorModule({ user, mode = 'objects' }) {
       const a = document.createElement('a');
       a.href = url;
       const dateStamp = new Date().toISOString().slice(0, 10);
-      a.download = singleAddress
-        ? `UGG_Gebaeude_${singleAddress.adress_id || singleAddress.projektnummer}_${dateStamp}.xlsx`
-        : `UGG_Ausbau_Tracking_${dateStamp}.xlsx`;
+      if (isSummary) {
+        a.download = singleAddress
+          ? `UGG_Summary_${singleAddress.adress_id || singleAddress.projektnummer}_${dateStamp}.xlsx`
+          : `UGG_Summary_${dateStamp}.xlsx`;
+      } else {
+        a.download = singleAddress
+          ? `UGG_Gebaeude_${singleAddress.adress_id || singleAddress.projektnummer}_${dateStamp}.xlsx`
+          : `UGG_Ausbau_Tracking_${dateStamp}.xlsx`;
+      }
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      showToast('Excel (.xlsx) heruntergeladen');
-    } catch (err) {
-      exportAddressesToCsv(
-        singleAddress ? [singleAddress] : filteredAddresses,
-        singleAddress
-          ? `UGG_Gebaeude_${singleAddress.adress_id || singleAddress.projektnummer}.csv`
-          : 'UGG_Ausbau_Tracking.csv'
+      showToast(
+        isSummary
+          ? 'Excel Summary (.xlsx) heruntergeladen'
+          : 'Excel All Data (.xlsx) heruntergeladen'
       );
+    } catch (err) {
+      if (isSummary) {
+        exportAddressesSummaryToCsv(
+          singleAddress ? [singleAddress] : filteredAddresses,
+          singleAddress
+            ? `UGG_Summary_${singleAddress.adress_id || singleAddress.projektnummer}.csv`
+            : 'UGG_Summary_Export.csv'
+        );
+      } else {
+        exportAddressesToCsv(
+          singleAddress ? [singleAddress] : filteredAddresses,
+          singleAddress
+            ? `UGG_Gebaeude_${singleAddress.adress_id || singleAddress.projektnummer}.csv`
+            : 'UGG_Ausbau_Tracking.csv'
+        );
+      }
       showToast('CSV für Excel heruntergeladen');
     } finally {
       setExportingExcel(false);
@@ -4690,7 +5022,7 @@ export function ProtocolExtractorModule({ user, mode = 'objects' }) {
             })
           }
           onDeleteBuilding={handleDeleteAddress}
-          onExportSingleExcel={(b) => handleDownloadExcelWorkbook(b)}
+          onExportSingleExcel={(b, mode = 'all') => handleDownloadExcelWorkbook(b, mode)}
         />
 
         {verificationModal && (
@@ -4909,24 +5241,12 @@ export function ProtocolExtractorModule({ user, mode = 'objects' }) {
             }}
           />
 
-          <button
-            type="button"
-            className="btn-primary btn-sm"
-            onClick={() => handleDownloadExcelWorkbook(null)}
-            disabled={exportingExcel || addresses.length === 0}
-            style={{
-              background: '#16a34a',
-              borderColor: '#16a34a',
-              padding: '6px 12px',
-              fontSize: 12,
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-            }}
-          >
-            <FileSpreadsheet size={14} />
-            <span>{exportingExcel ? 'Export…' : 'Excel'}</span>
-          </button>
+          <ExcelExportDropdownButton
+            variant="primary"
+            disabled={addresses.length === 0}
+            exporting={exportingExcel}
+            onSelectMode={(mode) => handleDownloadExcelWorkbook(null, mode)}
+          />
         </div>
       </div>
 
