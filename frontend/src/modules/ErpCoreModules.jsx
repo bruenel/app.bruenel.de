@@ -3462,8 +3462,14 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
         <HREmployeeOverviewView
           employees={employees}
           timeLogs={timeLogs}
-          absences={absences}
+          leaves={leaves}
+          sickness={sickness}
+          onOpenEmployeeModal={(emp) => openEditEmployeeModal(emp)}
           onOpenEmployee={(emp) => openEditEmployeeModal(emp)}
+          onJumpToContractGenerator={(empId) => {
+            setContractGenEmpId(empId);
+            setTab('contracts');
+          }}
           onGenerateContractForEmp={(empId) => {
             setContractGenEmpId(empId);
             setTab('contracts');
@@ -3474,9 +3480,13 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
       {!showAddEmp && tab === 'contracts' && (
         <HRContractGeneratorView
           employees={employees}
+          preselectedEmpId={contractGenEmpId}
           initialEmpId={contractGenEmpId}
-          onRefreshEmployees={load}
+          onReload={loadAll}
+          onRefreshEmployees={loadAll}
+          onOpenEmployeeModal={(emp) => openEditEmployeeModal(emp)}
           onOpenEmployee={(emp) => openEditEmployeeModal(emp)}
+          onOpenCreateEmployeeModal={openCreateEmployeeModal}
         />
       )}
 

@@ -2,7 +2,8 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   FileText, Check, X, Upload, Download, Plus, Trash2, Edit3, Eye, Printer,
   AlertTriangle, ShieldCheck, Calendar, Clock, Users, Euro, Car, Briefcase,
-  GraduationCap, Lock, Unlock, Search, ArrowRight, RefreshCw, Sparkles, CheckCircle2
+  GraduationCap, Lock, Unlock, Search, ArrowRight, RefreshCw, Sparkles, CheckCircle2,
+  Mail, Smartphone, Copy, Send
 } from 'lucide-react';
 import { fetchWithToken, uploadMediaFile, resolveMediaUrl, formatDate, formatEuro } from '../core/api';
 import { DateInput } from '../components/DateTimeInputs';
@@ -888,10 +889,17 @@ export function openContractPrintPdfWindow(title, htmlArray) {
 export const HRContractGeneratorView = ({
   employees = [],
   onReload,
+  onRefreshEmployees,
   onOpenEmployeeModal,
+  onOpenEmployee,
   onOpenCreateEmployeeModal,
   preselectedEmpId = '',
+  initialEmpId = '',
 }) => {
+  const effectiveReload = onReload || onRefreshEmployees;
+  const effectiveOpenEmpModal = onOpenEmployeeModal || onOpenEmployee;
+  const effectivePreselectedId = preselectedEmpId || initialEmpId || '';
+
   const todayIso = new Date().toISOString().slice(0, 10);
   const nextMonthFirstIso = useMemo(() => {
     const d = new Date();
@@ -899,7 +907,7 @@ export const HRContractGeneratorView = ({
     return d.toISOString().slice(0, 10);
   }, []);
 
-  const [selectedEmpId, setSelectedEmpId] = useState(preselectedEmpId || employees[0]?.id || '');
+  const [selectedEmpId, setSelectedEmpId] = useState(effectivePreselectedId || employees[0]?.id || '');
   const [selectedCodes, setSelectedCodes] = useState(['ARBEITSVERTRAG', 'DSGVO']);
   const [activePreviewCode, setActivePreviewCode] = useState('ARBEITSVERTRAG');
   const [vehicles, setVehicles] = useState([]);
@@ -912,6 +920,9 @@ export const HRContractGeneratorView = ({
   const [contractFilterStatus, setContractFilterStatus] = useState('ALL');
   const [contractSearch, setContractSearch] = useState('');
   const [editingIssuedContract, setEditingIssuedContract] = useState(null);
+  const [onboardingEmailModal, setOnboardingEmailModal] = useState(null);
+  const [sendingOnboardingEmpId, setSendingOnboardingEmpId] = useState(null);
+  const [copiedOnboardingText, setCopiedOnboardingText] = useState(false);
 
   const [conditions, setConditions] = useState({
     first_name: '',
@@ -980,12 +991,12 @@ export const HRContractGeneratorView = ({
   }, []);
 
   useEffect(() => {
-    if (preselectedEmpId) {
-      setSelectedEmpId(preselectedEmpId);
+    if (effectivePreselectedId) {
+      setSelectedEmpId(effectivePreselectedId);
     } else if (!selectedEmpId && employees.length > 0) {
       setSelectedEmpId(employees[0].id);
     }
-  }, [preselectedEmpId, employees]);
+  }, [effectivePreselectedId, employees]);
 
   // Populate conditions whenever selected employee changes
   useEffect(() => {
@@ -1162,7 +1173,7 @@ export const HRContractGeneratorView = ({
         contracts: res.contracts || [],
       });
       loadContractsAndFleet();
-      if (onReload) onReload();
+      if (effectiveReload) effectiveReload();
     } catch (err) {
       alert(`Fehler beim Ausstellen der Verträge: ${err.message}`);
     } finally {
@@ -1190,18 +1201,49 @@ export const HRContractGeneratorView = ({
           contract_status: 'Signed',
         },
       });
-      await fetchWithToken(`/api/v1/hr/contracts/${contractObj.id}/upload-signed`, {
+      const signedRes = await fetchWithToken(`/api/v1/hr/contracts/${contractObj.id}/upload-signed`, {
         method: 'POST',
         body: JSON.stringify({
           signed_document_id: up.document_id,
         }),
       });
       loadContractsAndFleet();
-      if (onReload) onReload();
+      if (effectiveReload) effectiveReload();
+      if (signedRes?.onboarding_email) {
+        setOnboardingEmailModal({
+          ...signedRes.onboarding_email,
+          employee_id: contractObj.employee_id,
+          contract_title: contractObj.title,
+        });
+      }
     } catch (err) {
       alert(`Fehler beim Hochladen des unterschriebenen Vertrags: ${err.message}`);
     } finally {
       setUploadingSignedId(null);
+    }
+  };
+
+  const handleTriggerOnboardingEmail = async (empId, regenerateOtp = false, contractTitle = '') => {
+    if (!empId) return;
+    setSendingOnboardingEmpId(empId);
+    try {
+      const res = await fetchWithToken(`/api/v1/hr/employees/${empId}/send-onboarding-email`, {
+        method: 'POST',
+        body: JSON.stringify({
+          regenerate_otp: regenerateOtp,
+          contract_title: contractTitle,
+        }),
+      });
+      setOnboardingEmailModal({
+        ...res,
+        employee_id: empId,
+        contract_title: contractTitle,
+      });
+      if (effectiveReload) effectiveReload();
+    } catch (err) {
+      alert(`Fehler beim Erstellen/Senden der Willkommens-E-Mail: ${err.message}`);
+    } finally {
+      setSendingOnboardingEmpId(null);
     }
   };
 
@@ -1210,7 +1252,7 @@ export const HRContractGeneratorView = ({
     try {
       await fetchWithToken(`/api/v1/hr/contracts/${contractObj.id}`, { method: 'DELETE' });
       loadContractsAndFleet();
-      if (onReload) onReload();
+      if (effectiveReload) effectiveReload();
     } catch (err) {
       alert(err.message);
     }
@@ -1228,7 +1270,7 @@ export const HRContractGeneratorView = ({
       });
       setEditingIssuedContract(null);
       loadContractsAndFleet();
-      if (onReload) onReload();
+      if (effectiveReload) effectiveReload();
     } catch (err) {
       alert(err.message);
     }
@@ -1388,12 +1430,21 @@ export const HRContractGeneratorView = ({
               <div style={{ color: '#475569' }}>
                 <strong>Steuer-ID / SV-Nr.:</strong> {selectedEmp.attributes?.steuer_id || '—'} · {selectedEmp.attributes?.sozialversicherungsnummer || '—'}
               </div>
-              <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
-                {onOpenEmployeeModal && (
-                  <button type="button" className="btn-secondary btn-sm" style={{ fontSize: 11, padding: '4px 8px' }} onClick={() => onOpenEmployeeModal(selectedEmp)}>
+              <div style={{ display: 'flex', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
+                {effectiveOpenEmpModal && (
+                  <button type="button" className="btn-secondary btn-sm" style={{ fontSize: 11, padding: '4px 8px' }} onClick={() => effectiveOpenEmpModal(selectedEmp)}>
                     <Edit3 size={11} /> Personalakte / Stammdaten bearbeiten
                   </button>
                 )}
+                <button
+                  type="button"
+                  className="btn-secondary btn-sm"
+                  style={{ fontSize: 11, padding: '4px 8px', color: '#047857', borderColor: '#6ee7b7', background: '#ecfdf5', fontWeight: 700 }}
+                  onClick={() => handleTriggerOnboardingEmail(selectedEmp.id, false)}
+                  disabled={sendingOnboardingEmpId === selectedEmp.id}
+                >
+                  <Mail size={11} /> Willkommens-E-Mail &amp; App-Login
+                </button>
               </div>
             </div>
           )}
@@ -1897,7 +1948,7 @@ export const HRContractGeneratorView = ({
                       )}
                     </div>
 
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                       {pendCount > 0 && (
                         <span style={{ padding: '3px 9px', borderRadius: 999, background: '#fef3c7', color: '#b45309', fontSize: 11, fontWeight: 800 }}>
                           ⏳ {pendCount} Ausstehend (Pending)
@@ -1908,8 +1959,19 @@ export const HRContractGeneratorView = ({
                           ✅ {signCount} Unterschrieben (Completed)
                         </span>
                       )}
-                      {grp.empObj && onOpenEmployeeModal && (
-                        <button type="button" className="btn-secondary btn-sm" style={{ fontSize: 11, padding: '4px 8px' }} onClick={() => onOpenEmployeeModal(grp.empObj)}>
+                      <button
+                        type="button"
+                        className="btn-secondary btn-sm"
+                        style={{ fontSize: 11, padding: '4px 9px', color: '#047857', borderColor: '#6ee7b7', background: '#ecfdf5', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                        onClick={() => handleTriggerOnboardingEmail(grp.employee_id, false)}
+                        disabled={sendingOnboardingEmpId === grp.employee_id}
+                        title="Willkommens-E-Mail mit Benutzername, Einmal-Passwort (OTP) und iPhone/Android App-Anleitung senden oder ansehen"
+                      >
+                        <Mail size={12} />
+                        {sendingOnboardingEmpId === grp.employee_id ? 'Sende...' : '🎉 Willkommens-E-Mail & App-Login'}
+                      </button>
+                      {grp.empObj && effectiveOpenEmpModal && (
+                        <button type="button" className="btn-secondary btn-sm" style={{ fontSize: 11, padding: '4px 8px' }} onClick={() => effectiveOpenEmpModal(grp.empObj)}>
                           Personalakte öffnen
                         </button>
                       )}
@@ -2131,6 +2193,127 @@ export const HRContractGeneratorView = ({
           </div>
         </div>
       )}
+
+      {/* =====================================================================
+          ONBOARDING WELCOME EMAIL & MOBILE HOMESCREEN APP MODAL
+          (Automatically triggered when signed contract is uploaded!)
+         ===================================================================== */}
+      {onboardingEmailModal && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15,23,42,0.72)',
+            backdropFilter: 'blur(4px)',
+            zIndex: 10000,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 18,
+          }}
+          onClick={() => setOnboardingEmailModal(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: '100%',
+              maxWidth: 860,
+              maxHeight: '92vh',
+              background: '#ffffff',
+              borderRadius: 16,
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+              boxShadow: '0 24px 60px rgba(15,23,42,0.35)',
+              border: '1px solid #cbd5e1',
+            }}
+          >
+            {/* Modal Top Header */}
+            <div style={{ padding: '14px 20px', background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)', color: '#fff', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, borderBottom: '3px solid #FF6B00' }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ padding: '3px 9px', borderRadius: 999, background: '#10b981', color: '#fff', fontSize: 11, fontWeight: 800 }}>
+                    🎉 VERTRAG ABGESCHLOSSEN &amp; ONBOARDING AKTIV
+                  </span>
+                  <strong style={{ fontSize: 15 }}>
+                    Willkommens-E-Mail &amp; App-Zugangsdaten für {onboardingEmailModal.employee_name}
+                  </strong>
+                </div>
+                <div style={{ fontSize: 11.5, color: '#cbd5e1', marginTop: 3 }}>
+                  {onboardingEmailModal.smtp_note}
+                </div>
+              </div>
+              <button type="button" className="btn-secondary btn-sm" onClick={() => setOnboardingEmailModal(null)}>
+                <X size={15} /> Schließen
+              </button>
+            </div>
+
+            {/* Action & Credentials Bar */}
+            <div style={{ padding: '12px 20px', background: '#fff7ed', borderBottom: '1px solid #fed7aa', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+              <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 12.5 }}>
+                <div>
+                  <span style={{ color: '#9a3412', fontWeight: 700 }}>Empfänger / Benutzername:</span>{' '}
+                  <strong style={{ fontFamily: 'monospace', color: '#0f172a' }}>{onboardingEmailModal.to_email || 'Keine E-Mail hinterlegt'}</strong>
+                </div>
+                <div>
+                  <span style={{ color: '#9a3412', fontWeight: 700 }}>Einmal-Passwort (OTP):</span>{' '}
+                  <span style={{ padding: '2px 8px', borderRadius: 6, background: '#0f172a', color: '#fff', fontFamily: 'monospace', fontWeight: 800 }}>
+                    {onboardingEmailModal.otp}
+                  </span>
+                </div>
+                <div>
+                  <span style={{ color: '#9a3412', fontWeight: 700 }}>Portal-Link:</span>{' '}
+                  <a href={onboardingEmailModal.portal_url} target="_blank" rel="noreferrer" style={{ color: '#FF6B00', fontWeight: 800 }}>
+                    {onboardingEmailModal.portal_url}
+                  </a>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {onboardingEmailModal.employee_id && (
+                  <button
+                    type="button"
+                    className="btn-secondary btn-sm"
+                    onClick={() => handleTriggerOnboardingEmail(onboardingEmailModal.employee_id, true, onboardingEmailModal.contract_title)}
+                    disabled={sendingOnboardingEmpId === onboardingEmailModal.employee_id}
+                    title="Neues Einmal-Passwort (OTP) generieren und Willkommens-E-Mail erneut senden"
+                  >
+                    <RefreshCw size={13} /> Neues OTP &amp; erneut senden
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="btn-secondary btn-sm"
+                  onClick={() => {
+                    navigator.clipboard?.writeText(onboardingEmailModal.plain_text || '');
+                    setCopiedOnboardingText(true);
+                    setTimeout(() => setCopiedOnboardingText(false), 2500);
+                  }}
+                >
+                  <Copy size={13} /> {copiedOnboardingText ? '✓ Kopiert!' : 'E-Mail & Zugangsdaten kopieren'}
+                </button>
+                {onboardingEmailModal.to_email && (
+                  <a
+                    href={`mailto:${encodeURIComponent(onboardingEmailModal.to_email)}?subject=${encodeURIComponent(onboardingEmailModal.subject || '')}&body=${encodeURIComponent(onboardingEmailModal.plain_text || '')}`}
+                    className="btn-primary btn-sm"
+                    style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 800 }}
+                  >
+                    <Send size={13} /> In E-Mail-Programm öffnen
+                  </a>
+                )}
+              </div>
+            </div>
+
+            {/* Visual Preview of the German Welcome Email */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: 18, background: '#e2e8f0' }}>
+              <div
+                style={{ maxWidth: 660, margin: '0 auto' }}
+                dangerouslySetInnerHTML={{ __html: onboardingEmailModal.html_body }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -2141,8 +2324,12 @@ export const HRContractGeneratorView = ({
 export const HREmployeeOverviewView = ({
   employees = [],
   onOpenEmployeeModal,
+  onOpenEmployee,
   onJumpToContractGenerator,
+  onGenerateContractForEmp,
 }) => {
+  const effectiveOpenEmpModal = onOpenEmployeeModal || onOpenEmployee;
+  const effectiveJumpToContract = onJumpToContractGenerator || onGenerateContractForEmp;
   const [searchQ, setSearchQ] = useState('');
   const [filterType, setFilterType] = useState('ALL');
   const [filterProbezeit, setFilterProbezeit] = useState('ALL');
@@ -2591,22 +2778,22 @@ export const HREmployeeOverviewView = ({
                     </td>
                     <td style={{ padding: '10px', textAlign: 'right' }}>
                       <div style={{ display: 'inline-flex', gap: 6 }}>
-                        {onJumpToContractGenerator && (
+                        {effectiveJumpToContract && (
                           <button
                             type="button"
                             className="btn-primary btn-sm"
                             style={{ padding: '5px 9px', fontSize: 11, fontWeight: 700 }}
-                            onClick={() => onJumpToContractGenerator(e.id)}
+                            onClick={() => effectiveJumpToContract(e.id)}
                           >
                             <FileText size={12} /> Vertrag
                           </button>
                         )}
-                        {onOpenEmployeeModal && (
+                        {effectiveOpenEmpModal && (
                           <button
                             type="button"
                             className="btn-secondary btn-sm"
                             style={{ padding: '5px 9px', fontSize: 11 }}
-                            onClick={() => onOpenEmployeeModal(e)}
+                            onClick={() => effectiveOpenEmpModal(e)}
                           >
                             Akte
                           </button>

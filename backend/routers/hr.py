@@ -2421,6 +2421,378 @@ def update_hr_contract(
     return _serialize_contract_doc(doc, emp_map)
 
 
+def _build_and_send_onboarding_welcome_email(
+    db: Session,
+    emp: models.Employee,
+    sender_user: Optional[models.User] = None,
+    regenerate_otp: bool = False,
+    contract_title: str = "",
+) -> dict:
+    """
+    Ensures the Mitarbeiter has an active portal User account + One-Time Password (OTP),
+    builds the German 'Herzlich willkommen bei der Brünel Deutschland UG' onboarding email
+    with login credentials and iPhone/Android Homescreen App installation instructions,
+    and sends it automatically via SMTP if configured.
+    """
+    import smtplib
+    from email.mime.text import MIMEText
+    from email.mime.multipart import MIMEMultipart
+
+    attrs = dict(emp.attributes or {})
+    clean_email = (emp.email or "").strip()
+    otp_plain = (attrs.get("last_generated_otp") or "").strip()
+
+    if not otp_plain or regenerate_otp:
+        otp_plain = _generate_otp_code(8)
+        attrs["last_generated_otp"] = otp_plain
+        attrs["must_change_password"] = True
+
+    # Ensure linked User account exists and is active for portal login
+    if clean_email:
+        u = db.query(models.User).filter(models.User.employee_id == emp.id).first()
+        if not u:
+            u = db.query(models.User).filter(models.User.email.ilike(clean_email)).first()
+        if not u:
+            role_tier = emp.role_tier or 5
+            role_enum = models.RoleEnum.FIELD_EMPLOYEE
+            if role_tier == 1:
+                role_enum = models.RoleEnum.SUPER_ADMIN
+            elif role_tier == 2:
+                role_enum = models.RoleEnum.PROJECT_MANAGER
+            elif role_tier == 3:
+                role_enum = models.RoleEnum.HR_FINANCE
+            elif role_tier == 4:
+                role_enum = models.RoleEnum.TEAM_LEAD
+            u = models.User(
+                email=clean_email,
+                hashed_password=get_password_hash(otp_plain),
+                role=role_enum,
+                role_tier=role_tier,
+                employee_id=emp.id,
+                can_access_app=(role_tier <= 3),
+                can_access_portal=True,
+                must_change_password=True,
+            )
+            db.add(u)
+            db.flush()
+        else:
+            u.employee_id = emp.id
+            u.can_access_portal = True
+            if regenerate_otp or not attrs.get("last_generated_otp"):
+                u.hashed_password = get_password_hash(otp_plain)
+                u.must_change_password = True
+
+    portal_url = "https://portal.bruenel.de"
+    full_name = f"{emp.first_name or ''} {emp.last_name or ''}".strip() or "Mitarbeiter/in"
+    first_name = emp.first_name or full_name
+    role_label = emp.role or "Mitarbeiter"
+    start_date_str = attrs.get("contract_start_date") or datetime.utcnow().strftime("%Y-%m-%d")
+    if len(start_date_str) >= 10 and "-" in start_date_str[:10]:
+        parts = start_date_str[:10].split("-")
+        start_date_de = f"{parts[2]}.{parts[1]}.{parts[0]}"
+    else:
+        start_date_de = start_date_str
+
+    subject = f"🎉 Herzlich willkommen bei der Brünel Deutschland UG, {first_name}! Ihr Mitarbeiter-Portal & App-Zugang 🚀"
+
+    plain_text = (
+        f"Hallo {full_name},\n\n"
+        f"herzlich willkommen im Team der Brünel Deutschland UG! 🎉🤝\n"
+        f"Wir freuen uns sehr auf die Zusammenarbeit mit Ihnen als {role_label} und wünschen Ihnen einen großartigen Start, viel Erfolg und eine gute Arbeitszeit bei uns!\n\n"
+        f"Ihr unterschriebener Vertrag wurde erfolgreich in Ihrer digitalen Personalakte hinterlegt und ist ab sofort in Ihrem persönlichen Mitarbeiter-Portal unter „Dokumente“ für Sie freigeschaltet.\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"🔐 IHRE PERSÖNLICHEN ZUGANGSDATEN (MITARBEITER-PORTAL)\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"🌐 Login-Link: {portal_url}\n"
+        f"👤 Benutzername (E-Mail): {clean_email or 'Bitte bei HR hinterlegen'}\n"
+        f"🔑 Einmal-Passwort (OTP): {otp_plain}\n"
+        f"(Hinweis: Beim ersten Login werden Sie gebeten, Ihr eigenes persönliches Passwort festzulegen.)\n\n"
+        f"✨ WAS SIE IM BRÜNEL MITARBEITER-PORTAL TUN KÖNNEN:\n"
+        f"⏱️ Arbeitszeiten & Pausen täglich bequem per Smartphone erfassen\n"
+        f"📄 Ihre unterschriebenen Verträge, DSGVO-Dokumente & Lohnabrechnungen jederzeit einsehen und herunterladen\n"
+        f"🌴 Urlaubsanträge & 🏥 Krankmeldungen (AU) direkt digital einreichen\n"
+        f"🏗️ Ihre Projekte, Baustellen & Aufgaben live abrufen\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"📲 ANLEITUNG: PORTAL ALS APP AUF IHREM SMARTPHONE INSTALLIEREN\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"🍎 FÜR IPHONE / iOS (Safari):\n"
+        f"1️⃣ Öffnen Sie Safari 🧭 auf Ihrem iPhone und rufen Sie {portal_url} auf.\n"
+        f"2️⃣ Tippen Sie unten in der Mitte auf das Teilen-Symbol 📤 (Quadrat mit Pfeil nach oben).\n"
+        f"3️⃣ Scrollen Sie im Menü nach unten und tippen Sie auf „Zum Home-Bildschirm“ ➕📱.\n"
+        f"4️⃣ Tippen Sie oben rechts auf „Hinzufügen“ ✅ — fertig! Das Brünel-Icon erscheint jetzt wie eine App auf Ihrem Home-Bildschirm.\n\n"
+        f"🤖 FÜR ANDROID (Google Chrome):\n"
+        f"1️⃣ Öffnen Sie Google Chrome 🌐 auf Ihrem Android-Smartphone und rufen Sie {portal_url} auf.\n"
+        f"2️⃣ Tippen Sie oben rechts auf das Drei-Punkte-Menü ⋮.\n"
+        f"3️⃣ Wählen Sie „Zum Startbildschirm hinzufügen“ 📲 oder „App installieren“ ⬇️.\n"
+        f"4️⃣ Bestätigen Sie mit „Hinzufügen / Installieren“ ✅ — das Brünel-Portal ist nun direkt als App auf Ihrem Startbildschirm verfügbar!\n\n"
+        f"Bei Fragen stehen wir Ihnen jederzeit gerne zur Verfügung.\n"
+        f"Auf eine erfolgreiche Zusammenarbeit!\n\n"
+        f"Mit freundlichen Grüßen\n"
+        f"Brünel Deutschland UG (haftungsbeschränkt)\n"
+        f"Geschäftsführung & HR-Abteilung\n"
+        f"Ramonville Str. 28 · 61184 Karben\n"
+        f"Web: https://www.bruenel.de | Portal: {portal_url}\n"
+    )
+
+    html_body = f"""<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{subject}</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f1f5f9;font-family:'Segoe UI',Arial,sans-serif;color:#0f172a;">
+  <div style="max-width:640px;margin:24px auto;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 10px 30px rgba(15,23,42,0.08);border:1px solid #e2e8f0;">
+    <!-- Top Corporate Header -->
+    <div style="background:linear-gradient(135deg,#0f172a 0%,#1e293b 100%);padding:28px 32px;color:#ffffff;border-bottom:4px solid #FF6B00;">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div>
+          <span style="display:inline-block;padding:4px 10px;border-radius:999px;background:#FF6B00;color:#ffffff;font-size:11px;font-weight:800;letter-spacing:0.06em;text-transform:uppercase;">
+            🎉 WILLKOMMEN IM TEAM
+          </span>
+          <h1 style="margin:10px 0 4px 0;font-size:22px;font-weight:800;color:#ffffff;">
+            Herzlich willkommen bei Brünel Deutschland UG!
+          </h1>
+          <p style="margin:0;font-size:13.5px;color:#cbd5e1;">
+            Onboarding abgeschlossen · Ihr persönlicher Mitarbeiter-Portal &amp; App-Zugang ist aktiv 🚀
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main Greeting -->
+    <div style="padding:28px 32px;">
+      <p style="margin:0 0 14px 0;font-size:15px;line-height:1.6;">
+        Hallo <strong>{full_name}</strong>, 👋
+      </p>
+      <p style="margin:0 0 14px 0;font-size:14.5px;line-height:1.65;color:#334155;">
+        wir heißen Sie <strong>herzlich willkommen im Team der Brünel Deutschland UG</strong>! 🎉👷‍♂️🤝<br />
+        Wir freuen uns sehr, Sie ab dem <strong>{start_date_de}</strong> als <strong>{role_label}</strong> an Bord zu haben, und wünschen Ihnen einen großartigen Start, spannende Projekte, viel Erfolg und eine rundum gute Arbeitszeit in unserem Unternehmen!
+      </p>
+      <p style="margin:0 0 20px 0;font-size:14px;line-height:1.6;color:#334155;">
+        ✅ <strong>Ihr Vertrag ist jetzt freigeschaltet:</strong> Ihr unterschriebener Vertrag{f' (<em>{contract_title}</em>)' if contract_title else ''} wurde erfolgreich abgeschlossen und ist ab sofort in Ihrem persönlichen <strong>Mitarbeiter-Portal unter „Dokumente“</strong> für Sie sichtbar und jederzeit als PDF abrufbar.
+      </p>
+
+      <!-- Credentials Card -->
+      <div style="background:#fff7ed;border:2px solid #FF6B00;border-radius:14px;padding:20px 22px;margin:22px 0;">
+        <div style="font-size:12px;font-weight:800;color:#9a3412;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:10px;">
+          🔐 Ihre persönlichen Login-Zugangsdaten
+        </div>
+        <table style="width:100%;border-collapse:collapse;font-size:14px;">
+          <tr>
+            <td style="padding:6px 0;color:#475569;width:42%;">🌐 <strong>Portal-Link:</strong></td>
+            <td style="padding:6px 0;font-weight:800;">
+              <a href="{portal_url}" style="color:#FF6B00;text-decoration:none;">{portal_url}</a>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:6px 0;color:#475569;">👤 <strong>Benutzername (E-Mail):</strong></td>
+            <td style="padding:6px 0;font-family:monospace;font-size:14px;font-weight:800;color:#0f172a;">
+              {clean_email or '—'}
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:6px 0;color:#475569;">🔑 <strong>Einmal-Passwort (OTP):</strong></td>
+            <td style="padding:6px 0;">
+              <span style="display:inline-block;padding:4px 12px;border-radius:8px;background:#0f172a;color:#ffffff;font-family:monospace;font-size:15px;font-weight:800;letter-spacing:0.06em;">
+                {otp_plain}
+              </span>
+            </td>
+          </tr>
+        </table>
+        <div style="margin-top:12px;font-size:12px;color:#9a3412;line-height:1.45;">
+          💡 <strong>Wichtiger Sicherheitshinweis:</strong> Beim ersten Anmelden mit Ihrem Einmal-Passwort werden Sie automatisch aufgefordert, Ihr eigenes persönliches Passwort festzulegen.
+        </div>
+        <div style="margin-top:16px;text-align:center;">
+          <a href="{portal_url}" target="_blank" rel="noreferrer" style="display:inline-block;padding:12px 26px;border-radius:10px;background:#FF6B00;color:#ffffff;font-weight:800;font-size:14px;text-decoration:none;box-shadow:0 4px 12px rgba(255,107,0,0.3);">
+            🚀 Jetzt im Mitarbeiter-Portal anmelden →
+          </a>
+        </div>
+      </div>
+
+      <!-- Portal Features Section -->
+      <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:18px 20px;margin:20px 0;">
+        <div style="font-size:13.5px;font-weight:800;color:#0f172a;margin-bottom:10px;">
+          ✨ Was Sie in Ihrem Brünel Mitarbeiter-Portal erledigen können:
+        </div>
+        <ul style="margin:0;padding-left:20px;font-size:13.5px;line-height:1.75;color:#334155;">
+          <li>⏱️ <strong>Arbeitszeiten erfassen:</strong> Täglichen Arbeitsbeginn, Pausen und Feierabend direkt per Klick eintragen.</li>
+          <li>📄 <strong>Dokumente &amp; Verträge:</strong> Ihre unterschriebenen Verträge, DSGVO-Erklärung und monatlichen Lohnabrechnungen herunterladen.</li>
+          <li>🌴 <strong>Urlaub &amp; 🏥 Krankmeldung (AU):</strong> Urlaubsanträge stellen und Arbeitsunfähigkeitsbescheinigungen direkt per Foto/PDF hochladen.</li>
+          <li>🏗️ <strong>Projekte &amp; Einsätze:</strong> Ihre aktuellen Baustellen, Teams und Aufgaben live im Blick behalten.</li>
+        </ul>
+      </div>
+
+      <!-- Mobile Homescreen App Installation Guide (iOS & Android) -->
+      <div style="margin:24px 0 10px 0;">
+        <h3 style="margin:0 0 8px 0;font-size:16px;font-weight:800;color:#0f172a;">
+          📲 So fügen Sie das Portal als App auf Ihrem Smartphone-Home-Bildschirm hinzu
+        </h3>
+        <p style="margin:0 0 14px 0;font-size:13px;color:#475569;line-height:1.5;">
+          Damit Sie Ihre Arbeitszeiten und Dokumente jeden Tag mit nur einem Fingertipp öffnen können, speichern Sie sich <strong>portal.bruenel.de</strong> direkt als App-Icon auf Ihrem Handy:
+        </p>
+
+        <!-- iPhone / iOS Box -->
+        <div style="background:#f8fafc;border:1px solid #cbd5e1;border-radius:12px;padding:16px 18px;margin-bottom:12px;">
+          <div style="font-size:14px;font-weight:800;color:#0f172a;margin-bottom:8px;">
+            🍎 Für iPhone / iOS (mit Safari Browser)
+          </div>
+          <ol style="margin:0;padding-left:20px;font-size:13px;line-height:1.75;color:#334155;">
+            <li>Öffnen Sie die App <strong>Safari</strong> 🧭 auf Ihrem iPhone und rufen Sie <a href="{portal_url}" style="color:#FF6B00;font-weight:700;">{portal_url}</a> auf.</li>
+            <li>Tippen Sie unten in der Menüleiste auf das <strong>Teilen-Symbol</strong> 📤 <em>(Quadrat mit dem Pfeil nach oben)</em>.</li>
+            <li>Scrollen Sie im Menü etwas nach unten und tippen Sie auf <strong>„Zum Home-Bildschirm“</strong> ➕📱.</li>
+            <li>Tippen Sie oben rechts auf <strong>„Hinzufügen“</strong> ✅ — fertig! Das <strong>Brünel App-Icon</strong> befindet sich nun direkt auf Ihrem iPhone-Startbildschirm.</li>
+          </ol>
+        </div>
+
+        <!-- Android Box -->
+        <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:12px;padding:16px 18px;">
+          <div style="font-size:14px;font-weight:800;color:#065f46;margin-bottom:8px;">
+            🤖 Für Android-Smartphones (mit Google Chrome)
+          </div>
+          <ol style="margin:0;padding-left:20px;font-size:13px;line-height:1.75;color:#1e293b;">
+            <li>Öffnen Sie <strong>Google Chrome</strong> 🌐 auf Ihrem Android-Handy und rufen Sie <a href="{portal_url}" style="color:#059669;font-weight:700;">{portal_url}</a> auf.</li>
+            <li>Tippen Sie oben rechts neben der Adresszeile auf das <strong>Drei-Punkte-Menü</strong> ⋮.</li>
+            <li>Tippen Sie im Menü auf <strong>„Zum Startbildschirm hinzufügen“</strong> 📲 oder <strong>„App installieren“</strong> ⬇️.</li>
+            <li>Bestätigen Sie mit <strong>„Hinzufügen / Installieren“</strong> ✅ — das Brünel-Portal erscheint sofort als App-Icon auf Ihrem Startbildschirm!</li>
+          </ol>
+        </div>
+      </div>
+
+      <p style="margin:22px 0 8px 0;font-size:14px;line-height:1.6;color:#334155;">
+        Bei Fragen zu Ihrem Login oder zum Portal erreichen Sie Ihr Projektleiter- und HR-Team jederzeit.<br />
+        <strong>Nochmals herzlich willkommen im Team &amp; auf eine erfolgreiche Zusammenarbeit! 🚀🤝</strong>
+      </p>
+    </div>
+
+    <!-- Footer -->
+    <div style="background:#0f172a;color:#94a3b8;padding:18px 32px;font-size:12px;line-height:1.6;">
+      <div style="color:#ffffff;font-weight:800;font-size:13px;">Brünel Deutschland UG (haftungsbeschränkt)</div>
+      <div>Ramonville Str. 28 · 61184 Karben · Deutschland</div>
+      <div>Geschäftsführer: Sam Rastegar Moghadam · Web: <a href="https://www.bruenel.de" style="color:#FF6B00;text-decoration:none;">www.bruenel.de</a> · Mitarbeiter-Portal: <a href="{portal_url}" style="color:#FF6B00;text-decoration:none;">portal.bruenel.de</a></div>
+    </div>
+  </div>
+</body>
+</html>"""
+
+    # Attempt automatic SMTP dispatch
+    sent_via_smtp = False
+    smtp_note = ""
+    from_addr = "hr@bruenel.de"
+
+    if clean_email:
+        # 1. Check sender_user mail credentials, or any admin user with mail configured, or ENV vars
+        smtp_user = None
+        smtp_pass = None
+        smtp_host = os.environ.get("SMTP_HOST", "smtp.strato.de")
+        smtp_port = int(os.environ.get("SMTP_PORT", "465"))
+
+        if sender_user and getattr(sender_user, "email_password", None):
+            smtp_user = sender_user.email
+            smtp_pass = sender_user.email_password
+            smtp_host = sender_user.smtp_host or smtp_host
+            smtp_port = int(sender_user.smtp_port or smtp_port)
+        else:
+            configured_admin = (
+                db.query(models.User)
+                .filter(models.User.email_password.isnot(None), models.User.email_password != "")
+                .first()
+            )
+            if configured_admin:
+                smtp_user = configured_admin.email
+                smtp_pass = configured_admin.email_password
+                smtp_host = configured_admin.smtp_host or smtp_host
+                smtp_port = int(configured_admin.smtp_port or smtp_port)
+            elif os.environ.get("SMTP_USER") and os.environ.get("SMTP_PASSWORD"):
+                smtp_user = os.environ.get("SMTP_USER")
+                smtp_pass = os.environ.get("SMTP_PASSWORD")
+
+        if smtp_user and smtp_pass:
+            from_addr = smtp_user
+            try:
+                msg = MIMEMultipart("alternative")
+                msg["Subject"] = subject
+                msg["From"] = f"Brünel Deutschland UG HR <{smtp_user}>"
+                msg["To"] = clean_email
+                msg.attach(MIMEText(plain_text, "plain", "utf-8"))
+                msg.attach(MIMEText(html_body, "html", "utf-8"))
+
+                with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=10) as server:
+                    server.login(smtp_user, smtp_pass)
+                    server.send_message(msg)
+                sent_via_smtp = True
+                smtp_note = f"Willkommens-E-Mail erfolgreich automatisch über {smtp_user} an {clean_email} gesendet."
+            except Exception as smtp_err:
+                sent_via_smtp = False
+                smtp_note = f"SMTP-Versandhinweis: {str(smtp_err)}. Sie können die E-Mail direkt aus der Vorschau per 1-Klick versenden."
+        else:
+            smtp_note = "E-Mail-Vorlage & Zugangsdaten wurden erstellt. (Für vollautomatischen Hintergrund-Versand bitte unter Mail & Signature Ihr Strato-Postfach verbinden oder per 1-Klick-Button öffnen)."
+    else:
+        smtp_note = "Beim Mitarbeiter ist noch keine E-Mail-Adresse hinterlegt."
+
+    now_iso = datetime.utcnow().isoformat()
+    attrs["onboarding_email_prepared_at"] = now_iso
+    attrs["onboarding_email_sent"] = sent_via_smtp
+    attrs["onboarding_email_to"] = clean_email
+    emp.attributes = attrs
+
+    return {
+        "sent_via_smtp": sent_via_smtp,
+        "smtp_note": smtp_note,
+        "from_email": from_addr,
+        "to_email": clean_email,
+        "employee_name": full_name,
+        "username": clean_email,
+        "otp": otp_plain,
+        "portal_url": portal_url,
+        "subject": subject,
+        "plain_text": plain_text,
+        "html_body": html_body,
+        "sent_at": now_iso,
+    }
+
+
+@router.post("/employees/{emp_id}/send-onboarding-email")
+def send_employee_onboarding_email(
+    emp_id: str,
+    payload: Optional[dict] = None,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """
+    Generates or resends the German Onboarding Welcome Email with username, One-Time Password (OTP),
+    portal login link, and iPhone/Android Homescreen App installation instructions.
+    """
+    tier = get_effective_tier(current_user)
+    if tier not in (1, 2, 3):
+        raise HTTPException(status_code=403, detail="Only Management or HR can send onboarding emails.")
+
+    emp = db.query(models.Employee).filter(models.Employee.id == emp_id).first()
+    if not emp:
+        raise HTTPException(status_code=404, detail="Mitarbeiter nicht gefunden.")
+
+    body = payload or {}
+    regenerate_otp = bool(body.get("regenerate_otp", False))
+    result = _build_and_send_onboarding_welcome_email(
+        db=db,
+        emp=emp,
+        sender_user=current_user,
+        regenerate_otp=regenerate_otp,
+        contract_title=body.get("contract_title") or "",
+    )
+    db.commit()
+    log_audit(
+        db,
+        "employees",
+        "ONBOARDING_EMAIL",
+        emp.id,
+        current_user.email,
+        None,
+        {"to_email": result["to_email"], "sent_via_smtp": result["sent_via_smtp"]},
+    )
+    return result
+
+
 @router.post("/contracts/{contract_id}/upload-signed")
 def upload_signed_hr_contract(
     contract_id: str,
@@ -2432,6 +2804,7 @@ def upload_signed_hr_contract(
     Marks an issued contract as Completed / Signed after HR uploads the signed PDF/scan.
     Immediately flips visibility from 'admin_only' (Pending) to 'employee_visible' (Signed)
     so the employee can view & download the signed contract in their Employee Portal Documents section.
+    Also automatically triggers the German Onboarding Welcome Email with username, OTP, and mobile app instructions!
     """
     tier = get_effective_tier(current_user)
     if tier not in (1, 2, 3):
@@ -2470,6 +2843,7 @@ def upload_signed_hr_contract(
     meta["signed_by"] = current_user.email
     doc.metadata_json = meta
 
+    onboarding_email_data = None
     emp_id = doc.employee_id or doc.reference_id
     emp = db.query(models.Employee).filter(models.Employee.id == emp_id).first() if emp_id else None
     if emp:
@@ -2488,11 +2862,22 @@ def upload_signed_hr_contract(
         attrs["hr_contracts"] = hr_list
         emp.attributes = attrs
 
+        # Automatically generate & send the Welcome Onboarding Email upon contract completion!
+        onboarding_email_data = _build_and_send_onboarding_welcome_email(
+            db=db,
+            emp=emp,
+            sender_user=current_user,
+            regenerate_otp=False,
+            contract_title=doc.title,
+        )
+
     db.commit()
     db.refresh(doc)
     emp_map = {e.id: e for e in db.query(models.Employee).all()}
     log_audit(db, "hr_contracts", "UPLOAD_SIGNED", doc.id, current_user.email, {"status": "Pending_Signature"}, {"status": "Signed", "employee_visible": True})
-    return _serialize_contract_doc(doc, emp_map)
+    serialized = _serialize_contract_doc(doc, emp_map)
+    serialized["onboarding_email"] = onboarding_email_data
+    return serialized
 
 
 @router.delete("/contracts/{contract_id}")
