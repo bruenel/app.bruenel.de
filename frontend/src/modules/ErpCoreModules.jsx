@@ -12,6 +12,7 @@ import { TASK_STATUS_CONFIG, getStatusStyle } from '../core/i18n';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { PageHead, SubTabs, useQuickAction, Empty, downloadCsv, confirmDelete } from '../components/ui';
 import { MasterCalendarModule } from './ErpOperationsModules';
+import { HRContractGeneratorView, HREmployeeOverviewView } from './HRContractsAndOverview';
 
 // ==============================================================================
 // EXECUTIVE COMMAND DASHBOARD (app.bruenel.de Overview)
@@ -329,6 +330,7 @@ export const HRManagementModule = ({ user }) => {
   const [payslips, setPayslips] = useState([]);
   const [showAddEmp, setShowAddEmp] = useState(false);
   const [showAddSlip, setShowAddSlip] = useState(false);
+  const [contractGenEmpId, setContractGenEmpId] = useState('');
 
   // Dynamic Custom Roles & Abteilungen (Departments) Lists
   const [roleOptions, setRoleOptions] = useState(() => {
@@ -529,11 +531,13 @@ export const HRManagementModule = ({ user }) => {
     const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || '';
     const modelsToTry = ['gemini-3.8-flash', 'gemini-flash-latest', 'gemini-2.5-flash'];
 
-    const prompt = `You are an HR document parser for a German company. Analyze this document image (it may be a Personalausweis, Reisepass, Aufenthaltstitel, Arbeitsvertrag, Gewerbeanmeldung, Freistellungsbescheinigung, or other HR document).
+    const prompt = `You are an HR document parser for a German company. Analyze this document (it may be a Personalausweis, Reisepass, Aufenthaltstitel, Führerschein, Krankenkassenkarte, Sozialversicherungsausweis, Lebenslauf/CV, Arbeitsvertrag, Gewerbeanmeldung, Freistellungsbescheinigung, or other HR document).
 Extract as many of the following fields as you can find. Return ONLY valid JSON (no markdown):
 {
   "first_name": "",
   "last_name": "",
+  "email": "",
+  "phone": "",
   "birth_date": "YYYY-MM-DD",
   "nationality": "",
   "gender": "",
@@ -541,12 +545,20 @@ Extract as many of the following fields as you can find. Return ONLY valid JSON 
   "postal_code": "",
   "city": "",
   "steuer_id": "",
+  "sozialversicherungsnummer": "",
+  "krankenversicherung_name": "",
+  "krankenversicherung_nummer": "",
+  "drivers_license": "",
   "document_type": "",
   "document_number": "",
   "document_valid_until": "YYYY-MM-DD",
   "company_name": "",
   "ust_id": "",
+  "steuernummer": "",
   "iban": "",
+  "bic": "",
+  "bank_name": "",
+  "role": "",
   "notes": ""
 }
 Leave a field as empty string if you cannot find it. Do not guess. Only return JSON.`;
@@ -646,24 +658,49 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
       // 3. Auto-fill form fields from all extracted documents
       setNewEmp((prev) => {
         const attrs = { ...(prev.attributes || {}) };
-        if (mergedFields.birth_date) attrs.geburtsdatum = mergedFields.birth_date;
-        if (mergedFields.nationality) attrs.staatsangehoerigkeit = mergedFields.nationality;
+        if (mergedFields.birth_date) {
+          attrs.birth_date = mergedFields.birth_date;
+          attrs.geburtsdatum = mergedFields.birth_date;
+        }
+        if (mergedFields.nationality) {
+          attrs.nationality = mergedFields.nationality;
+          attrs.staatsangehoerigkeit = mergedFields.nationality;
+        }
         if (mergedFields.gender) attrs.geschlecht = mergedFields.gender;
-        if (mergedFields.street) attrs.strasse = mergedFields.street;
-        if (mergedFields.postal_code) attrs.plz = mergedFields.postal_code;
-        if (mergedFields.city) attrs.ort = mergedFields.city;
+        if (mergedFields.street) {
+          attrs.street = mergedFields.street;
+          attrs.strasse = mergedFields.street;
+        }
+        if (mergedFields.postal_code) {
+          attrs.postal_code = mergedFields.postal_code;
+          attrs.plz = mergedFields.postal_code;
+        }
+        if (mergedFields.city) {
+          attrs.city = mergedFields.city;
+          attrs.ort = mergedFields.city;
+        }
         if (mergedFields.steuer_id) attrs.steuer_id = mergedFields.steuer_id;
+        if (mergedFields.sozialversicherungsnummer) attrs.sozialversicherungsnummer = mergedFields.sozialversicherungsnummer;
+        if (mergedFields.krankenversicherung_name) attrs.krankenversicherung_name = mergedFields.krankenversicherung_name;
+        if (mergedFields.krankenversicherung_nummer) attrs.krankenversicherung_nummer = mergedFields.krankenversicherung_nummer;
+        if (mergedFields.drivers_license) attrs.drivers_license = mergedFields.drivers_license;
         if (mergedFields.document_type) attrs.ausweistyp = mergedFields.document_type;
         if (mergedFields.document_number) attrs.ausweisnummer = mergedFields.document_number;
         if (mergedFields.document_valid_until) attrs.ausweis_gueltig_bis = mergedFields.document_valid_until;
         if (mergedFields.company_name) attrs.company_name = mergedFields.company_name;
         if (mergedFields.ust_id) attrs.ust_id = mergedFields.ust_id;
+        if (mergedFields.steuernummer) attrs.steuernummer = mergedFields.steuernummer;
         if (mergedFields.iban) attrs.iban = mergedFields.iban;
+        if (mergedFields.bic) attrs.bic = mergedFields.bic;
+        if (mergedFields.bank_name) attrs.bank_name = mergedFields.bank_name;
 
         return {
           ...prev,
           first_name: mergedFields.first_name || prev.first_name,
           last_name: mergedFields.last_name || prev.last_name,
+          email: mergedFields.email || prev.email,
+          phone: mergedFields.phone || prev.phone,
+          role: mergedFields.role || prev.role,
           attributes: attrs,
           documents: [
             ...(prev.documents || []),
@@ -1177,8 +1214,8 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
   });
   const filteredLeaves = leaves.filter((l) => leaveFilter === 'All' || l.status === leaveFilter);
 
-  const handleSaveEmployeeCard = async (e) => {
-    e.preventDefault();
+  const handleSaveEmployeeCard = async (e, jumpToContract = false) => {
+    if (e && e.preventDefault) e.preventDefault();
     try {
       const isFreelance = newEmp.employment_type === 'Freelancer' || newEmp.employment_type === 'Subunternehmer';
       const effectiveHourly = isFreelance
@@ -1261,6 +1298,22 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
           });
           targetEmpId = created.id;
         }
+
+        // Link any AI-scanned documents uploaded before the new employee record was created
+        if (targetEmpId && Array.isArray(newEmp.documents) && newEmp.documents.length > 0) {
+          for (const d of newEmp.documents) {
+            if (d.id) {
+              await fetchWithToken(`/api/v1/hr/employees/${targetEmpId}/documents`, {
+                method: 'POST',
+                body: JSON.stringify({
+                  document_id: d.id,
+                  category: d.category || 'Personalausweis / Reisepass',
+                  title: d.title || 'KI-Upload',
+                }),
+              }).catch(() => null);
+            }
+          }
+        }
       }
 
       if (pendingUploadFiles.length > 0 && targetEmpId) {
@@ -1310,6 +1363,10 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
 
       setShowAddEmp(false);
       loadAll();
+      if (jumpToContract && targetEmpId) {
+        setContractGenEmpId(targetEmpId);
+        setTab('contracts');
+      }
     } catch (err) {
       alert(err.message);
     }
@@ -1620,7 +1677,9 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
       {/* Sub-navigation Tabs */}
       {!showAddEmp && (
         <SubTabs base="/hr" active={tab} items={[
-          { id: 'employees', label: 'Mitarbeiter & Übersicht', count: employees.length },
+          { id: 'overview', label: 'Employee Overview (Reports & Probezeit)' },
+          { id: 'employees', label: 'Employee Directory (Mitarbeiter)', count: employees.length },
+          { id: 'contracts', label: 'Generate Contract (Vertragsgenerator)' },
           { id: 'timelogs', label: 'Arbeitszeiten & Überstunden', count: timeLogs.length },
           { id: 'leaves', label: 'Urlaub (Holiday)', count: leaves.length },
           { id: 'sickness', label: 'Krankheit (AU)', count: sickness.length },
@@ -1811,6 +1870,45 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                 {/* SECTION 1: STAMMDATEN, SELECTIVE POSITION & ABTEILUNG, ASSIGNED PROJECT */}
                 {empCardTab === 'personal' && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                    {/* STEP 1 ONBOARDING: AI DOCUMENT UPLOAD & AUTO-FILL RIGHT IN REGISTRATION FORM */}
+                    <div style={{ padding: '12px 14px', borderRadius: 10, background: 'linear-gradient(135deg,#f0fdf4,#fffbf7)', border: '1.5px solid rgba(16,185,129,0.35)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <div style={{ padding: 7, borderRadius: 8, background: 'rgba(16,185,129,0.14)', color: '#059669', display: 'flex' }}>
+                          <ScanLine size={17} />
+                        </div>
+                        <div>
+                          <strong style={{ fontSize: '0.86rem', color: '#065f46' }}>
+                            Schritt 1: Dokumente hochladen &amp; per KI automatisch ins Formular übernehmen
+                          </strong>
+                          <div style={{ fontSize: '0.73rem', color: '#4b5563' }}>
+                            Ausweis, Reisepass, Aufenthaltstitel, Krankenkassenkarte oder Gewerbeanmeldung wählen → KI füllt Name, Adresse, Geburtsdatum, Steuer-ID &amp; IBAN sofort aus.
+                          </div>
+                        </div>
+                      </div>
+                      <label style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 7, padding: '7px 14px',
+                        borderRadius: 8, background: aiDocReading ? '#d1fae5' : '#059669', color: '#fff',
+                        cursor: aiDocReading ? 'not-allowed' : 'pointer', fontSize: '0.8rem', fontWeight: 700, margin: 0
+                      }}>
+                        {aiDocReading ? <><Sparkles size={14} /> KI liest Dokumente...</> : <><ScanLine size={14} /> Dokumente hochladen &amp; KI-Scan starten</>}
+                        <input
+                          type="file"
+                          multiple
+                          accept=".pdf,image/*,.doc,.docx"
+                          style={{ display: 'none' }}
+                          disabled={aiDocReading}
+                          onChange={handleAiDocumentRead}
+                        />
+                      </label>
+                    </div>
+
+                    {aiDocResult && (
+                      <div style={{ padding: '10px 14px', borderRadius: 8, background: '#ecfdf5', border: '1px solid #10b981', fontSize: '0.78rem', color: '#065f46' }}>
+                        <strong>✅ KI hat Daten aus «{aiDocResult.fileName}» ins Formular übertragen:</strong>{' '}
+                        {Object.entries(aiDocResult.fields).filter(([, v]) => v).map(([k, v]) => `${k}: ${v}`).join(' · ')}
+                      </div>
+                    )}
+
                     {newEmp.attributes?.is_candidate && (
                       <div style={{ padding: '10px 14px', borderRadius: 10, background: '#eff6ff', border: '1px solid #bfdbfe', fontSize: '0.8rem', color: '#1e40af' }}>
                         <strong>IT Project Candidate Profile:</strong> Experience: {newEmp.attributes?.experience_years || '—'} • Skills: {newEmp.attributes?.skills || '—'} • Summary: {newEmp.attributes?.work_history_summary || '—'}. Change Type above to convert this candidate to Employee, Freelancer, or Subunternehmer.
@@ -2201,18 +2299,26 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                     ) : (
                       /* STANDARD EMPLOYEE SALARY, HOURLY & OVERTIME PANEL */
                       <>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '10px' }}>
                           <div>
-                            <label>Vertrag unterschrieben am (Signed Date)</label>
-                            <DateInput  value={newEmp.attributes?.contract_signed_date || ''} onChange={e => setEmpAttr('contract_signed_date', e.target.value)} />
+                            <label>Vertrag unterschrieben am</label>
+                            <DateInput value={newEmp.attributes?.contract_signed_date || ''} onChange={e => setEmpAttr('contract_signed_date', e.target.value)} />
                           </div>
                           <div>
                             <label>Vertragsbeginn (Start Date)</label>
-                            <DateInput  value={newEmp.attributes?.contract_start_date || ''} onChange={e => setEmpAttr('contract_start_date', e.target.value)} />
+                            <DateInput value={newEmp.attributes?.contract_start_date || ''} onChange={e => setEmpAttr('contract_start_date', e.target.value)} />
                           </div>
                           <div>
-                            <label>Probezeit Ende am (Probezeit Ends On)</label>
-                            <DateInput  value={newEmp.attributes?.probezeit_end_date || ''} onChange={e => setEmpAttr('probezeit_end_date', e.target.value)} />
+                            <label>Probezeit Ende am</label>
+                            <DateInput value={newEmp.attributes?.probezeit_end_date || ''} onChange={e => setEmpAttr('probezeit_end_date', e.target.value)} />
+                          </div>
+                          <div>
+                            <label>Praktikum Von (Start)</label>
+                            <DateInput value={newEmp.attributes?.praktikum_start_date || ''} onChange={e => setEmpAttr('praktikum_start_date', e.target.value)} />
+                          </div>
+                          <div>
+                            <label>Praktikum Bis (Ende)</label>
+                            <DateInput value={newEmp.attributes?.praktikum_end_date || ''} onChange={e => setEmpAttr('praktikum_end_date', e.target.value)} />
                           </div>
                         </div>
 
@@ -2238,6 +2344,21 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                             <input type="number" step="0.01" value={newEmp.attributes?.overtime_rate ?? 28.5} onChange={e => setEmpAttr('overtime_rate', parseFloat(e.target.value || 0))} />
                           </div>
                         </div>
+
+                        {editingEmpId && (
+                          <div className="flex-between" style={{ padding: '10px 14px', borderRadius: 10, background: '#fff7ed', border: '1px solid #fed7aa', flexWrap: 'wrap', gap: 10 }}>
+                            <div style={{ fontSize: 12, color: '#9a3412' }}>
+                              <strong>Vertragsgenerator (5 Vertragsmodule inkl. Pflicht-DSGVO):</strong> Arbeitsvertrag, Kfz-Übergabe, Orientierungspraktikum oder Werkvertrag direkt mit diesen Konditionen ausstellen.
+                            </div>
+                            <button
+                              type="button"
+                              className="btn-primary btn-sm"
+                              onClick={(ev) => handleSaveEmployeeCard(ev, true)}
+                            >
+                              <FileText size={13} /> Speichern & Vertrag im Generator ausstellen →
+                            </button>
+                          </div>
+                        )}
                       </>
                     )}
                   </div>
@@ -2849,6 +2970,16 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                                                   ✓ Im Lohnabrechnung-Tab sichtbar
                                                 </span>
                                               )}
+                                              {(doc.status === 'Pending_Signature' || doc.employee_visible === false || doc.visibility === 'admin_only') && (
+                                                <span className="badge" style={{ fontSize: '0.66rem', padding: '2px 7px', background: '#fffbeb', color: '#b45309', border: '1px solid #fde68a', fontWeight: 700 }}>
+                                                  ⏳ Ausstehender Vertrag (Nur HR — Nicht für Mitarbeiter sichtbar)
+                                                </span>
+                                              )}
+                                              {doc.status === 'Signed' && (
+                                                <span className="badge" style={{ fontSize: '0.66rem', padding: '2px 7px', background: '#dcfce7', color: '#15803d', border: '1px solid #86efac', fontWeight: 700 }}>
+                                                  ✅ Unterschrieben (Für Mitarbeiter sichtbar)
+                                                </span>
+                                              )}
                                               <span className="badge" style={{ fontSize: '0.66rem', padding: '2px 6px', background: doc.uploaded_by === 'Mitarbeiter' ? '#dbeafe' : '#f1f5f9', color: doc.uploaded_by === 'Mitarbeiter' ? '#1d4ed8' : '#475569' }}>
                                                 {doc.uploaded_by === 'Mitarbeiter' ? '👤 Vom Mitarbeiter' : '🏢 Vom Management'}
                                               </span>
@@ -3304,9 +3435,17 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                     Typ: <strong>{newEmp.employment_type}</strong> • Position: <strong>{newEmp.role}</strong> • Abteilung: <strong>{newEmp.department}</strong>
                   </div>
                 </div>
-                <div style={{ display: 'flex', gap: '10px' }}>
+                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
                   <button type="button" className="btn-secondary" onClick={() => setShowAddEmp(false)}>
                     <ArrowLeft size={14} /> Zurück zur Übersicht
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    style={{ borderColor: '#FF6B00', color: '#FF6B00', background: '#fff7ed', fontWeight: 800 }}
+                    onClick={(ev) => handleSaveEmployeeCard(ev, true)}
+                  >
+                    <FileText size={15} /> Speichern & Vertrag generieren →
                   </button>
                   <button type="submit" className="btn-primary">
                     <Check size={15} /> {editingEmpId ? 'Änderungen speichern' : 'Mitarbeiter anlegen & speichern'}
@@ -3319,6 +3458,28 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
       })()}
 
       {/* Tab Content */}
+      {!showAddEmp && tab === 'overview' && (
+        <HREmployeeOverviewView
+          employees={employees}
+          timeLogs={timeLogs}
+          absences={absences}
+          onOpenEmployee={(emp) => openEditEmployeeModal(emp)}
+          onGenerateContractForEmp={(empId) => {
+            setContractGenEmpId(empId);
+            setTab('contracts');
+          }}
+        />
+      )}
+
+      {!showAddEmp && tab === 'contracts' && (
+        <HRContractGeneratorView
+          employees={employees}
+          initialEmpId={contractGenEmpId}
+          onRefreshEmployees={load}
+          onOpenEmployee={(emp) => openEditEmployeeModal(emp)}
+        />
+      )}
+
       {!showAddEmp && tab === 'employees' && (() => {
         const monthHours = {};
         timeLogs.forEach((l) => {
@@ -3452,6 +3613,9 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                         <td style={{ padding: '9px 10px' }}>
                           <span style={{ padding: '2px 7px', borderRadius: 6, fontSize: 10.5, fontWeight: 700, background: isSub ? '#fff7ed' : '#f0fdf4', color: isSub ? '#c2410c' : '#15803d' }}>{e.employment_type}</span>
                           <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>{attr.contract_model || '—'}</div>
+                          {attr.probezeit_end_date && (
+                            <div style={{ fontSize: 10, color: '#b45309', fontWeight: 600 }}>Probezeit bis: {formatDate(attr.probezeit_end_date)}</div>
+                          )}
                         </td>
                         <td style={{ padding: '9px 10px' }} onClick={(ev) => ev.stopPropagation()}>
                           <select value={e.assigned_project_id || attr.assigned_project_id || ''} onChange={(ev) => handleQuickProjectChange(e.id, ev.target.value)} style={{ ...sel, minWidth: 150, fontSize: 11.5 }}>
@@ -3470,6 +3634,18 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                         </td>
                         <td style={{ padding: '9px 10px' }} onClick={(ev) => ev.stopPropagation()}>
                           <div style={{ display: 'inline-flex', gap: 4, flexWrap: 'wrap' }}>
+                            <button
+                              type="button"
+                              className="btn-secondary btn-sm"
+                              style={{ padding: '3px 7px', fontSize: 10.5, color: '#FF6B00', borderColor: '#fed7aa', background: '#fff7ed', fontWeight: 700 }}
+                              onClick={() => {
+                                setContractGenEmpId(e.id);
+                                setTab('contracts');
+                              }}
+                              title="Vertrag generieren (Arbeitsvertrag, Kfz, Praktikum, Werkvertrag, DSGVO)"
+                            >
+                              📄 Vertrag
+                            </button>
                             <button type="button" className="btn-secondary btn-sm" style={{ padding: '3px 7px', fontSize: 10.5 }} onClick={() => { openEditEmployeeModal(e); setEmpCardTab('absence'); }} title="Krankheit (AU) & Urlaub">
                               🏥/🌴
                             </button>
@@ -4660,6 +4836,12 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                                 </span>
                                 {isPayslipDoc && (
                                   <span style={{ fontSize: '0.68rem', color: '#059669', fontWeight: 600 }}>✓ Im Lohnabrechnung-Tab sichtbar</span>
+                                )}
+                                {(doc.status === 'Pending_Signature' || doc.employee_visible === false || doc.visibility === 'admin_only') && (
+                                  <span style={{ fontSize: '0.68rem', color: '#b45309', fontWeight: 700 }}>⏳ Ausstehend (Nicht im Mitarbeiter-Portal sichtbar)</span>
+                                )}
+                                {doc.status === 'Signed' && (
+                                  <span style={{ fontSize: '0.68rem', color: '#15803d', fontWeight: 700 }}>✅ Unterschrieben (Für Mitarbeiter sichtbar)</span>
                                 )}
                               </div>
                             )}

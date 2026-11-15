@@ -78,7 +78,9 @@ export const NAV = [
   {
     id: 'hr', label: 'HR & Workforce', icon: Users, base: '/hr', mod: 'mod_hr',
     children: [
+      { to: '/hr/overview', label: 'Employee Overview' },
       { to: '/hr/employees', label: 'Employee Directory' },
+      { to: '/hr/contracts', label: 'Generate Contract' },
       { to: '/hr/timelogs', label: 'Working Hours' },
       { to: '/hr/leaves', label: 'Holiday Requests' },
       { to: '/hr/sickness', label: 'Sickness Reports' },

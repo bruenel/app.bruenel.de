@@ -108,7 +108,12 @@ def _generate_otp_code(length: int = 10) -> str:
     return "BRN-" + "".join(secrets.choice(alphabet) for _ in range(length))
 
 
-def serialize_employee(emp: models.Employee, db: Optional[Session] = None, include_sensitive: bool = True) -> dict:
+def serialize_employee(
+    emp: models.Employee,
+    db: Optional[Session] = None,
+    include_sensitive: bool = True,
+    include_pending_contracts: bool = True,
+) -> dict:
     attrs = dict(emp.attributes or {})
     docs = []
     if db is not None and include_sensitive:
@@ -127,6 +132,13 @@ def serialize_employee(emp: models.Employee, db: Optional[Session] = None, inclu
                 continue
             seen_doc_ids.add(d.id)
             meta = dict(d.metadata_json or {})
+            is_pending_contract = (
+                d.status == "Pending_Signature"
+                or meta.get("visibility") == "admin_only"
+                or meta.get("employee_visible") is False
+            )
+            if not include_pending_contracts and is_pending_contract:
+                continue
             download_link = create_presigned_download(d.storage_key)
             docs.append({
                 "id": d.id,
@@ -140,6 +152,15 @@ def serialize_employee(emp: models.Employee, db: Optional[Session] = None, inclu
                 "title": d.title or d.file_name,
                 "mime_type": d.mime_type,
                 "file_size": d.file_size or 0,
+                "status": d.status or "Uploaded",
+                "visibility": meta.get("visibility") or ("admin_only" if is_pending_contract else "employee_visible"),
+                "employee_visible": not is_pending_contract,
+                "is_hr_contract": bool(meta.get("is_hr_contract")),
+                "contract_type": meta.get("contract_type"),
+                "contract_status": meta.get("contract_status") or d.status or "Uploaded",
+                "signed_at": meta.get("signed_at"),
+                "conditions": meta.get("conditions") if include_pending_contracts else None,
+                "html_content": meta.get("html_content") if include_pending_contracts else None,
                 "url": download_link,
                 "download_url": download_link,
                 "created_at": d.created_at.isoformat() if d.created_at else None,
@@ -189,12 +210,18 @@ def list_employees(
     current_user: models.User = Depends(get_current_user),
 ):
     tier = get_effective_tier(current_user)
+    is_hr_mgmt = tier in (1, 2, 3)
     query = db.query(models.Employee)
     emps = query.order_by(models.Employee.employee_number.asc()).all()
     results = []
     for e in emps:
-        include_sens = (tier in (1, 2, 3)) or (e.id == current_user.employee_id)
-        item = serialize_employee(e, db=db, include_sensitive=include_sens)
+        include_sens = is_hr_mgmt or (e.id == current_user.employee_id)
+        item = serialize_employee(
+            e,
+            db=db,
+            include_sensitive=include_sens,
+            include_pending_contracts=is_hr_mgmt,
+        )
         results.append(item)
     return results
 
@@ -434,11 +461,13 @@ async def ai_read_document_backend(
     if not b64_data:
         raise HTTPException(status_code=400, detail="Missing image data")
 
-    prompt = """You are an HR document parser for a German company. Analyze this document image (it may be a Personalausweis, Reisepass, Aufenthaltstitel, or other HR document).
+    prompt = """You are an HR document parser for a German company. Analyze this document (it may be a Personalausweis, Reisepass, Aufenthaltstitel, Führerschein, Krankenkassenkarte, Sozialversicherungsausweis, Lebenslauf/CV, Gewerbeanmeldung, or other HR document).
 Extract as many of the following fields as you can find. Return ONLY valid JSON (no markdown):
 {
   "first_name": "",
   "last_name": "",
+  "email": "",
+  "phone": "",
   "birth_date": "YYYY-MM-DD",
   "nationality": "",
   "gender": "",
@@ -446,12 +475,20 @@ Extract as many of the following fields as you can find. Return ONLY valid JSON 
   "postal_code": "",
   "city": "",
   "steuer_id": "",
+  "sozialversicherungsnummer": "",
+  "krankenversicherung_name": "",
+  "krankenversicherung_nummer": "",
+  "drivers_license": "",
   "document_type": "",
   "document_number": "",
   "document_valid_until": "YYYY-MM-DD",
   "company_name": "",
   "ust_id": "",
+  "steuernummer": "",
   "iban": "",
+  "bic": "",
+  "bank_name": "",
+  "role": "",
   "notes": ""
 }
 Leave a field as empty string if you cannot find it. Do not guess. Only return JSON."""
@@ -2009,3 +2046,479 @@ def delete_payslip(
     db.commit()
     log_audit(db, "payslips", "DELETE", payslip_id, current_user.email, None, None)
     return {"status": "deleted", "id": payslip_id}
+
+
+# ==============================================================================
+# HR CONTRACT GENERATOR, MULTI-CONTRACT ISSUANCE & SIGNED CONTRACT WORKFLOW
+# ==============================================================================
+
+def _serialize_contract_doc(doc: models.DocumentRecord, emp_map: dict) -> dict:
+    meta = dict(doc.metadata_json or {})
+    emp_obj = emp_map.get(doc.employee_id or doc.reference_id)
+    is_signed = (doc.status == "Signed") or (meta.get("contract_status") == "Signed")
+    return {
+        "id": doc.id,
+        "employee_id": doc.employee_id or doc.reference_id,
+        "employee_name": f"{emp_obj.first_name} {emp_obj.last_name}".strip() if emp_obj else meta.get("employee_name", "Mitarbeiter"),
+        "employee_number": emp_obj.employee_number if emp_obj else meta.get("employee_number", ""),
+        "employee_role": emp_obj.role if emp_obj else "",
+        "employment_type": emp_obj.employment_type if emp_obj else "",
+        "title": doc.title,
+        "file_name": doc.file_name,
+        "mime_type": doc.mime_type,
+        "file_size": doc.file_size or 0,
+        "contract_type": meta.get("contract_type") or doc.reference_type,
+        "contract_code": meta.get("contract_code") or "ARBEITSVERTRAG",
+        "batch_id": meta.get("batch_id"),
+        "is_mandatory_dsgvo": bool(meta.get("is_mandatory_dsgvo")),
+        "status": "Signed" if is_signed else "Pending_Signature",
+        "contract_status": "Signed" if is_signed else "Pending_Signature",
+        "visibility": "employee_visible" if is_signed else "admin_only",
+        "employee_visible": bool(is_signed),
+        "conditions": meta.get("conditions") or {},
+        "html_content": meta.get("html_content") or "",
+        "issued_at": meta.get("issued_at") or (doc.created_at.isoformat() if doc.created_at else None),
+        "issued_by": meta.get("issued_by") or "HR Management",
+        "signed_at": meta.get("signed_at"),
+        "signed_by": meta.get("signed_by"),
+        "signed_file_name": meta.get("signed_file_name") or (doc.file_name if is_signed else None),
+        "url": create_presigned_download(doc.storage_key),
+        "download_url": create_presigned_download(doc.storage_key),
+        "created_at": doc.created_at.isoformat() if doc.created_at else None,
+    }
+
+
+@router.get("/contracts")
+def list_hr_contracts(
+    employee_id: Optional[str] = None,
+    status: Optional[str] = None,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    tier = get_effective_tier(current_user)
+    if tier not in (1, 2, 3):
+        raise HTTPException(status_code=403, detail="Only Management or HR can manage employee contracts.")
+
+    emps = db.query(models.Employee).all()
+    emp_map = {e.id: e for e in emps}
+
+    query = db.query(models.DocumentRecord)
+    if employee_id:
+        query = query.filter(
+            (models.DocumentRecord.employee_id == employee_id)
+            | (models.DocumentRecord.reference_id == employee_id)
+        )
+
+    docs = query.order_by(models.DocumentRecord.created_at.desc()).all()
+    results = []
+    for d in docs:
+        meta = dict(d.metadata_json or {})
+        is_contract = (
+            bool(meta.get("is_hr_contract"))
+            or d.reference_type in (
+                "Arbeitsvertrag / Werkvertrag",
+                "HR_Contract",
+                "DSGVO Datenschutzerklärung",
+                "Kfz-Übergabeprotokoll",
+                "Orientierungspraktikum",
+                "Subunternehmervertrag",
+            )
+            or "vertrag" in str(d.title or "").lower()
+            or "dsgvo" in str(d.title or "").lower()
+            or "übergabeprotokoll" in str(d.title or "").lower()
+            or "praktikum" in str(d.title or "").lower()
+        )
+        if not is_contract:
+            continue
+        serialized = _serialize_contract_doc(d, emp_map)
+        if status and status != "ALL":
+            if status.lower() == "pending" and serialized["status"] != "Pending_Signature":
+                continue
+            if status.lower() in ("signed", "completed") and serialized["status"] != "Signed":
+                continue
+        results.append(serialized)
+    return results
+
+
+@router.post("/contracts/issue")
+def issue_hr_contracts(
+    payload: dict,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """
+    Issues one or multiple contracts for a registered Mitarbeiter (always including the mandatory
+    5th DSGVO Datenschutzerklärung module if not already present), saves them as 'Pending_Signature'
+    (visible in HR & Mitarbeiter admin profile, hidden from Employee Portal), and syncs all contract
+    conditions (start date, Probezeit end date, salary, Praktikum dates, weekly hours, vehicle, etc.)
+    onto the Mitarbeiter's profile.
+    """
+    import base64
+
+    tier = get_effective_tier(current_user)
+    if tier not in (1, 2, 3):
+        raise HTTPException(status_code=403, detail="Only Management or HR can issue employee contracts.")
+
+    emp_id = payload.get("employee_id")
+    if not emp_id:
+        raise HTTPException(status_code=400, detail="Bitte wählen Sie einen Mitarbeiter aus (employee_id required).")
+
+    emp = db.query(models.Employee).filter(models.Employee.id == emp_id).first()
+    if not emp:
+        raise HTTPException(status_code=404, detail="Mitarbeiter nicht gefunden.")
+
+    contracts_input = payload.get("contracts") or []
+    if not contracts_input:
+        raise HTTPException(status_code=400, detail="Bitte wählen Sie mindestens einen Vertrag zur Erstellung aus.")
+
+    conditions = dict(payload.get("conditions") or {})
+    batch_id = f"BATCH-{uuid.uuid4().hex[:8].upper()}"
+    now_iso = datetime.utcnow().isoformat()
+    signed_date_str = str(conditions.get("signed_date") or date.today().isoformat())[:10]
+
+    # Sync employee profile and attributes from contract conditions
+    attrs = dict(emp.attributes or {})
+    if conditions.get("contract_start_date"):
+        attrs["contract_start_date"] = str(conditions["contract_start_date"])[:10]
+    if conditions.get("probezeit_end_date"):
+        attrs["probezeit_end_date"] = str(conditions["probezeit_end_date"])[:10]
+    if conditions.get("probezeit_months") is not None:
+        attrs["probezeit_months"] = int(conditions["probezeit_months"])
+    if conditions.get("signed_date"):
+        attrs["contract_signed_date"] = signed_date_str
+    if conditions.get("praktikum_start_date"):
+        attrs["praktikum_start_date"] = str(conditions["praktikum_start_date"])[:10]
+    if conditions.get("praktikum_end_date"):
+        attrs["praktikum_end_date"] = str(conditions["praktikum_end_date"])[:10]
+    if conditions.get("weekly_hours") is not None and str(conditions.get("weekly_hours")) != "":
+        wk_h = float(conditions["weekly_hours"])
+        attrs["weekly_hours"] = wk_h
+        attrs["monthly_contract_hours"] = round(wk_h * 4.0, 1)
+    if conditions.get("base_salary") is not None and str(conditions.get("base_salary")) != "":
+        sal = float(conditions["base_salary"])
+        if sal > 0:
+            emp.base_salary = sal
+            wk_h = float(attrs.get("weekly_hours") or 40.0)
+            if wk_h > 0:
+                emp.hourly_rate = round(sal / (wk_h * 4.333), 2)
+    if conditions.get("annual_leave_days") is not None and str(conditions.get("annual_leave_days")) != "":
+        emp.annual_leave_days = int(conditions["annual_leave_days"])
+    if conditions.get("statutory_leave_days") is not None:
+        attrs["statutory_leave_days"] = int(conditions["statutory_leave_days"])
+    if conditions.get("extra_leave_days") is not None:
+        attrs["extra_leave_days"] = int(conditions["extra_leave_days"])
+    if conditions.get("role"):
+        emp.role = str(conditions["role"]).strip()
+    if conditions.get("employment_type"):
+        emp.employment_type = str(conditions["employment_type"]).strip()
+    if conditions.get("contract_model"):
+        attrs["contract_model"] = str(conditions["contract_model"]).strip()
+    if conditions.get("street"):
+        attrs["street"] = str(conditions["street"]).strip()
+        attrs["strasse"] = attrs["street"]
+    if conditions.get("postal_code"):
+        attrs["postal_code"] = str(conditions["postal_code"]).strip()
+        attrs["plz"] = attrs["postal_code"]
+    if conditions.get("city"):
+        attrs["city"] = str(conditions["city"]).strip()
+        attrs["ort"] = attrs["city"]
+    if conditions.get("company_name"):
+        attrs["company_name"] = str(conditions["company_name"]).strip()
+    if conditions.get("sub_rate_variante_a") is not None:
+        attrs["sub_rate_variante_a"] = float(conditions["sub_rate_variante_a"] or 40.0)
+    if conditions.get("sub_rate_variante_b") is not None:
+        attrs["sub_rate_variante_b"] = float(conditions["sub_rate_variante_b"] or 35.0)
+    if conditions.get("sub_location"):
+        attrs["sub_location"] = str(conditions["sub_location"]).strip()
+    if conditions.get("vehicle_plate"):
+        attrs["assigned_vehicle_plate"] = str(conditions["vehicle_plate"]).strip()
+    if conditions.get("vehicle_model"):
+        attrs["assigned_vehicle_model"] = str(conditions["vehicle_model"]).strip()
+    if conditions.get("vehicle_vin"):
+        attrs["assigned_vehicle_vin"] = str(conditions["vehicle_vin"]).strip()
+    if conditions.get("vehicle_mileage") is not None and str(conditions.get("vehicle_mileage")) != "":
+        try:
+            attrs["assigned_vehicle_km"] = int(conditions["vehicle_mileage"])
+        except Exception:
+            pass
+    if conditions.get("vehicle_id"):
+        attrs["assigned_vehicle_id"] = str(conditions["vehicle_id"])
+        veh = db.query(models.Vehicle).filter(models.Vehicle.id == str(conditions["vehicle_id"])).first()
+        if veh:
+            veh.assigned_team_lead_id = emp.id
+            if conditions.get("vehicle_mileage"):
+                try:
+                    veh.mileage_km = int(conditions["vehicle_mileage"])
+                except Exception:
+                    pass
+
+    attrs["dsgvo_issued_at"] = now_iso
+    attrs["last_contract_batch_id"] = batch_id
+
+    os.makedirs(os.path.join(LOCAL_STORAGE_ROOT, "contracts"), exist_ok=True)
+    issued_docs = []
+
+    for c_item in contracts_input:
+        c_code = str(c_item.get("contract_code") or c_item.get("code") or "ARBEITSVERTRAG").upper()
+        c_type = str(c_item.get("contract_type") or c_item.get("title") or "Arbeitsvertrag")
+        c_title = str(c_item.get("title") or f"{c_type} — {emp.first_name} {emp.last_name}")
+        html_body = str(c_item.get("html_content") or "")
+        is_dsgvo = bool(c_item.get("is_mandatory_dsgvo")) or ("DSGVO" in c_code) or ("DATENSCHUTZ" in c_code)
+
+        doc_id = str(uuid.uuid4())
+        safe_emp = f"{emp.first_name}_{emp.last_name}".replace(" ", "_").replace("/", "_")
+        safe_code = c_code.lower().replace(" ", "_")
+        file_name = f"{safe_code}_{safe_emp}_{signed_date_str}.html"
+        storage_key = f"contracts/{emp.id}/{doc_id}_{file_name}"
+        full_path = os.path.join(LOCAL_STORAGE_ROOT, storage_key)
+        os.makedirs(os.path.dirname(full_path), exist_ok=True)
+
+        full_html_doc = f"""<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8" />
+<title>{c_title}</title>
+<style>
+  @page {{ size: A4; margin: 18mm 18mm 18mm 18mm; }}
+  body {{ font-family: 'Segoe UI', Arial, sans-serif; color: #111827; line-height: 1.55; font-size: 10.5pt; margin: 0; padding: 24px; background: #fff; }}
+  .contract-page {{ max-width: 210mm; margin: 0 auto; }}
+  h1, h2, h3 {{ color: #0f172a; }}
+  @media print {{
+    body {{ padding: 0; }}
+    .page-break {{ page-break-before: always; }}
+  }}
+</style>
+</head>
+<body>
+<div class="contract-page">{html_body}</div>
+</body>
+</html>"""
+        raw_bytes = full_html_doc.encode("utf-8")
+        with open(full_path, "wb") as f:
+            f.write(raw_bytes)
+        b64_html = base64.b64encode(raw_bytes).decode("ascii")
+
+        meta = {
+            "is_hr_contract": True,
+            "contract_code": c_code,
+            "contract_type": c_type,
+            "batch_id": batch_id,
+            "is_mandatory_dsgvo": is_dsgvo,
+            "contract_status": "Pending_Signature",
+            "visibility": "admin_only",
+            "employee_visible": False,
+            "category": "Arbeitsvertrag / Werkvertrag",
+            "doc_date": signed_date_str,
+            "issued_at": now_iso,
+            "issued_by": current_user.email,
+            "uploaded_by": "Management",
+            "employee_name": f"{emp.first_name} {emp.last_name}",
+            "employee_number": emp.employee_number,
+            "conditions": conditions,
+            "html_content": html_body,
+            "base64_data": b64_html,
+        }
+
+        doc_rec = models.DocumentRecord(
+            id=doc_id,
+            reference_type="Arbeitsvertrag / Werkvertrag",
+            reference_id=emp.id,
+            employee_id=emp.id,
+            title=c_title,
+            file_name=file_name,
+            mime_type="text/html",
+            file_size=len(raw_bytes),
+            storage_key=storage_key,
+            status="Pending_Signature",
+            metadata_json=meta,
+        )
+        db.add(doc_rec)
+        issued_docs.append(doc_rec)
+
+    # Also store a summary array inside emp.attributes["hr_contracts"]
+    existing_summary = list(attrs.get("hr_contracts") or [])
+    for d in issued_docs:
+        m = d.metadata_json or {}
+        existing_summary.append({
+            "id": d.id,
+            "title": d.title,
+            "contract_code": m.get("contract_code"),
+            "contract_type": m.get("contract_type"),
+            "status": "Pending_Signature",
+            "employee_visible": False,
+            "issued_at": now_iso,
+            "start_date": attrs.get("contract_start_date"),
+            "probezeit_end_date": attrs.get("probezeit_end_date"),
+        })
+    attrs["hr_contracts"] = existing_summary
+    emp.attributes = attrs
+
+    db.commit()
+    db.refresh(emp)
+
+    emp_map = {emp.id: emp}
+    serialized_contracts = [_serialize_contract_doc(d, emp_map) for d in issued_docs]
+    log_audit(
+        db,
+        "hr_contracts",
+        "ISSUE",
+        emp.id,
+        current_user.email,
+        None,
+        {"batch_id": batch_id, "count": len(serialized_contracts), "employee": f"{emp.first_name} {emp.last_name}"},
+    )
+    return {
+        "status": "issued",
+        "batch_id": batch_id,
+        "employee": serialize_employee(emp, db=db, include_sensitive=True, include_pending_contracts=True),
+        "contracts": serialized_contracts,
+    }
+
+
+@router.put("/contracts/{contract_id}")
+@router.patch("/contracts/{contract_id}")
+def update_hr_contract(
+    contract_id: str,
+    payload: dict,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    import base64
+
+    tier = get_effective_tier(current_user)
+    if tier not in (1, 2, 3):
+        raise HTTPException(status_code=403, detail="Only Management or HR can edit contracts.")
+
+    doc = db.query(models.DocumentRecord).filter(models.DocumentRecord.id == contract_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Contract not found")
+
+    meta = dict(doc.metadata_json or {})
+    if "title" in payload and payload["title"]:
+        doc.title = str(payload["title"]).strip()
+    if "conditions" in payload and isinstance(payload["conditions"], dict):
+        meta["conditions"] = payload["conditions"]
+    if "html_content" in payload and payload["html_content"] is not None:
+        html_body = str(payload["html_content"])
+        meta["html_content"] = html_body
+        if doc.mime_type == "text/html":
+            full_html_doc = f"""<!DOCTYPE html><html lang="de"><head><meta charset="utf-8" /><title>{doc.title}</title></head><body>{html_body}</body></html>"""
+            raw_bytes = full_html_doc.encode("utf-8")
+            doc.file_size = len(raw_bytes)
+            meta["base64_data"] = base64.b64encode(raw_bytes).decode("ascii")
+            try:
+                full_path = os.path.join(LOCAL_STORAGE_ROOT, doc.storage_key)
+                os.makedirs(os.path.dirname(full_path), exist_ok=True)
+                with open(full_path, "wb") as f:
+                    f.write(raw_bytes)
+            except Exception:
+                pass
+
+    doc.metadata_json = meta
+    db.commit()
+    db.refresh(doc)
+    emp_map = {e.id: e for e in db.query(models.Employee).all()}
+    return _serialize_contract_doc(doc, emp_map)
+
+
+@router.post("/contracts/{contract_id}/upload-signed")
+def upload_signed_hr_contract(
+    contract_id: str,
+    payload: dict,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """
+    Marks an issued contract as Completed / Signed after HR uploads the signed PDF/scan.
+    Immediately flips visibility from 'admin_only' (Pending) to 'employee_visible' (Signed)
+    so the employee can view & download the signed contract in their Employee Portal Documents section.
+    """
+    tier = get_effective_tier(current_user)
+    if tier not in (1, 2, 3):
+        raise HTTPException(status_code=403, detail="Only Management or HR can upload signed contracts.")
+
+    doc = db.query(models.DocumentRecord).filter(models.DocumentRecord.id == contract_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Contract record not found")
+
+    meta = dict(doc.metadata_json or {})
+    now_iso = datetime.utcnow().isoformat()
+
+    signed_doc_id = payload.get("signed_document_id") or payload.get("document_id")
+    if signed_doc_id and signed_doc_id != doc.id:
+        uploaded_doc = db.query(models.DocumentRecord).filter(models.DocumentRecord.id == signed_doc_id).first()
+        if uploaded_doc:
+            up_meta = dict(uploaded_doc.metadata_json or {})
+            doc.storage_key = uploaded_doc.storage_key
+            doc.file_name = uploaded_doc.file_name
+            doc.mime_type = uploaded_doc.mime_type or "application/pdf"
+            doc.file_size = uploaded_doc.file_size or 0
+            if up_meta.get("base64_data"):
+                meta["base64_data"] = up_meta["base64_data"]
+            meta["signed_file_name"] = uploaded_doc.file_name
+            db.delete(uploaded_doc)
+            db.flush()
+
+    doc.status = "Signed"
+    if not doc.title.endswith("(Unterschrieben)"):
+        doc.title = f"{doc.title} (Unterschrieben)"
+    meta["is_hr_contract"] = True
+    meta["contract_status"] = "Signed"
+    meta["visibility"] = "employee_visible"
+    meta["employee_visible"] = True
+    meta["signed_at"] = now_iso
+    meta["signed_by"] = current_user.email
+    doc.metadata_json = meta
+
+    emp_id = doc.employee_id or doc.reference_id
+    emp = db.query(models.Employee).filter(models.Employee.id == emp_id).first() if emp_id else None
+    if emp:
+        attrs = dict(emp.attributes or {})
+        attrs["contract_signed_date"] = now_iso[:10]
+        if meta.get("is_mandatory_dsgvo") or "DSGVO" in str(meta.get("contract_code", "")):
+            attrs["dsgvo_accepted"] = True
+            attrs["datenschutz_accepted"] = True
+            attrs["dsgvo_accepted_at"] = now_iso
+        hr_list = list(attrs.get("hr_contracts") or [])
+        for item in hr_list:
+            if item.get("id") == doc.id:
+                item["status"] = "Signed"
+                item["employee_visible"] = True
+                item["signed_at"] = now_iso
+        attrs["hr_contracts"] = hr_list
+        emp.attributes = attrs
+
+    db.commit()
+    db.refresh(doc)
+    emp_map = {e.id: e for e in db.query(models.Employee).all()}
+    log_audit(db, "hr_contracts", "UPLOAD_SIGNED", doc.id, current_user.email, {"status": "Pending_Signature"}, {"status": "Signed", "employee_visible": True})
+    return _serialize_contract_doc(doc, emp_map)
+
+
+@router.delete("/contracts/{contract_id}")
+def delete_hr_contract(
+    contract_id: str,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    tier = get_effective_tier(current_user)
+    if tier not in (1, 2, 3):
+        raise HTTPException(status_code=403, detail="Only Management or HR can delete contracts.")
+
+    doc = db.query(models.DocumentRecord).filter(models.DocumentRecord.id == contract_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Contract not found")
+
+    emp_id = doc.employee_id or doc.reference_id
+    if emp_id:
+        emp = db.query(models.Employee).filter(models.Employee.id == emp_id).first()
+        if emp and isinstance(emp.attributes, dict):
+            attrs = dict(emp.attributes)
+            attrs["hr_contracts"] = [c for c in (attrs.get("hr_contracts") or []) if c.get("id") != contract_id]
+            emp.attributes = attrs
+
+    db.delete(doc)
+    db.commit()
+    log_audit(db, "hr_contracts", "DELETE", contract_id, current_user.email, None, None)
+    return {"status": "deleted", "id": contract_id}
+

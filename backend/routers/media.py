@@ -377,6 +377,10 @@ def list_media_documents(
     out = []
     for d in docs:
         meta = dict(d.metadata_json or {})
+        # Hide pending (unsigned) HR contracts from non-management employees
+        if tier not in (1, 2, 3):
+            if d.status == "Pending_Signature" or meta.get("visibility") == "admin_only" or meta.get("employee_visible") is False:
+                continue
         out.append({
             "id": d.id,
             "title": d.title,
@@ -390,6 +394,12 @@ def list_media_documents(
             "doc_date": meta.get("doc_date") or (d.created_at.strftime("%Y-%m-%d") if d.created_at else None),
             "uploaded_by": meta.get("uploaded_by") or "Management",
             "status": d.status,
+            "visibility": meta.get("visibility") or "employee_visible",
+            "employee_visible": meta.get("employee_visible", d.status != "Pending_Signature"),
+            "is_hr_contract": bool(meta.get("is_hr_contract")),
+            "contract_type": meta.get("contract_type"),
+            "contract_status": meta.get("contract_status") or d.status,
+            "signed_at": meta.get("signed_at"),
             "url": create_presigned_download(d.storage_key),
             "download_url": create_presigned_download(d.storage_key),
             "created_at": d.created_at.isoformat() if d.created_at else None,

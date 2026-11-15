@@ -703,11 +703,13 @@ export const EmployeePortalPWA = ({ user, logout, onSwitchToManagement }) => {
 
   const empAttrs = myEmployeeProfile?.attributes || {};
   const myDocuments = useMemo(() => {
-    return (myEmployeeProfile?.documents || []).map(doc => ({
-      ...doc,
-      effectiveKind: doc.category || doc.reference_type || 'Sonstiges',
-      effectiveDate: doc.doc_date || (doc.created_at ? String(doc.created_at).slice(0, 10) : ''),
-    }));
+    return (myEmployeeProfile?.documents || [])
+      .filter(doc => doc.status !== 'Pending_Signature' && doc.visibility !== 'admin_only' && doc.employee_visible !== false)
+      .map(doc => ({
+        ...doc,
+        effectiveKind: doc.category || doc.reference_type || 'Sonstiges',
+        effectiveDate: doc.doc_date || (doc.created_at ? String(doc.created_at).slice(0, 10) : ''),
+      }));
   }, [myEmployeeProfile]);
 
   const handleEmployeeUploadDocs = async (e) => {
