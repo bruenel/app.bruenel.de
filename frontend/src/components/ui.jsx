@@ -244,10 +244,10 @@ export const PageHead = ({ title, desc, children }) => (
 );
 
 /** Route-driven segmented tabs. items: [{id,label,count}] */
-export const SubTabs = ({ items, active, base }) => {
+export const SubTabs = ({ items, active, base, variant }) => {
   const navigate = useNavigate();
   return (
-    <div className="subtabs">
+    <div className={`subtabs${variant === 'underline' ? ' subtabs-underline' : ''}`}>
       {items.map((t) => (
         <button key={t.id} className={`subtab ${active === t.id ? 'active' : ''}`} onClick={() => navigate(`${base}/${t.id}`)}>
           {t.label}

@@ -1681,55 +1681,52 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
   const isFreelanceModal = newEmp.employment_type === 'Freelancer' || newEmp.employment_type === 'Subunternehmer';
 
   return (
-    <div>
-      {/* Compact single-row HR header (matches Objects & Properties) */}
-      <div className="glass-panel" style={{ padding: '10px 14px', borderRadius: 12, background: '#fff', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 10 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <h3 style={{ margin: 0, fontSize: 15.5, fontWeight: 800, color: '#0f172a' }}>HR & Workforce</h3>
-          <span style={{ padding: '4px 10px', borderRadius: 8, background: '#0f172a', color: '#fff', fontSize: 12, fontWeight: 700 }}>Gesamtzahl Mitarbeiter: {employees.length}</span>
-          <span style={{ padding: '4px 9px', borderRadius: 8, background: '#dcfce7', color: '#15803d', border: '1px solid #86efac', fontSize: 11.5, fontWeight: 700 }}>Aktiv: {employees.filter((e) => e.is_active !== false).length}</span>
-          <span style={{ padding: '4px 9px', borderRadius: 8, background: '#fff7ed', color: '#c2410c', border: '1px solid #fed7aa', fontSize: 11.5, fontWeight: 700 }}>Freelancer/Sub: {subCount}</span>
-          <span style={{ padding: '4px 9px', borderRadius: 8, background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', fontSize: 11.5, fontWeight: 700 }}>Kandidaten: {candidateCount}</span>
-          <span style={{ padding: '4px 9px', borderRadius: 8, background: '#f8fafc', color: '#0f172a', border: '1px solid #e2e8f0', fontSize: 11.5, fontWeight: 700 }}>Stunden: {biSummary ? `${biSummary.total_hours} h` : '—'}</span>
-          <span style={{ padding: '4px 9px', borderRadius: 8, background: totalOvertimeHoursSum > 0 ? '#fff7ed' : '#f8fafc', color: totalOvertimeHoursSum > 0 ? '#ea580c' : '#475569', border: '1px solid #e2e8f0', fontSize: 11.5, fontWeight: 700 }}>Überstunden: {totalOvertimeHoursSum} h</span>
-          <span style={{ padding: '4px 9px', borderRadius: 8, background: '#f8fafc', color: '#0f172a', border: '1px solid #e2e8f0', fontSize: 11.5, fontWeight: 700 }}>Kosten: {formatEuro(totalEstimatedMonthlyCost)}</span>
+    <div className="hr-module">
+      {/* Minimal HR header: title · KPI strip · month (single global filter) · primary action */}
+      <div className="hr-head">
+        <h2>HR &amp; Workforce</h2>
+        <div className="hr-kpis">
+          <div className="hr-kpi" title="Gesamt · davon aktiv"><span>Mitarbeiter</span><b>{employees.length}<small> · {employees.filter((e) => e.is_active !== false).length} aktiv</small></b></div>
+          <div className="hr-kpi"><span>Freelancer/Sub</span><b>{subCount}</b></div>
+          <div className="hr-kpi"><span>Kandidaten</span><b>{candidateCount}</b></div>
+          <div className="hr-kpi"><span>Stunden</span><b>{biSummary ? `${biSummary.total_hours} h` : '—'}</b></div>
+          <div className={`hr-kpi${totalOvertimeHoursSum > 0 ? ' warn' : ''}`}><span>Überstunden</span><b>{totalOvertimeHoursSum} h</b></div>
+          <div className="hr-kpi"><span>Kosten</span><b>{formatEuro(totalEstimatedMonthlyCost)}</b></div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '2px 8px' }}>
-            <span style={{ fontSize: 10.5, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Monat</span>
-            <select value={selectedBiMonthPart} onChange={(e) => setBiMonth(`${selectedBiYear}-${e.target.value}`)} style={{ width: 'auto', border: 'none', padding: '3px 4px', fontWeight: 700, background: 'transparent', fontSize: 12 }}>
+        <div className="hr-head-actions">
+          <div className="hr-month" title="Abrechnungsmonat (gilt für alle Reiter)">
+            <select value={selectedBiMonthPart} onChange={(e) => setBiMonth(`${selectedBiYear}-${e.target.value}`)}>
               {MONTH_OPTIONS.map((m) => (<option key={m.value} value={m.value}>{m.label}</option>))}
             </select>
-            <select value={selectedBiYear} onChange={(e) => setBiMonth(`${e.target.value}-${selectedBiMonthPart}`)} style={{ width: 'auto', border: 'none', padding: '3px 4px', fontWeight: 700, background: 'transparent', fontSize: 12 }}>
+            <select value={selectedBiYear} onChange={(e) => setBiMonth(`${e.target.value}-${selectedBiMonthPart}`)}>
               {YEAR_OPTIONS.map((yr) => (<option key={yr} value={yr}>{yr}</option>))}
             </select>
           </div>
-          <button className="btn-primary btn-sm" onClick={openCreateEmployeeModal} style={{ padding: '7px 12px', fontSize: 12.5, fontWeight: 700 }}><Plus size={14} /> Neuer Mitarbeiter</button>
+          <button className="btn-primary btn-sm" onClick={openCreateEmployeeModal}><Plus size={13} /> Mitarbeiter</button>
         </div>
       </div>
 
       {weeklyAlerts.length > 0 && (
-        <div style={{ marginBottom: 10, padding: '8px 12px', borderRadius: 10, background: '#fef2f2', border: '1px solid #fca5a5', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 12 }}>
-          <strong style={{ color: '#dc2626', display: 'inline-flex', alignItems: 'center', gap: 4 }}><AlertTriangle size={13} /> Wochenarbeitszeit überschritten:</strong>
+        <div className="hr-alert">
+          <strong><AlertTriangle size={12} /> Wochenlimit überschritten</strong>
           {weeklyAlerts.map((al, i) => (
-            <button key={`${al.employee_id}-${al.week_key}-${i}`} type="button" onClick={() => { setBiEmpFilter(al.employee_id); setTimeSearchQuery(al.employee_name); setTab('timelogs'); }}
-              style={{ background: '#fff', border: '1px solid #fecaca', borderRadius: 6, padding: '2px 8px', fontSize: 11.5, color: '#991b1b', cursor: 'pointer', fontWeight: 600 }}>
+            <button key={`${al.employee_id}-${al.week_key}-${i}`} type="button" onClick={() => { setBiEmpFilter(al.employee_id); setTimeSearchQuery(al.employee_name); setTab('timelogs'); }}>
               {al.employee_name} {al.week_key}: {al.worked_hours}/{al.weekly_limit}h (+{al.exceeded_by}h)
             </button>
           ))}
         </div>
       )}
 
-      {/* Sub-navigation Tabs */}
+      {/* Sub-navigation (short labels, underline style) */}
       {!showAddEmp && (
-        <SubTabs base="/hr" active={tab} items={[
-          { id: 'overview', label: 'Employee Overview (Reports & Probezeit)' },
-          { id: 'employees', label: 'Employee Directory (Mitarbeiter)', count: employees.length },
-          { id: 'contracts', label: 'Generate Contract (Vertragsgenerator)' },
-          { id: 'timelogs', label: 'Arbeitszeiten & Überstunden', count: timeLogs.length },
-          { id: 'leaves', label: 'Urlaub (Holiday)', count: leaves.length },
-          { id: 'sickness', label: 'Krankheit (AU)', count: sickness.length },
-          { id: 'documents', label: 'Dokumente & Lohnabrechnung', count: employees.reduce((acc, e) => acc + ((e.documents || []).length), 0) },
+        <SubTabs base="/hr" variant="underline" active={tab} items={[
+          { id: 'overview', label: 'Übersicht' },
+          { id: 'employees', label: 'Mitarbeiter', count: employees.length },
+          { id: 'contracts', label: 'Verträge' },
+          { id: 'timelogs', label: 'Arbeitszeiten', count: timeLogs.length },
+          { id: 'leaves', label: 'Urlaub', count: leaves.length },
+          { id: 'sickness', label: 'Krankheit', count: sickness.length },
+          { id: 'documents', label: 'Dokumente', count: employees.reduce((acc, e) => acc + ((e.documents || []).length), 0) },
         ]} />
       )}
 
@@ -3663,7 +3660,7 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
         return (
           <div className="glass-panel" style={{ padding: 0, borderRadius: 12, background: '#fff', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
             <div style={{ padding: '10px 14px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-              <input placeholder="Suchen (Name, Position, Nr., Steuer-ID)…" value={q} onChange={(e) => setQ(e.target.value)} style={{ ...sel, minWidth: 230, flex: '1 1 230px', maxWidth: 320 }} />
+              <input placeholder="Suchen…" value={q} onChange={(e) => setQ(e.target.value)} style={{ ...sel, minWidth: 230, flex: '1 1 230px', maxWidth: 320 }} />
               <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} style={sel}>
                 <option value="All">Typ: Alle ({employees.length})</option>
                 {['Full-time', 'Part-time', 'Minijob', 'Freelancer', 'Subunternehmer', 'Candidate'].map((t) => (
@@ -3677,19 +3674,6 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                 <option value="4">Tier 4 · Team Lead</option>
                 <option value="5">Tier 5 · Field / Extern</option>
               </select>
-              <select value={empSortBy} onChange={(e) => setEmpSortBy(e.target.value)} style={{ ...sel, fontWeight: 700, background: '#fff7ed', border: '1px solid #FF6B00' }}>
-                <option value="name">Sort: Name</option>
-                <option value="number">Sort: Personal-Nr.</option>
-                <option value="role">Sort: Position / Abteilung</option>
-                <option value="type">Sort: Typ</option>
-                <option value="hours">Sort: Stunden (Monat)</option>
-                <option value="pay">Sort: Gehalt / Satz</option>
-                <option value="docs">Sort: Dokumente</option>
-                <option value="status">Sort: Status</option>
-              </select>
-              <button type="button" onClick={() => setEmpSortDir(empSortDir === 'asc' ? 'desc' : 'asc')} style={{ ...sel, fontWeight: 700, cursor: 'pointer' }}>
-                {empSortDir === 'asc' ? '↑ Aufsteigend' : '↓ Absteigend'}
-              </button>
               <button type="button" className="btn-secondary btn-sm" onClick={() => { setQ(''); setTypeFilter('All'); setRoleFilter('All'); setEmpSortBy('name'); setEmpSortDir('asc'); }}>Reset</button>
               <button type="button" className="btn-secondary btn-sm" style={{ marginLeft: 'auto' }} onClick={() => downloadCsv({
                 rows: sortedEmps,
@@ -3826,21 +3810,25 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
           <div className="glass-panel" style={{ padding: '16px 18px' }}>
             <div className="flex-between" style={{ flexWrap: 'wrap', gap: '12px' }}>
               <div style={{ flex: 1, minWidth: '280px', position: 'relative' }}>
-                <label style={{ fontSize: '0.74rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
-                  Smart Employee Working Hours Search (Type 1+ character to filter immediately)
-                </label>
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                   <div style={{ position: 'relative', flex: 1 }}>
                     <Search size={15} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
                     <input
+                      list="hr-emp-list"
                       value={timeSearchQuery}
                       onChange={e => {
-                        setTimeSearchQuery(e.target.value);
-                        if (!e.target.value.trim()) setBiEmpFilter('');
+                        const v = e.target.value;
+                        setTimeSearchQuery(v);
+                        if (!v.trim()) { setBiEmpFilter(''); return; }
+                        const exact = employees.find(x => (x.full_name || '').toLowerCase() === v.trim().toLowerCase());
+                        if (exact) setBiEmpFilter(exact.id);
                       }}
-                      placeholder="Type a letter (e.g. 'L', 'M', 'K', 'P') to filter employee working hours..."
+                      placeholder="Mitarbeiter suchen oder auswählen…"
                       style={{ paddingLeft: '32px' }}
                     />
+                    <datalist id="hr-emp-list">
+                      {employees.map(emp => <option key={emp.id} value={emp.full_name} />)}
+                    </datalist>
                   </div>
                   {(timeSearchQuery || biEmpFilter) && (
                     <button
@@ -3851,7 +3839,7 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                         setBiEmpFilter('');
                       }}
                     >
-                      <X size={13} /> Clear Filter
+                      <X size={13} /> Zurücksetzen
                     </button>
                   )}
                 </div>
@@ -3893,48 +3881,8 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
               </div>
 
               <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
-                <div>
-                  <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>Employee Dropdown</label>
-                  <select
-                    value={biEmpFilter}
-                    onChange={e => {
-                      setBiEmpFilter(e.target.value);
-                      const found = employees.find(x => x.id === e.target.value);
-                      setTimeSearchQuery(found ? found.full_name : '');
-                    }}
-                    style={{ width: 'auto' }}
-                  >
-                    <option value="">All Employees</option>
-                    {employees.map(emp => (
-                      <option key={emp.id} value={emp.id}>{emp.full_name}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>Billing Month (Selective)</label>
-                  <div style={{ display: 'flex', gap: 6 }}>
-                    <select
-                      value={selectedBiMonthPart}
-                      onChange={e => setBiMonth(`${selectedBiYear}-${e.target.value}`)}
-                      style={{ width: 'auto', fontWeight: 600 }}
-                    >
-                      {MONTH_OPTIONS.map(m => (
-                        <option key={m.value} value={m.value}>{m.label}</option>
-                      ))}
-                    </select>
-                    <select
-                      value={selectedBiYear}
-                      onChange={e => setBiMonth(`${e.target.value}-${selectedBiMonthPart}`)}
-                      style={{ width: 'auto', fontWeight: 600 }}
-                    >
-                      {YEAR_OPTIONS.map(yr => (
-                        <option key={yr} value={yr}>{yr}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
                 <button type="button" className="btn-primary" onClick={() => setShowAddManualTime(!showAddManualTime)}>
-                  <Plus size={15} /> Add Working Hours / Past Day
+                  <Plus size={14} /> Arbeitszeit erfassen
                 </button>
               </div>
             </div>
@@ -4526,7 +4474,7 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
         <div className="glass-panel">
           <div className="toolbar" style={{ marginBottom: 16 }}>
             <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
-              Krankmeldungen & Arbeitsunfähigkeitsbescheinigungen (AU) • Werden automatisch mit +8.0h/Tag in der HR-Monatsübersicht gutgeschrieben
+              AU-Meldungen · automatisch +8 h/Tag in der HR-Monatsübersicht
             </p>
             <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
               <button type="button" className="btn-primary" onClick={() => setShowAddSick(!showAddSick)}>
@@ -4667,11 +4615,9 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                 <div>
                   <h3 style={{ fontSize: '1.02rem', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <Upload size={17} style={{ color: 'var(--accent)' }} />
-                    Mehrfach-Dokumenten-Upload & Monatliche Lohnabrechnungen
+                    Dokumente & Lohnabrechnungen
                   </h3>
-                  <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '4px' }}>
-                    Wählen Sie <strong>„💰 Monatliche Lohnabrechnung“</strong> und den gewünschten Monat/Jahr aus, um einem Mitarbeiter seine Abrechnung bereitzustellen — sie erscheint sofort im Mitarbeiter-Portal unter <strong>„Lohnabrechnung“</strong> zum Ansehen & PDF-Download.
-                  </p>
+                  <p style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '2px' }}>Lohnabrechnungen erscheinen sofort im Mitarbeiter-Portal.</p>
                 </div>
 
                 {/* Quick Mode Switcher: Lohnabrechnung vs. Personaldokument */}
@@ -4690,7 +4636,7 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                       color: docCategory === 'Lohnabrechnung' ? '#047857' : 'var(--text-main)',
                     }}
                   >
-                    💰 Monatliche Lohnabrechnung hochladen
+                    💰 Lohnabrechnung
                   </button>
                   <button
                     type="button"
@@ -4708,7 +4654,7 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                       color: docCategory !== 'Lohnabrechnung' ? 'var(--accent)' : 'var(--text-main)',
                     }}
                   >
-                    📂 Allgemeines Dokument hochladen
+                    📂 Dokument
                   </button>
                 </div>
               </div>

@@ -1779,60 +1779,6 @@ export const HRContractGeneratorView = ({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {/* Top Workflow Explanation, KPI Banner & Generate Contract Button */}
-      <div className="glass-panel" style={{ padding: '16px 20px', borderRadius: 12, background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)', color: '#fff', border: '1px solid #334155' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 14 }}>
-          <div style={{ flex: 1, minWidth: 280 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <span style={{ padding: '3px 9px', borderRadius: 6, background: '#FF6B00', color: '#fff', fontSize: 11, fontWeight: 800 }}>
-                ARBEITSRECHT &amp; DSGVO KONFORM
-              </span>
-              <h3 style={{ margin: 0, fontSize: 16.5, fontWeight: 800, color: '#fff' }}>
-                Vertragsübersicht &amp; HR Vertragsgenerator (5 Vertragsmodule)
-              </h3>
-            </div>
-            <p style={{ margin: '6px 0 0', fontSize: 12, color: '#cbd5e1', maxWidth: 820 }}>
-              Übersicht aller Verträge und deren Status (<strong>Ausstehend</strong> vs. <strong>Unterschrieben / Abgeschlossen</strong>), getrennt nach Mitarbeiter sowie als Gesamtliste. Klicken Sie auf <strong>„+ Vertrag generieren“</strong>, um im internen Generator-Fenster neue Verträge für einen Mitarbeiter zu erstellen.
-            </p>
-          </div>
-
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-            <div style={{ padding: '8px 14px', borderRadius: 10, background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', textAlign: 'center' }}>
-              <div style={{ fontSize: 10, color: '#cbd5e1', fontWeight: 700 }}>VERTRÄGE GESAMT</div>
-              <div style={{ fontSize: 18, fontWeight: 800, color: '#fff' }}>{contractsList.length}</div>
-            </div>
-            <div style={{ padding: '8px 14px', borderRadius: 10, background: 'rgba(245,158,11,0.18)', border: '1px solid rgba(245,158,11,0.4)', textAlign: 'center' }}>
-              <div style={{ fontSize: 10, color: '#fde68a', fontWeight: 700 }}>AUSSTEHEND (INTERN)</div>
-              <div style={{ fontSize: 18, fontWeight: 800, color: '#fbbf24' }}>{pendingTotal}</div>
-            </div>
-            <div style={{ padding: '8px 14px', borderRadius: 10, background: 'rgba(16,185,129,0.18)', border: '1px solid rgba(16,185,129,0.4)', textAlign: 'center' }}>
-              <div style={{ fontSize: 10, color: '#a7f3d0', fontWeight: 700 }}>UNTERSCHRIEBEN (AKTIV)</div>
-              <div style={{ fontSize: 18, fontWeight: 800, color: '#34d399' }}>{signedTotal}</div>
-            </div>
-            <button
-              type="button"
-              className="btn-primary"
-              onClick={() => openGeneratorForEmployee(selectedEmpId || employees[0]?.id)}
-              style={{
-                padding: '12px 18px',
-                fontSize: 13.5,
-                fontWeight: 800,
-                background: 'linear-gradient(135deg, #FF6B00 0%, #ea580c 100%)',
-                border: '1px solid #fb923c',
-                borderRadius: 10,
-                boxShadow: '0 8px 20px rgba(255,107,0,0.35)',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 8,
-                cursor: 'pointer',
-              }}
-            >
-              <Plus size={16} /> Vertrag generieren (Generate Contract)
-            </button>
-          </div>
-        </div>
-      </div>
-
       {issueSuccessBanner && (
         <div style={{ padding: '14px 18px', borderRadius: 12, background: '#ecfdf5', border: '1.5px solid #10b981', color: '#065f46', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
           <div>
@@ -1876,64 +1822,45 @@ export const HRContractGeneratorView = ({
         </div>
       )}
 
-      {/* =====================================================================
-          FILTER, SEARCH & VIEW MODE TOOLBAR
-         ===================================================================== */}
-      <div className="glass-panel" style={{ padding: '12px 16px', borderRadius: 12, background: '#fff', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+      {/* Single compact toolbar: view · search · employee · status · one primary action */}
+      <div className="hr-toolbar">
+        <div className="hr-seg">
           {[
-            { id: 'BOTH', label: '📋 Beide Ansichten (Nach Mitarbeiter & Gesamtliste)' },
-            { id: 'BY_EMPLOYEE', label: `👥 Getrennt nach Mitarbeiter (${groupedByEmployee.length})` },
-            { id: 'FLAT_LIST', label: `📄 Alle Verträge — Listenansicht (${filteredContractsList.length})` },
+            { id: 'BOTH', label: 'Beide' },
+            { id: 'BY_EMPLOYEE', label: `Je Mitarbeiter (${groupedByEmployee.length})` },
+            { id: 'FLAT_LIST', label: `Liste (${filteredContractsList.length})` },
           ].map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setContractsViewMode(tab.id)}
-              style={{
-                padding: '7px 12px',
-                borderRadius: 8,
-                fontSize: 12,
-                fontWeight: 700,
-                cursor: 'pointer',
-                border: contractsViewMode === tab.id ? '1.5px solid #FF6B00' : '1px solid #cbd5e1',
-                background: contractsViewMode === tab.id ? '#fff7ed' : '#f8fafc',
-                color: contractsViewMode === tab.id ? '#9a3412' : '#334155',
-              }}
-            >
+            <button key={tab.id} type="button" className={contractsViewMode === tab.id ? 'active' : ''} onClick={() => setContractsViewMode(tab.id)}>
               {tab.label}
             </button>
           ))}
         </div>
-
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-          <input
-            placeholder="Suchen (Mitarbeiter, Vertrag, Typ)..."
-            value={contractSearch}
-            onChange={(e) => setContractSearch(e.target.value)}
-            style={{ width: 220, fontSize: 12 }}
-          />
-          <select value={contractFilterEmpId} onChange={(e) => setContractFilterEmpId(e.target.value)} style={{ width: 'auto', fontSize: 12 }}>
-            <option value="ALL">Alle Mitarbeiter ({employees.length})</option>
-            {employees.map((e) => (
-              <option key={e.id} value={e.id}>{e.full_name}</option>
-            ))}
-          </select>
-          <select value={contractFilterStatus} onChange={(e) => setContractFilterStatus(e.target.value)} style={{ width: 'auto', fontSize: 12 }}>
-            <option value="ALL">Status: Alle ({contractsList.length})</option>
-            <option value="PENDING">🟠 Ausstehend / Nicht unterschrieben ({pendingTotal})</option>
-            <option value="SIGNED">🟢 Unterschrieben / Abgeschlossen ({signedTotal})</option>
-            <option value="NONE">⚪ Mitarbeiter ohne Vertrag</option>
-          </select>
-          <button
-            type="button"
-            className="btn-primary btn-sm"
-            onClick={() => openGeneratorForEmployee(contractFilterEmpId !== 'ALL' ? contractFilterEmpId : selectedEmpId)}
-            style={{ fontWeight: 800, padding: '7px 13px', display: 'inline-flex', alignItems: 'center', gap: 6 }}
-          >
-            <Plus size={14} /> Vertrag generieren
-          </button>
-        </div>
+        <input
+          className="hr-search"
+          placeholder="Suchen…"
+          value={contractSearch}
+          onChange={(e) => setContractSearch(e.target.value)}
+        />
+        <select value={contractFilterEmpId} onChange={(e) => setContractFilterEmpId(e.target.value)}>
+          <option value="ALL">Alle Mitarbeiter ({employees.length})</option>
+          {employees.map((e) => (
+            <option key={e.id} value={e.id}>{e.full_name}</option>
+          ))}
+        </select>
+        <select value={contractFilterStatus} onChange={(e) => setContractFilterStatus(e.target.value)}>
+          <option value="ALL">Status: Alle ({contractsList.length})</option>
+          <option value="PENDING">Ausstehend ({pendingTotal})</option>
+          <option value="SIGNED">Unterschrieben ({signedTotal})</option>
+          <option value="NONE">Ohne Vertrag</option>
+        </select>
+        <button
+          type="button"
+          className="btn-primary btn-sm"
+          style={{ marginLeft: 'auto' }}
+          onClick={() => openGeneratorForEmployee(contractFilterEmpId !== 'ALL' ? contractFilterEmpId : selectedEmpId || employees[0]?.id)}
+        >
+          <Plus size={13} /> Vertrag generieren
+        </button>
       </div>
 
       {/* =====================================================================
@@ -1941,24 +1868,9 @@ export const HRContractGeneratorView = ({
          ===================================================================== */}
       {(contractsViewMode === 'BOTH' || contractsViewMode === 'FLAT_LIST') && (
         <div className="glass-panel" style={{ padding: 16, borderRadius: 12, background: '#fff', border: '1px solid #e2e8f0' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 12 }}>
-            <div>
-              <strong style={{ fontSize: 14.5, color: '#0f172a', display: 'flex', alignItems: 'center', gap: 8 }}>
-                <FileText size={16} style={{ color: '#FF6B00' }} />
-                Alle Verträge — Gesamtliste mit Status ({filteredContractsList.length})
-              </strong>
-              <div style={{ fontSize: 11.5, color: '#64748b' }}>
-                Direkte Listenansicht sämtlicher ausgestellter Verträge inklusive aktuellem Unterschriftsstatus und Portal-Freigabe.
-              </div>
-            </div>
-            <button
-              type="button"
-              className="btn-primary btn-sm"
-              onClick={() => openGeneratorForEmployee(selectedEmpId || employees[0]?.id)}
-              style={{ fontWeight: 800 }}
-            >
-              <Plus size={13} /> Neuer Vertrag (Vertrag generieren)
-            </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <FileText size={14} style={{ color: '#FF6B00' }} />
+            <strong style={{ fontSize: 13, color: '#0f172a' }}>Alle Verträge ({filteredContractsList.length})</strong>
           </div>
 
           {loadingContracts ? (

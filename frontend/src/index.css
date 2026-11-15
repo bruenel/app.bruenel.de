@@ -958,3 +958,72 @@ tbody tr:hover { background: #fafafc; }
 }
 
 
+
+/* =============================================================================
+   HR & WORKFORCE — compact, minimal design system (scoped to .hr-module)
+   One header (title · KPIs · month · action), underline tabs, flat panels,
+   dense tables/forms. Month is a single global filter for all tabs.
+   ============================================================================= */
+.hr-module { display: flex; flex-direction: column; gap: 10px; font-size: 12.5px; --hr-line: #e5e7eb; --hr-mute: #64748b; --hr-ink: #0f172a; }
+
+.hr-head { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+.hr-head h2 { margin: 0; font-size: 16px; font-weight: 800; letter-spacing: -0.01em; color: var(--hr-ink); }
+.hr-kpis { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; padding-left: 18px; border-left: 1px solid var(--hr-line); }
+.hr-kpi { display: flex; flex-direction: column; line-height: 1.15; }
+.hr-kpi span { font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--hr-mute); font-weight: 700; }
+.hr-kpi b { font-size: 13.5px; font-weight: 800; color: var(--hr-ink); }
+.hr-kpi b small { font-size: 10.5px; font-weight: 600; color: var(--hr-mute); }
+.hr-kpi.warn b { color: #ea580c; }
+.hr-head-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.hr-month { display: inline-flex; align-items: center; border: 1px solid var(--hr-line); border-radius: 8px; background: #fff; padding: 0 2px; }
+.hr-month select { width: auto !important; border: none !important; background: transparent !important; box-shadow: none !important; font-weight: 700; padding: 4px 4px !important; min-height: 28px !important; }
+
+.hr-alert { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 5px 10px; border-radius: 8px; background: #fef2f2; border: 1px solid #fecaca; font-size: 11.5px; }
+.hr-alert strong { color: #dc2626; display: inline-flex; align-items: center; gap: 4px; }
+.hr-alert button { background: #fff; border: 1px solid #fecaca; border-radius: 6px; padding: 1px 7px; font-size: 11px; color: #991b1b; cursor: pointer; font-weight: 600; }
+
+/* Underline tabs */
+.subtabs.subtabs-underline { display: flex; gap: 2px; padding: 0; background: transparent; border-radius: 0; border-bottom: 1px solid var(--hr-line, #e5e7eb); overflow-x: auto; flex-wrap: nowrap; scrollbar-width: none; }
+.subtabs.subtabs-underline::-webkit-scrollbar { display: none; }
+.subtabs-underline .subtab { padding: 8px 12px; border-radius: 0; border-bottom: 2px solid transparent; margin-bottom: -1px; font-size: 12.5px; font-weight: 600; white-space: nowrap; background: transparent; }
+.subtabs-underline .subtab:hover { color: var(--text-main); }
+.subtabs-underline .subtab.active { background: transparent; box-shadow: none; color: var(--text-main); border-bottom-color: var(--accent); }
+.subtabs-underline .subtab .count { margin-left: 5px; font-size: 10.5px; padding: 0 6px; }
+
+/* Shared toolbar + segmented control */
+.hr-toolbar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.hr-toolbar .hr-search { width: 170px !important; }
+.hr-toolbar select { width: auto !important; }
+.hr-seg { display: inline-flex; padding: 2px; gap: 2px; background: var(--surface-2); border-radius: 8px; }
+.hr-seg button { border: none; background: transparent; padding: 4px 10px; font-size: 11.5px; font-weight: 600; color: var(--text-muted); border-radius: 6px; cursor: pointer; }
+.hr-seg button.active { background: #fff; color: var(--text-main); box-shadow: var(--shadow-sm); }
+
+/* Flat, dense surfaces (panels that intentionally use padding:0 are left alone) */
+.hr-module .glass-panel:not([style*="padding: 0px"]) { padding: 10px 12px !important; }
+.hr-module .glass-panel { border-radius: 10px !important; box-shadow: none !important; }
+.hr-module > div[style*="flex-direction: column"] { gap: 10px !important; }
+.hr-module h3 { font-size: 13.5px !important; }
+.hr-module h4 { font-size: 12.5px !important; }
+.hr-module p { font-size: 12px; }
+
+/* Dense tables */
+.hr-module table { font-size: 12px !important; }
+.hr-module table th, .hr-module table td { padding: 6px 8px !important; }
+
+/* Dense inputs & buttons */
+.hr-module input:not([type='checkbox']):not([type='radio']):not([type='file']):not([type='range']),
+.hr-module select { padding: 5px 8px !important; font-size: 12px !important; min-height: 30px; border-radius: 7px; }
+.hr-module textarea { padding: 6px 8px; font-size: 12px; }
+.hr-module label:not([class]) { font-size: 10.5px !important; margin-bottom: 2px; }
+.hr-module .btn-primary, .hr-module .btn-secondary { padding: 6px 12px; font-size: 12px; border-radius: 8px; min-height: 30px; box-shadow: none; }
+.hr-module .btn-sm { padding: 4px 9px; font-size: 11.5px; min-height: 26px; }
+
+/* Dense KPI tiles inside tabs */
+.hr-module [style*="repeat(5, minmax(0, 1fr))"] > div { padding: 8px 10px !important; }
+.hr-module [style*="font-size: 1.25rem"] { font-size: 15px !important; }
+.hr-module [style*="font-size: 1.45rem"] { font-size: 16px !important; }
+
+@media (max-width: 760px) {
+  .hr-kpis { border-left: none; padding-left: 0; gap: 12px; }
+  .hr-head-actions { margin-left: 0; }
+}
