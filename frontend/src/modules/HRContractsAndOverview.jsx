@@ -1032,6 +1032,8 @@ export const HRContractGeneratorView = ({
       ...conditions,
       first_name: selectedEmp.first_name || '',
       last_name: selectedEmp.last_name || '',
+      portal_email: selectedEmp.email || '',
+      private_email: attr.private_email || (selectedEmp.email && !String(selectedEmp.email).toLowerCase().endsWith('@bruenel.de') ? selectedEmp.email : ''),
       birth_date: attr.birth_date || attr.geburtsdatum || '',
       street: attr.street || attr.strasse || '',
       postal_code: attr.postal_code || attr.plz || '',
@@ -1223,7 +1225,7 @@ export const HRContractGeneratorView = ({
     }
   };
 
-  const handleTriggerOnboardingEmail = async (empId, regenerateOtp = false, contractTitle = '') => {
+  const handleTriggerOnboardingEmail = async (empId, regenerateOtp = false, contractTitle = '', overridePrivateEmail = undefined) => {
     if (!empId) return;
     setSendingOnboardingEmpId(empId);
     try {
@@ -1232,6 +1234,7 @@ export const HRContractGeneratorView = ({
         body: JSON.stringify({
           regenerate_otp: regenerateOtp,
           contract_title: contractTitle,
+          ...(overridePrivateEmail !== undefined ? { private_email: overridePrivateEmail } : {}),
         }),
       });
       setOnboardingEmailModal({
@@ -1422,6 +1425,12 @@ export const HRContractGeneratorView = ({
                 </span>
               </div>
               <div style={{ color: '#475569' }}>
+                <strong>Portal-Login (@bruenel.de):</strong> <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#0f172a' }}>{selectedEmp.email || '—'}</span>
+              </div>
+              <div style={{ color: '#047857' }}>
+                <strong>Private E-Mail (Onboarding):</strong> <strong>{selectedEmp.attributes?.private_email || '— (Bitte eintragen)'}</strong>
+              </div>
+              <div style={{ color: '#475569' }}>
                 <strong>Adresse:</strong> {conditions.street || '—'}, {conditions.postal_code || '—'} {conditions.city || '—'}
               </div>
               <div style={{ color: '#475569' }}>
@@ -1552,6 +1561,16 @@ export const HRContractGeneratorView = ({
           <div>
             <label style={{ fontSize: 11, fontWeight: 700 }}>Wohnort / Stadt *</label>
             <input value={conditions.city} onChange={(e) => updateCond('city', e.target.value)} placeholder="Karben" />
+          </div>
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 700, color: '#047857' }}>Private E-Mail (Onboarding)</label>
+            <input
+              type="email"
+              value={conditions.private_email || ''}
+              onChange={(e) => updateCond('private_email', e.target.value)}
+              placeholder="name@gmail.com"
+              style={{ borderColor: '#6ee7b7', background: '#f0fdf4' }}
+            />
           </div>
           <div>
             <label style={{ fontSize: 11, fontWeight: 700 }}>Vertragsdatum (Karben, den)</label>
@@ -2250,22 +2269,26 @@ export const HRContractGeneratorView = ({
 
             {/* Action & Credentials Bar */}
             <div style={{ padding: '12px 20px', background: '#fff7ed', borderBottom: '1px solid #fed7aa', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
-              <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 12.5 }}>
+              <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 12.5, alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ color: '#047857', fontWeight: 800 }}>📧 Private E-Mail (Empfänger):</span>
+                  <input
+                    type="email"
+                    value={onboardingEmailModal.to_email || ''}
+                    onChange={(e) => setOnboardingEmailModal((prev) => ({ ...prev, to_email: e.target.value }))}
+                    placeholder="private.email@beispiel.de"
+                    style={{ width: 220, padding: '4px 8px', fontSize: 12, fontWeight: 700, borderColor: '#10b981', background: '#ffffff' }}
+                  />
+                </div>
                 <div>
-                  <span style={{ color: '#9a3412', fontWeight: 700 }}>Empfänger / Benutzername:</span>{' '}
-                  <strong style={{ fontFamily: 'monospace', color: '#0f172a' }}>{onboardingEmailModal.to_email || 'Keine E-Mail hinterlegt'}</strong>
+                  <span style={{ color: '#9a3412', fontWeight: 700 }}>🔑 Portal-Benutzername (Kein E-Mail-Versand):</span>{' '}
+                  <strong style={{ fontFamily: 'monospace', color: '#0f172a' }}>{onboardingEmailModal.username || '—'}</strong>
                 </div>
                 <div>
                   <span style={{ color: '#9a3412', fontWeight: 700 }}>Einmal-Passwort (OTP):</span>{' '}
                   <span style={{ padding: '2px 8px', borderRadius: 6, background: '#0f172a', color: '#fff', fontFamily: 'monospace', fontWeight: 800 }}>
                     {onboardingEmailModal.otp}
                   </span>
-                </div>
-                <div>
-                  <span style={{ color: '#9a3412', fontWeight: 700 }}>Portal-Link:</span>{' '}
-                  <a href={onboardingEmailModal.portal_url} target="_blank" rel="noreferrer" style={{ color: '#FF6B00', fontWeight: 800 }}>
-                    {onboardingEmailModal.portal_url}
-                  </a>
                 </div>
               </div>
 
@@ -2274,11 +2297,37 @@ export const HRContractGeneratorView = ({
                   <button
                     type="button"
                     className="btn-secondary btn-sm"
-                    onClick={() => handleTriggerOnboardingEmail(onboardingEmailModal.employee_id, true, onboardingEmailModal.contract_title)}
+                    onClick={() =>
+                      handleTriggerOnboardingEmail(
+                        onboardingEmailModal.employee_id,
+                        false,
+                        onboardingEmailModal.contract_title,
+                        onboardingEmailModal.to_email
+                      )
+                    }
+                    disabled={sendingOnboardingEmpId === onboardingEmailModal.employee_id}
+                    style={{ borderColor: '#059669', color: '#047857', background: '#ecfdf5', fontWeight: 700 }}
+                    title="Private E-Mail speichern und Willkommens-E-Mail an diese private Adresse senden"
+                  >
+                    <Send size={13} /> An private E-Mail senden
+                  </button>
+                )}
+                {onboardingEmailModal.employee_id && (
+                  <button
+                    type="button"
+                    className="btn-secondary btn-sm"
+                    onClick={() =>
+                      handleTriggerOnboardingEmail(
+                        onboardingEmailModal.employee_id,
+                        true,
+                        onboardingEmailModal.contract_title,
+                        onboardingEmailModal.to_email
+                      )
+                    }
                     disabled={sendingOnboardingEmpId === onboardingEmailModal.employee_id}
                     title="Neues Einmal-Passwort (OTP) generieren und Willkommens-E-Mail erneut senden"
                   >
-                    <RefreshCw size={13} /> Neues OTP &amp; erneut senden
+                    <RefreshCw size={13} /> Neues OTP
                   </button>
                 )}
                 <button
@@ -2290,15 +2339,15 @@ export const HRContractGeneratorView = ({
                     setTimeout(() => setCopiedOnboardingText(false), 2500);
                   }}
                 >
-                  <Copy size={13} /> {copiedOnboardingText ? '✓ Kopiert!' : 'E-Mail & Zugangsdaten kopieren'}
+                  <Copy size={13} /> {copiedOnboardingText ? '✓ Kopiert!' : 'Text kopieren'}
                 </button>
-                {onboardingEmailModal.to_email && (
+                {onboardingEmailModal.to_email && !onboardingEmailModal.to_email.toLowerCase().endsWith('@bruenel.de') && (
                   <a
                     href={`mailto:${encodeURIComponent(onboardingEmailModal.to_email)}?subject=${encodeURIComponent(onboardingEmailModal.subject || '')}&body=${encodeURIComponent(onboardingEmailModal.plain_text || '')}`}
                     className="btn-primary btn-sm"
                     style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 800 }}
                   >
-                    <Send size={13} /> In E-Mail-Programm öffnen
+                    <Mail size={13} /> In Mail-App öffnen
                   </a>
                 )}
               </div>

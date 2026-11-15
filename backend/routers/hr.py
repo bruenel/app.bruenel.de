@@ -2178,6 +2178,10 @@ def issue_hr_contracts(
 
     # Sync employee profile and attributes from contract conditions
     attrs = dict(emp.attributes or {})
+    if conditions.get("private_email"):
+        attrs["private_email"] = str(conditions["private_email"]).strip()
+    if conditions.get("portal_email"):
+        emp.email = str(conditions["portal_email"]).strip()
     if conditions.get("contract_start_date"):
         attrs["contract_start_date"] = str(conditions["contract_start_date"])[:10]
     if conditions.get("probezeit_end_date"):
@@ -2427,31 +2431,69 @@ def _build_and_send_onboarding_welcome_email(
     sender_user: Optional[models.User] = None,
     regenerate_otp: bool = False,
     contract_title: str = "",
+    override_private_email: Optional[str] = None,
 ) -> dict:
     """
-    Ensures the Mitarbeiter has an active portal User account + One-Time Password (OTP),
+    Ensures the Mitarbeiter has an active portal User account (`@bruenel.de` username) + One-Time Password (OTP),
     builds the German 'Herzlich willkommen bei der Brünel Deutschland UG' onboarding email
-    with login credentials and iPhone/Android Homescreen App installation instructions,
-    and sends it automatically via SMTP if configured.
+    with their `@bruenel.de` login username, OTP, and iPhone/Android Homescreen App installation instructions,
+    and sends it EXCLUSIVELY to the employee's private email address (`private_email`).
+    Never sends emails to `@bruenel.de` addresses, as those are strictly panel login usernames.
     """
+    import re
     import smtplib
     from email.mime.text import MIMEText
     from email.mime.multipart import MIMEMultipart
 
     attrs = dict(emp.attributes or {})
-    clean_email = (emp.email or "").strip()
-    otp_plain = (attrs.get("last_generated_otp") or "").strip()
+    if override_private_email is not None and str(override_private_email).strip():
+        attrs["private_email"] = str(override_private_email).strip()
 
+    raw_emp_email = (emp.email or "").strip()
+    private_email = (attrs.get("private_email") or "").strip()
+
+    # If emp.email was accidentally a non-bruenel private email and private_email wasn't set yet, preserve it as private_email
+    if raw_emp_email and not raw_emp_email.lower().endswith("@bruenel.de") and not private_email:
+        private_email = raw_emp_email
+        attrs["private_email"] = private_email
+
+    # Ensure portal login username ends with @bruenel.de
+    def _make_bruenel_username(fn: str, ln: str) -> str:
+        def _clean(s: str) -> str:
+            s = (s or "").strip().lower()
+            for k, v in [("ä", "ae"), ("ö", "oe"), ("ü", "ue"), ("ß", "ss")]:
+                s = s.replace(k, v)
+            s = re.sub(r"[^a-z0-9]+", ".", s).strip(".")
+            return s
+        f_part = _clean(fn)
+        l_part = _clean(ln)
+        if f_part and l_part:
+            return f"{f_part}.{l_part}@bruenel.de"
+        if f_part:
+            return f"{f_part}@bruenel.de"
+        if l_part:
+            return f"{l_part}@bruenel.de"
+        return "mitarbeiter@bruenel.de"
+
+    if raw_emp_email and raw_emp_email.lower().endswith("@bruenel.de"):
+        portal_username = raw_emp_email.lower()
+    else:
+        portal_username = _make_bruenel_username(emp.first_name, emp.last_name)
+        if not raw_emp_email:
+            emp.email = portal_username
+
+    otp_plain = (attrs.get("last_generated_otp") or "").strip()
     if not otp_plain or regenerate_otp:
         otp_plain = _generate_otp_code(8)
         attrs["last_generated_otp"] = otp_plain
         attrs["must_change_password"] = True
 
-    # Ensure linked User account exists and is active for portal login
-    if clean_email:
+    # Ensure linked User account exists and uses portal_username (@bruenel.de) for portal login
+    login_key = (emp.email or portal_username).strip()
+    if login_key:
         u = db.query(models.User).filter(models.User.employee_id == emp.id).first()
         if not u:
-            u = db.query(models.User).filter(models.User.email.ilike(clean_email)).first()
+            u = db.query(models.User).filter(models.User.email.ilike(login_key)).first()
         if not u:
             role_tier = emp.role_tier or 5
             role_enum = models.RoleEnum.FIELD_EMPLOYEE
@@ -2464,7 +2506,7 @@ def _build_and_send_onboarding_welcome_email(
             elif role_tier == 4:
                 role_enum = models.RoleEnum.TEAM_LEAD
             u = models.User(
-                email=clean_email,
+                email=login_key,
                 hashed_password=get_password_hash(otp_plain),
                 role=role_enum,
                 role_tier=role_tier,
@@ -2504,9 +2546,9 @@ def _build_and_send_onboarding_welcome_email(
         f"🔐 IHRE PERSÖNLICHEN ZUGANGSDATEN (MITARBEITER-PORTAL)\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"🌐 Login-Link: {portal_url}\n"
-        f"👤 Benutzername (E-Mail): {clean_email or 'Bitte bei HR hinterlegen'}\n"
+        f"👤 Benutzername (Portal-Login): {login_key}\n"
         f"🔑 Einmal-Passwort (OTP): {otp_plain}\n"
-        f"(Hinweis: Beim ersten Login werden Sie gebeten, Ihr eigenes persönliches Passwort festzulegen.)\n\n"
+        f"(Hinweis: Ihre @bruenel.de-Kennung dient als Ihr Benutzername für das Portal. Beim ersten Login werden Sie gebeten, Ihr eigenes persönliches Passwort festzulegen.)\n\n"
         f"✨ WAS SIE IM BRÜNEL MITARBEITER-PORTAL TUN KÖNNEN:\n"
         f"⏱️ Arbeitszeiten & Pausen täglich bequem per Smartphone erfassen\n"
         f"📄 Ihre unterschriebenen Verträge, DSGVO-Dokumente & Lohnabrechnungen jederzeit einsehen und herunterladen\n"
@@ -2580,15 +2622,15 @@ def _build_and_send_onboarding_welcome_email(
         </div>
         <table style="width:100%;border-collapse:collapse;font-size:14px;">
           <tr>
-            <td style="padding:6px 0;color:#475569;width:42%;">🌐 <strong>Portal-Link:</strong></td>
+            <td style="padding:6px 0;color:#475569;width:44%;">🌐 <strong>Portal-Link:</strong></td>
             <td style="padding:6px 0;font-weight:800;">
               <a href="{portal_url}" style="color:#FF6B00;text-decoration:none;">{portal_url}</a>
             </td>
           </tr>
           <tr>
-            <td style="padding:6px 0;color:#475569;">👤 <strong>Benutzername (E-Mail):</strong></td>
+            <td style="padding:6px 0;color:#475569;">👤 <strong>Benutzername (Portal-Login):</strong></td>
             <td style="padding:6px 0;font-family:monospace;font-size:14px;font-weight:800;color:#0f172a;">
-              {clean_email or '—'}
+              {login_key}
             </td>
           </tr>
           <tr>
@@ -2601,7 +2643,7 @@ def _build_and_send_onboarding_welcome_email(
           </tr>
         </table>
         <div style="margin-top:12px;font-size:12px;color:#9a3412;line-height:1.45;">
-          💡 <strong>Wichtiger Sicherheitshinweis:</strong> Beim ersten Anmelden mit Ihrem Einmal-Passwort werden Sie automatisch aufgefordert, Ihr eigenes persönliches Passwort festzulegen.
+          💡 <strong>Wichtiger Hinweis zum Login:</strong> Bitte melden Sie sich im Portal mit Ihrem Benutzernamen <strong>{login_key}</strong> und dem obigen Einmal-Passwort an. Beim ersten Login werden Sie automatisch gebeten, Ihr eigenes persönliches Passwort festzulegen.
         </div>
         <div style="margin-top:16px;text-align:center;">
           <a href="{portal_url}" target="_blank" rel="noreferrer" style="display:inline-block;padding:12px 26px;border-radius:10px;background:#FF6B00;color:#ffffff;font-weight:800;font-size:14px;text-decoration:none;box-shadow:0 4px 12px rgba(255,107,0,0.3);">
@@ -2675,13 +2717,13 @@ def _build_and_send_onboarding_welcome_email(
 </body>
 </html>"""
 
-    # Attempt automatic SMTP dispatch
+    # Strictly send ONLY to private_email and NEVER to @bruenel.de!
+    recipient_email = private_email if (private_email and not private_email.lower().endswith("@bruenel.de")) else ""
     sent_via_smtp = False
     smtp_note = ""
     from_addr = "hr@bruenel.de"
 
-    if clean_email:
-        # 1. Check sender_user mail credentials, or any admin user with mail configured, or ENV vars
+    if recipient_email:
         smtp_user = None
         smtp_pass = None
         smtp_host = os.environ.get("SMTP_HOST", "smtp.strato.de")
@@ -2713,7 +2755,7 @@ def _build_and_send_onboarding_welcome_email(
                 msg = MIMEMultipart("alternative")
                 msg["Subject"] = subject
                 msg["From"] = f"Brünel Deutschland UG HR <{smtp_user}>"
-                msg["To"] = clean_email
+                msg["To"] = recipient_email
                 msg.attach(MIMEText(plain_text, "plain", "utf-8"))
                 msg.attach(MIMEText(html_body, "html", "utf-8"))
 
@@ -2721,28 +2763,30 @@ def _build_and_send_onboarding_welcome_email(
                     server.login(smtp_user, smtp_pass)
                     server.send_message(msg)
                 sent_via_smtp = True
-                smtp_note = f"Willkommens-E-Mail erfolgreich automatisch über {smtp_user} an {clean_email} gesendet."
+                smtp_note = f"Willkommens-E-Mail erfolgreich automatisch an die private E-Mail ({recipient_email}) gesendet. (Portal-Login: {login_key})"
             except Exception as smtp_err:
                 sent_via_smtp = False
-                smtp_note = f"SMTP-Versandhinweis: {str(smtp_err)}. Sie können die E-Mail direkt aus der Vorschau per 1-Klick versenden."
+                smtp_note = f"SMTP-Versandhinweis ({recipient_email}): {str(smtp_err)}. Sie können die E-Mail direkt per 1-Klick versenden."
         else:
-            smtp_note = "E-Mail-Vorlage & Zugangsdaten wurden erstellt. (Für vollautomatischen Hintergrund-Versand bitte unter Mail & Signature Ihr Strato-Postfach verbinden oder per 1-Klick-Button öffnen)."
+            smtp_note = f"E-Mail-Vorlage für die private E-Mail ({recipient_email}) erstellt. (Portal-Login: {login_key} — es wird keine E-Mail an @bruenel.de gesendet)."
     else:
-        smtp_note = "Beim Mitarbeiter ist noch keine E-Mail-Adresse hinterlegt."
+        smtp_note = f"⚠️ Bitte hinterlegen Sie eine private E-Mail-Adresse des Mitarbeiters für den Onboarding-Versand! (Die @bruenel.de-Kennung '{login_key}' dient ausschließlich als Portal-Benutzername, an @bruenel.de werden keine E-Mails versendet)."
 
     now_iso = datetime.utcnow().isoformat()
     attrs["onboarding_email_prepared_at"] = now_iso
     attrs["onboarding_email_sent"] = sent_via_smtp
-    attrs["onboarding_email_to"] = clean_email
+    attrs["onboarding_email_to"] = recipient_email
     emp.attributes = attrs
 
     return {
         "sent_via_smtp": sent_via_smtp,
         "smtp_note": smtp_note,
         "from_email": from_addr,
-        "to_email": clean_email,
+        "to_email": recipient_email,
+        "private_email": recipient_email,
         "employee_name": full_name,
-        "username": clean_email,
+        "username": login_key,
+        "portal_username": login_key,
         "otp": otp_plain,
         "portal_url": portal_url,
         "subject": subject,
@@ -2779,6 +2823,7 @@ def send_employee_onboarding_email(
         sender_user=current_user,
         regenerate_otp=regenerate_otp,
         contract_title=body.get("contract_title") or "",
+        override_private_email=body.get("private_email"),
     )
     db.commit()
     log_audit(

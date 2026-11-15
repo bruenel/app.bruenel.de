@@ -260,6 +260,7 @@ const MONTH_OPTIONS = [
 const YEAR_OPTIONS = ['2025', '2026', '2027'];
 
 const DEFAULT_EMP_ATTRIBUTES = {
+  private_email: '',
   birth_date: '1992-05-14',
   nationality: 'Deutsch',
   street: '',
@@ -309,6 +310,25 @@ const generateRandomOtp = () => {
   let code = 'BRN-';
   for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
   return `${code}!`;
+};
+
+const buildBruenelLoginEmail = (firstName, lastName) => {
+  const clean = (s) =>
+    String(s || '')
+      .trim()
+      .toLowerCase()
+      .replace(/ä/g, 'ae')
+      .replace(/ö/g, 'oe')
+      .replace(/ü/g, 'ue')
+      .replace(/ß/g, 'ss')
+      .replace(/[^a-z0-9]+/g, '.')
+      .replace(/^\.+|\.+$/g, '');
+  const f = clean(firstName);
+  const l = clean(lastName);
+  if (f && l) return `${f}.${l}@bruenel.de`;
+  if (f) return `${f}@bruenel.de`;
+  if (l) return `${l}@bruenel.de`;
+  return '';
 };
 
 export const HRManagementModule = ({ user }) => {
@@ -694,11 +714,25 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
         if (mergedFields.bic) attrs.bic = mergedFields.bic;
         if (mergedFields.bank_name) attrs.bank_name = mergedFields.bank_name;
 
+        const nextFirst = mergedFields.first_name || prev.first_name;
+        const nextLast = mergedFields.last_name || prev.last_name;
+        const scannedEmail = String(mergedFields.email || '').trim();
+        if (scannedEmail && !scannedEmail.toLowerCase().endsWith('@bruenel.de')) {
+          attrs.private_email = scannedEmail;
+        }
+        let nextPortalEmail = prev.email || '';
+        if (scannedEmail && scannedEmail.toLowerCase().endsWith('@bruenel.de')) {
+          nextPortalEmail = scannedEmail.toLowerCase();
+        } else if (!nextPortalEmail || !nextPortalEmail.toLowerCase().endsWith('@bruenel.de')) {
+          const generatedBruenel = buildBruenelLoginEmail(nextFirst, nextLast);
+          if (generatedBruenel) nextPortalEmail = generatedBruenel;
+        }
+
         return {
           ...prev,
-          first_name: mergedFields.first_name || prev.first_name,
-          last_name: mergedFields.last_name || prev.last_name,
-          email: mergedFields.email || prev.email,
+          first_name: nextFirst,
+          last_name: nextLast,
+          email: nextPortalEmail,
           phone: mergedFields.phone || prev.phone,
           role: mergedFields.role || prev.role,
           attributes: attrs,
@@ -1918,15 +1952,37 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
                       <div>
                         <label>Vorname (First Name) *</label>
-                        <input required value={newEmp.first_name} onChange={e => setNewEmp({ ...newEmp, first_name: e.target.value })} placeholder="z.B. Lukas" />
+                        <input
+                          required
+                          value={newEmp.first_name}
+                          onChange={e => {
+                            const val = e.target.value;
+                            const autoBruenel = !editingEmpId && (!newEmp.email || newEmp.email === buildBruenelLoginEmail(newEmp.first_name, newEmp.last_name))
+                              ? buildBruenelLoginEmail(val, newEmp.last_name)
+                              : newEmp.email;
+                            setNewEmp({ ...newEmp, first_name: val, email: autoBruenel });
+                          }}
+                          placeholder="z.B. Lukas"
+                        />
                       </div>
                       <div>
                         <label>Nachname (Last Name) *</label>
-                        <input required value={newEmp.last_name} onChange={e => setNewEmp({ ...newEmp, last_name: e.target.value })} placeholder="z.B. Weber" />
+                        <input
+                          required
+                          value={newEmp.last_name}
+                          onChange={e => {
+                            const val = e.target.value;
+                            const autoBruenel = !editingEmpId && (!newEmp.email || newEmp.email === buildBruenelLoginEmail(newEmp.first_name, newEmp.last_name))
+                              ? buildBruenelLoginEmail(newEmp.first_name, val)
+                              : newEmp.email;
+                            setNewEmp({ ...newEmp, last_name: val, email: autoBruenel });
+                          }}
+                          placeholder="z.B. Weber"
+                        />
                       </div>
                       <div>
                         <label>Geburtsdatum (Birth Date)</label>
-                        <DateInput  value={newEmp.attributes?.birth_date || ''} onChange={e => setEmpAttr('birth_date', e.target.value)} />
+                        <DateInput value={newEmp.attributes?.birth_date || ''} onChange={e => setEmpAttr('birth_date', e.target.value)} />
                       </div>
                     </div>
 
@@ -1968,10 +2024,40 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                       </div>
                     </div>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1.15fr 1.15fr 0.9fr 0.8fr', gap: '12px' }}>
                       <div>
-                        <label>E-Mail (Portal Login) *</label>
-                        <input type="email" required value={newEmp.email} onChange={e => setNewEmp({ ...newEmp, email: e.target.value })} placeholder="name@bruenel.de" />
+                        <div className="flex-between" style={{ marginBottom: 4 }}>
+                          <label style={{ margin: 0, fontWeight: 700, color: '#0f172a' }}>E-Mail (Portal-Login @bruenel.de) *</label>
+                          <button
+                            type="button"
+                            className="btn-secondary btn-sm"
+                            style={{ padding: '1px 7px', fontSize: '0.68rem', color: '#FF6B00', borderColor: '#fed7aa', background: '#fff7ed', fontWeight: 700 }}
+                            onClick={() => {
+                              const gen = buildBruenelLoginEmail(newEmp.first_name, newEmp.last_name);
+                              if (gen) setNewEmp({ ...newEmp, email: gen });
+                            }}
+                            title="Automatisch vorname.nachname@bruenel.de aus Vor- und Nachname generieren"
+                          >
+                            ✨ @bruenel.de
+                          </button>
+                        </div>
+                        <input
+                          type="email"
+                          required
+                          value={newEmp.email}
+                          onChange={e => setNewEmp({ ...newEmp, email: e.target.value })}
+                          onBlur={e => {
+                            const v = e.target.value.trim().toLowerCase();
+                            if (v && !v.includes('@')) {
+                              setNewEmp(prev => ({ ...prev, email: `${v}@bruenel.de` }));
+                            }
+                          }}
+                          placeholder="vorname.nachname@bruenel.de"
+                          style={{ fontFamily: 'monospace', fontWeight: 700, background: '#f8fafc' }}
+                        />
+                        <div style={{ marginTop: 3, fontSize: '0.68rem', color: '#64748b' }}>
+                          🔑 Nur Benutzername für Panel-Login (kein E-Mail-Versand an @bruenel.de)
+                        </div>
                         {!editingEmpId && newEmp.email && employees.some(em => (em.email || '').trim().toLowerCase() === newEmp.email.trim().toLowerCase()) && (() => {
                           const dup = employees.find(em => (em.email || '').trim().toLowerCase() === newEmp.email.trim().toLowerCase());
                           return (
@@ -1990,11 +2076,24 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                         })()}
                       </div>
                       <div>
+                        <label style={{ fontWeight: 700, color: '#047857' }}>Private E-Mail (Onboarding &amp; Kontakt) *</label>
+                        <input
+                          type="email"
+                          value={newEmp.attributes?.private_email || ''}
+                          onChange={e => setEmpAttr('private_email', e.target.value)}
+                          placeholder="z.B. lukas.weber@gmail.com"
+                          style={{ borderColor: '#6ee7b7', background: '#f0fdf4', fontWeight: 600 }}
+                        />
+                        <div style={{ marginTop: 3, fontSize: '0.68rem', color: '#047857', fontWeight: 600 }}>
+                          📧 Empfänger für Willkommens-E-Mail, OTP &amp; HR-Dokumente
+                        </div>
+                      </div>
+                      <div>
                         <label>Telefon / Mobil *</label>
                         <input value={newEmp.phone} onChange={e => setNewEmp({ ...newEmp, phone: e.target.value })} placeholder="+49 172 ..." />
                       </div>
                       <div>
-                        <label>Staatsangehörigkeit (Nationality)</label>
+                        <label>Staatsangehörigkeit</label>
                         <input value={newEmp.attributes?.nationality || ''} onChange={e => setEmpAttr('nationality', e.target.value)} placeholder="Deutsch / EU" />
                       </div>
                     </div>
@@ -3087,10 +3186,14 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                       <strong style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px' }}>
                         <ShieldCheck size={15} /> Portal-Zugangsdaten
                       </strong>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
                         <div>
-                          <label style={{ fontSize: '0.7rem' }}>Login E-Mail</label>
-                          <div style={{ fontWeight: 700, padding: '8px', borderRadius: '6px', background: 'var(--surface)', border: '1px solid var(--border)' }}>{newEmp.email || '—'}</div>
+                          <label style={{ fontSize: '0.7rem' }}>Portal-Login Benutzername (@bruenel.de — Kein E-Mail-Versand)</label>
+                          <div style={{ fontWeight: 700, fontFamily: 'monospace', padding: '8px', borderRadius: '6px', background: 'var(--surface)', border: '1px solid var(--border)' }}>{newEmp.email || '—'}</div>
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '0.7rem', color: '#047857' }}>Private E-Mail-Adresse (Für Onboarding &amp; E-Mail-Versand)</label>
+                          <div style={{ fontWeight: 700, padding: '8px', borderRadius: '6px', background: '#ecfdf5', border: '1px solid #6ee7b7', color: '#065f46' }}>{newEmp.attributes?.private_email || '— (Bitte in Tab 1 eintragen)'}</div>
                         </div>
                         <div>
                           <label style={{ fontSize: '0.7rem' }}>Account-Status</label>
@@ -3614,7 +3717,8 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                         </td>
                         <td style={{ padding: '9px 10px' }}>
                           <div style={{ fontWeight: 700, color: '#0f172a' }}>{e.full_name}</div>
-                          <div style={{ fontSize: 11, color: '#64748b' }}>{e.email || '—'} · {e.phone || '—'}</div>
+                          <div style={{ fontSize: 11, color: '#475569', fontFamily: 'monospace' }}>🔑 Login: {e.email || '—'}</div>
+                          <div style={{ fontSize: 11, color: '#047857' }}>📧 Privat: {attr.private_email || '—'} · 📞 {e.phone || '—'}</div>
                         </td>
                         <td style={{ padding: '9px 10px' }}>
                           <div style={{ fontWeight: 600 }}>{e.role}</div>
