@@ -260,6 +260,7 @@ const MONTH_OPTIONS = [
 const YEAR_OPTIONS = ['2025', '2026', '2027'];
 
 const DEFAULT_EMP_ATTRIBUTES = {
+  salutation: 'Herr',
   private_email: '',
   birth_date: '1992-05-14',
   nationality: 'Deutsch',
@@ -686,7 +687,18 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
           attrs.nationality = mergedFields.nationality;
           attrs.staatsangehoerigkeit = mergedFields.nationality;
         }
-        if (mergedFields.gender) attrs.geschlecht = mergedFields.gender;
+        if (mergedFields.gender) {
+          attrs.geschlecht = mergedFields.gender;
+          const g = String(mergedFields.gender).trim().toLowerCase();
+          if (g === 'f' || g === 'w' || g.includes('weib') || g.includes('fem') || g.includes('frau')) {
+            attrs.salutation = 'Frau';
+          } else if (g === 'm' || g.includes('männ') || g.includes('male') || g.includes('herr')) {
+            attrs.salutation = 'Herr';
+          }
+        }
+        if (mergedFields.company_name && prev.employment_type === 'Subunternehmer') {
+          attrs.salutation = 'Firma';
+        }
         if (mergedFields.street) {
           attrs.street = mergedFields.street;
           attrs.strasse = mergedFields.street;
@@ -1949,7 +1961,19 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                       </div>
                     )}
 
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '0.6fr 1fr 1fr 0.9fr', gap: '12px' }}>
+                      <div>
+                        <label>Anrede (Herr / Frau / Firma) *</label>
+                        <select
+                          value={newEmp.attributes?.salutation || newEmp.attributes?.anrede || 'Herr'}
+                          onChange={e => setEmpAttr('salutation', e.target.value)}
+                          style={{ fontWeight: 700 }}
+                        >
+                          <option value="Herr">Herr</option>
+                          <option value="Frau">Frau</option>
+                          <option value="Firma">Firma</option>
+                        </select>
+                      </div>
                       <div>
                         <label>Vorname (First Name) *</label>
                         <input

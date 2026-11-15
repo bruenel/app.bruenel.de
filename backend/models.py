@@ -440,7 +440,7 @@ class DocumentRecord(Base):
     file_size = Column(Integer, default=0)
     storage_provider = Column(String(50), default="local_s3")  # local_s3, s3, r2, gdrive
     storage_key = Column(String(500), nullable=False)
-    drive_file_id = Column(String(255), nullable=False)
+    drive_file_id = Column(String(255), nullable=False, default="s3://local")
     status = Column(String(50), default="Uploaded")
     metadata_json = Column(JSON, default=dict)
     created_at = Column(DateTime, default=datetime.utcnow)

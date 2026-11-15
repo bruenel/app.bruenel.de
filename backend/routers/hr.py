@@ -2178,6 +2178,9 @@ def issue_hr_contracts(
 
     # Sync employee profile and attributes from contract conditions
     attrs = dict(emp.attributes or {})
+    if conditions.get("salutation"):
+        attrs["salutation"] = str(conditions["salutation"]).strip()
+        attrs["anrede"] = attrs["salutation"]
     if conditions.get("private_email"):
         attrs["private_email"] = str(conditions["private_email"]).strip()
     if conditions.get("portal_email"):
@@ -2270,10 +2273,12 @@ def issue_hr_contracts(
         is_dsgvo = bool(c_item.get("is_mandatory_dsgvo")) or ("DSGVO" in c_code) or ("DATENSCHUTZ" in c_code)
 
         doc_id = str(uuid.uuid4())
-        safe_emp = f"{emp.first_name}_{emp.last_name}".replace(" ", "_").replace("/", "_")
-        safe_code = c_code.lower().replace(" ", "_")
-        file_name = f"{safe_code}_{safe_emp}_{signed_date_str}.html"
-        storage_key = f"contracts/{emp.id}/{doc_id}_{file_name}"
+        safe_emp = f"{emp.first_name}_{emp.last_name}".replace(" ", "_").replace("/", "_")[:80]
+        safe_code = c_code.lower().replace(" ", "_")[:40]
+        file_name = f"{safe_code}_{safe_emp}_{signed_date_str}.html"[:240]
+        storage_key = f"contracts/{emp.id}/{doc_id}_{file_name}"[:480]
+        drive_file_id = f"s3://{storage_key}"[:250]
+        c_title_safe = c_title[:250]
         full_path = os.path.join(LOCAL_STORAGE_ROOT, storage_key)
         os.makedirs(os.path.dirname(full_path), exist_ok=True)
 
@@ -2281,7 +2286,7 @@ def issue_hr_contracts(
 <html lang="de">
 <head>
 <meta charset="utf-8" />
-<title>{c_title}</title>
+<title>{c_title_safe}</title>
 <style>
   @page {{ size: A4; margin: 18mm 18mm 18mm 18mm; }}
   body {{ font-family: 'Segoe UI', Arial, sans-serif; color: #111827; line-height: 1.55; font-size: 10.5pt; margin: 0; padding: 24px; background: #fff; }}
@@ -2298,8 +2303,11 @@ def issue_hr_contracts(
 </body>
 </html>"""
         raw_bytes = full_html_doc.encode("utf-8")
-        with open(full_path, "wb") as f:
-            f.write(raw_bytes)
+        try:
+            with open(full_path, "wb") as f:
+                f.write(raw_bytes)
+        except Exception:
+            pass
         b64_html = base64.b64encode(raw_bytes).decode("ascii")
 
         meta = {
@@ -2318,6 +2326,7 @@ def issue_hr_contracts(
             "uploaded_by": "Management",
             "employee_name": f"{emp.first_name} {emp.last_name}",
             "employee_number": emp.employee_number,
+            "salutation": attrs.get("salutation") or "Herr",
             "conditions": conditions,
             "html_content": html_body,
             "base64_data": b64_html,
@@ -2328,11 +2337,13 @@ def issue_hr_contracts(
             reference_type="Arbeitsvertrag / Werkvertrag",
             reference_id=emp.id,
             employee_id=emp.id,
-            title=c_title,
+            title=c_title_safe,
             file_name=file_name,
             mime_type="text/html",
             file_size=len(raw_bytes),
+            storage_provider="local_s3",
             storage_key=storage_key,
+            drive_file_id=drive_file_id,
             status="Pending_Signature",
             metadata_json=meta,
         )
@@ -2525,9 +2536,23 @@ def _build_and_send_onboarding_welcome_email(
                 u.must_change_password = True
 
     portal_url = "https://portal.bruenel.de"
+    salutation = (attrs.get("salutation") or attrs.get("anrede") or "Herr").strip()
     full_name = f"{emp.first_name or ''} {emp.last_name or ''}".strip() or "Mitarbeiter/in"
-    first_name = emp.first_name or full_name
+    first_name = (emp.first_name or full_name).strip()
+    last_name = (emp.last_name or "").strip()
+    company_name = (attrs.get("company_name") or full_name).strip()
     role_label = emp.role or "Mitarbeiter"
+
+    if salutation == "Frau":
+        display_title_name = f"Frau {full_name}"
+        greeting_line = f"Sehr geehrte Frau {last_name}, liebe {first_name}," if last_name else f"Hallo Frau {full_name},"
+    elif salutation == "Firma":
+        display_title_name = f"Firma {company_name} ({full_name})"
+        greeting_line = f"Sehr geehrte Damen und Herren ({company_name} — {full_name}),"
+    else:
+        display_title_name = f"Herr {full_name}"
+        greeting_line = f"Sehr geehrter Herr {last_name}, lieber {first_name}," if last_name else f"Hallo Herr {full_name},"
+
     start_date_str = attrs.get("contract_start_date") or datetime.utcnow().strftime("%Y-%m-%d")
     if len(start_date_str) >= 10 and "-" in start_date_str[:10]:
         parts = start_date_str[:10].split("-")
@@ -2535,10 +2560,10 @@ def _build_and_send_onboarding_welcome_email(
     else:
         start_date_de = start_date_str
 
-    subject = f"🎉 Herzlich willkommen bei der Brünel Deutschland UG, {first_name}! Ihr Mitarbeiter-Portal & App-Zugang 🚀"
+    subject = f"🎉 Herzlich willkommen bei der Brünel Deutschland UG, {display_title_name}! Ihr Mitarbeiter-Portal & App-Zugang 🚀"
 
     plain_text = (
-        f"Hallo {full_name},\n\n"
+        f"{greeting_line}\n\n"
         f"herzlich willkommen im Team der Brünel Deutschland UG! 🎉🤝\n"
         f"Wir freuen uns sehr auf die Zusammenarbeit mit Ihnen als {role_label} und wünschen Ihnen einen großartigen Start, viel Erfolg und eine gute Arbeitszeit bei uns!\n\n"
         f"Ihr unterschriebener Vertrag wurde erfolgreich in Ihrer digitalen Personalakte hinterlegt und ist ab sofort in Ihrem persönlichen Mitarbeiter-Portal unter „Dokumente“ für Sie freigeschaltet.\n\n"
@@ -2605,7 +2630,7 @@ def _build_and_send_onboarding_welcome_email(
     <!-- Main Greeting -->
     <div style="padding:28px 32px;">
       <p style="margin:0 0 14px 0;font-size:15px;line-height:1.6;">
-        Hallo <strong>{full_name}</strong>, 👋
+        <strong>{greeting_line}</strong> 👋
       </p>
       <p style="margin:0 0 14px 0;font-size:14.5px;line-height:1.65;color:#334155;">
         wir heißen Sie <strong>herzlich willkommen im Team der Brünel Deutschland UG</strong>! 🎉👷‍♂️🤝<br />

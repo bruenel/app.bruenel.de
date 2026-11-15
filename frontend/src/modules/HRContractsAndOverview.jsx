@@ -118,6 +118,7 @@ const renderPageFooter = (pageLabel = '') => `
 
 export function generateContractHtml(code, emp, cond) {
   const fullName = `${cond.first_name || emp?.first_name || ''} ${cond.last_name || emp?.last_name || ''}`.trim() || 'Name des Mitarbeiters';
+  const salutation = cond.salutation || emp?.attributes?.salutation || emp?.attributes?.anrede || 'Herr';
   const street = cond.street || emp?.attributes?.street || emp?.attributes?.strasse || 'Straße & Hausnummer';
   const postalCode = cond.postal_code || emp?.attributes?.postal_code || emp?.attributes?.plz || 'PLZ';
   const city = cond.city || emp?.attributes?.city || emp?.attributes?.ort || 'Ort';
@@ -137,6 +138,34 @@ export function generateContractHtml(code, emp, cond) {
   const praktikumEnd = fmtDeDate(cond.praktikum_end_date);
   const companyName = cond.company_name || emp?.attributes?.company_name || fullName;
 
+  const partyLineAccusative =
+    salutation === 'Frau'
+      ? `Frau <strong>${fullName}</strong>`
+      : salutation === 'Firma'
+        ? `Firma <strong>${companyName}</strong>${companyName !== fullName ? ` (vertreten durch ${fullName})` : ''}`
+        : `Herrn <strong>${fullName}</strong>`;
+
+  const partyLineSubunternehmer =
+    salutation === 'Firma'
+      ? `Firma: <strong>${companyName}</strong>${companyName !== fullName ? ` (vertreten durch ${fullName})` : ''}`
+      : salutation === 'Frau'
+        ? `Frau <strong>${companyName}</strong>`
+        : `Herrn <strong>${companyName}</strong>`;
+
+  const partyLineDsgvo =
+    salutation === 'Firma'
+      ? `Firma <strong>${companyName}</strong> (${fullName}${birthDate && birthDate !== '....................' ? `, geb. am ${birthDate}` : ''})`
+      : salutation === 'Frau'
+        ? `Frau <strong>${fullName}</strong>${birthDate && birthDate !== '....................' ? ` (geb. am ${birthDate})` : ''}`
+        : `Herrn <strong>${fullName}</strong>${birthDate && birthDate !== '....................' ? ` (geb. am ${birthDate})` : ''}`;
+
+  const partySignatureLabel =
+    salutation === 'Frau'
+      ? `Frau ${fullName}`
+      : salutation === 'Firma'
+        ? `Firma ${companyName}${companyName !== fullName ? ` (${fullName})` : ''}`
+        : `Herr ${fullName}`;
+
   if (code === 'ARBEITSVERTRAG') {
     return `
       <div class="brn-contract-sheet">
@@ -148,7 +177,7 @@ export function generateContractHtml(code, emp, cond) {
         <p style="margin:0 0 4px 0;">vertreten durch den Geschäftsführer Herrn Sam Rastegar Moghadam</p>
         <p style="margin:0 0 14px 0;color:#374151;">– nachfolgend „Arbeitgeber“ genannt –</p>
         <p style="margin:0 0 8px 0;">und</p>
-        <p style="margin:0 0 4px 0;">Herrn/Frau <strong>${fullName}</strong></p>
+        <p style="margin:0 0 4px 0;">${partyLineAccusative}</p>
         <p style="margin:0 0 4px 0;">wohnhaft in: <strong>${fullAddress}</strong></p>
         <p style="margin:0 0 16px 0;color:#374151;">– nachfolgend „Arbeitnehmer“ genannt –</p>
         <p style="margin:0 0 18px 0;">wird folgender Arbeitsvertrag geschlossen:</p>
@@ -236,7 +265,7 @@ export function generateContractHtml(code, emp, cond) {
           <div>
             <div style="border-bottom:1px solid #111827;height:36px;margin-bottom:8px;"></div>
             <div><strong>Arbeitnehmer</strong></div>
-            <div>(${fullName})</div>
+            <div>(${partySignatureLabel})</div>
           </div>
         </div>
         ${renderPageFooter('Arbeitsvertrag — Brünel Deutschland UG')}
@@ -251,7 +280,7 @@ export function generateContractHtml(code, emp, cond) {
         <p style="margin:0 0 4px 0;">vertreten durch den Geschäftsführer Herrn Sam Rastegar Moghadam</p>
         <p style="margin:0 0 12px 0;color:#374151;">– nachfolgend „Arbeitgeber“ genannt –</p>
         <p style="margin:0 0 8px 0;">und</p>
-        <p style="margin:0 0 4px 0;">Herrn/Frau <strong>${fullName}</strong></p>
+        <p style="margin:0 0 4px 0;">${partyLineAccusative}</p>
         <p style="margin:0 0 4px 0;">wohnhaft in: <strong>${fullAddress}</strong></p>
         <p style="margin:0 0 16px 0;color:#374151;">– nachfolgend „Arbeitnehmer“ genannt –</p>
 
@@ -307,7 +336,7 @@ export function generateContractHtml(code, emp, cond) {
           <div>
             <div style="border-bottom:1px solid #111827;height:36px;margin-bottom:8px;"></div>
             <div><strong>Arbeitnehmer</strong></div>
-            <div>(${fullName})</div>
+            <div>(${partySignatureLabel})</div>
           </div>
         </div>
         ${renderPageFooter('Anlage 1: Vertraulichkeitsvereinbarung — Brünel Deutschland UG')}
@@ -337,7 +366,7 @@ export function generateContractHtml(code, emp, cond) {
         <p style="margin:0 0 4px 0;">vertreten durch den Geschäftsführer Herrn Sam Rastegar Moghadam</p>
         <p style="margin:0 0 12px 0;color:#374151;">– nachfolgend „Arbeitgeber“ genannt –</p>
         <p style="margin:0 0 8px 0;">und</p>
-        <p style="margin:0 0 4px 0;">Herrn/Frau <strong>${fullName}</strong></p>
+        <p style="margin:0 0 4px 0;">${partyLineAccusative}</p>
         <p style="margin:0 0 4px 0;">wohnhaft in: <strong>${fullAddress}</strong></p>
         <p style="margin:0 0 16px 0;color:#374151;">– nachfolgend „Mitarbeiter / Nutzer“ genannt –</p>
 
@@ -407,7 +436,7 @@ export function generateContractHtml(code, emp, cond) {
           <div>
             <div style="border-bottom:1px solid #111827;height:36px;margin-bottom:8px;"></div>
             <div><strong>Mitarbeiter (Empfänger)</strong></div>
-            <div>(${fullName})</div>
+            <div>(${partySignatureLabel})</div>
           </div>
         </div>
         ${renderPageFooter('Kfz-Übergabeprotokoll und Nutzungsvereinbarung — Brünel Deutschland UG')}
@@ -426,7 +455,7 @@ export function generateContractHtml(code, emp, cond) {
         <p style="margin:0 0 4px 0;">vertreten durch den Geschäftsführer Herrn Sam Rastegar Moghadam</p>
         <p style="margin:0 0 12px 0;color:#374151;">– nachfolgend „Unternehmen“ genannt –</p>
         <p style="margin:0 0 8px 0;">und</p>
-        <p style="margin:0 0 4px 0;">Herrn/Frau <strong>${fullName}</strong></p>
+        <p style="margin:0 0 4px 0;">${partyLineAccusative}</p>
         <p style="margin:0 0 4px 0;">wohnhaft in: <strong>${fullAddress}</strong></p>
         <p style="margin:0 0 16px 0;color:#374151;">– nachfolgend „Praktikant“ genannt –</p>
         <p style="margin:0 0 16px 0;">wird folgende Vereinbarung geschlossen:</p>
@@ -473,7 +502,7 @@ export function generateContractHtml(code, emp, cond) {
           <div>
             <div style="border-bottom:1px solid #111827;height:36px;margin-bottom:8px;"></div>
             <div><strong>Praktikant</strong></div>
-            <div>(${fullName})</div>
+            <div>(${partySignatureLabel})</div>
           </div>
         </div>
         ${renderPageFooter('Vertrag über ein unbezahltes Orientierungspraktikum — Brünel Deutschland UG')}
@@ -498,7 +527,7 @@ export function generateContractHtml(code, emp, cond) {
         <p style="margin:0 0 4px 0;">vertreten durch den Geschäftsführer Herrn Sam Rastegar Moghadam</p>
         <p style="margin:0 0 12px 0;color:#374151;">– nachfolgend „Auftraggeber“ genannt –</p>
         <p style="margin:0 0 8px 0;">und</p>
-        <p style="margin:0 0 4px 0;">Firma / Herrn/Frau: <strong>${companyName}</strong></p>
+        <p style="margin:0 0 4px 0;">${partyLineSubunternehmer}</p>
         <p style="margin:0 0 4px 0;">Anschrift: <strong>${fullAddress}</strong></p>
         <p style="margin:0 0 16px 0;color:#374151;">– nachfolgend „Subunternehmer“ oder „Auftragnehmer“ genannt –</p>
         <p style="margin:0 0 16px 0;">wird folgender Rahmen- bzw. Projektwerkvertrag geschlossen:</p>
@@ -562,7 +591,7 @@ export function generateContractHtml(code, emp, cond) {
           <div>
             <div style="border-bottom:1px solid #111827;height:36px;margin-bottom:8px;"></div>
             <div><strong>Subunternehmer / Auftragnehmer</strong></div>
-            <div>(${companyName})</div>
+            <div>(${partySignatureLabel})</div>
           </div>
         </div>
         ${renderPageFooter('Subunternehmervertrag (Werkvertrag) — Brünel Deutschland UG')}
@@ -638,7 +667,7 @@ export function generateContractHtml(code, emp, cond) {
         <div style="max-width:340px;">
           <div style="border-bottom:1px solid #111827;height:36px;margin-bottom:8px;"></div>
           <div><strong>Unterschrift Subunternehmer / Auftragnehmer</strong></div>
-          <div>(${companyName})</div>
+          <div>(${partySignatureLabel})</div>
         </div>
         ${renderPageFooter('Anlage Ausführungsrichtlinien & Sicherheitshinweise — Brünel Deutschland UG')}
 
@@ -704,7 +733,7 @@ export function generateContractHtml(code, emp, cond) {
         <div style="max-width:340px;">
           <div style="border-bottom:1px solid #111827;height:36px;margin-bottom:8px;"></div>
           <div><strong>Unterschrift Mitarbeiter / Subunternehmer</strong></div>
-          <div>(${companyName})</div>
+          <div>(${partySignatureLabel})</div>
         </div>
         ${renderPageFooter('Allgemeines Sicherheitsblatt & Arbeitsschutzrichtlinie — Brünel Deutschland UG')}
       </div>
@@ -731,7 +760,7 @@ export function generateContractHtml(code, emp, cond) {
       <p style="margin:0 0 4px 0;">vertreten durch den Geschäftsführer Herrn Sam Rastegar Moghadam</p>
       <p style="margin:0 0 12px 0;color:#374151;">– nachfolgend „Verantwortlicher / Arbeitgeber“ genannt –</p>
       <p style="margin:0 0 8px 0;">und</p>
-      <p style="margin:0 0 4px 0;">Herrn/Frau / Firma: <strong>${fullName}</strong>${birthDate && birthDate !== '....................' ? ` (geb. am ${birthDate})` : ''}</p>
+      <p style="margin:0 0 4px 0;">${partyLineDsgvo}</p>
       <p style="margin:0 0 4px 0;">wohnhaft / ansässig in: <strong>${fullAddress}</strong></p>
       <p style="margin:0 0 16px 0;color:#374151;">– nachfolgend „Beschäftigter / Verpflichteter“ genannt –</p>
 
@@ -790,7 +819,7 @@ export function generateContractHtml(code, emp, cond) {
         <div>
           <div style="border-bottom:1px solid #111827;height:36px;margin-bottom:8px;"></div>
           <div><strong>Beschäftigter / Verpflichteter</strong></div>
-          <div>(${fullName})</div>
+          <div>(${partySignatureLabel})</div>
         </div>
       </div>
       ${renderPageFooter('5. Pflichtmodul: DSGVO-Datenschutzerklärung & Datengeheimnis — Brünel Deutschland UG')}
@@ -925,6 +954,7 @@ export const HRContractGeneratorView = ({
   const [copiedOnboardingText, setCopiedOnboardingText] = useState(false);
 
   const [conditions, setConditions] = useState({
+    salutation: 'Herr',
     first_name: '',
     last_name: '',
     birth_date: '',
@@ -1030,6 +1060,7 @@ export const HRContractGeneratorView = ({
 
     const nextCond = {
       ...conditions,
+      salutation: attr.salutation || attr.anrede || (empType === 'Subunternehmer' && attr.company_name ? 'Firma' : 'Herr'),
       first_name: selectedEmp.first_name || '',
       last_name: selectedEmp.last_name || '',
       portal_email: selectedEmp.email || '',
@@ -1541,7 +1572,19 @@ export const HRContractGeneratorView = ({
         </div>
 
         {/* Common Personal & Address Row */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(165px, 1fr))', gap: 10, marginBottom: 12, paddingBottom: 12, borderBottom: '1px solid #f1f5f9' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginBottom: 12, paddingBottom: 12, borderBottom: '1px solid #f1f5f9' }}>
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 700 }}>Anrede (Herr / Frau / Firma) *</label>
+            <select
+              value={conditions.salutation || 'Herr'}
+              onChange={(e) => updateCond('salutation', e.target.value)}
+              style={{ fontWeight: 700 }}
+            >
+              <option value="Herr">Herr</option>
+              <option value="Frau">Frau</option>
+              <option value="Firma">Firma</option>
+            </select>
+          </div>
           <div>
             <label style={{ fontSize: 11, fontWeight: 700 }}>Vorname *</label>
             <input value={conditions.first_name} onChange={(e) => updateCond('first_name', e.target.value)} />
