@@ -4308,6 +4308,12 @@ export function ProtocolExtractorModule({ user, mode = 'objects' }) {
     }
   };
 
+  // Smooth animated accordion state for Objects & Properties rows
+  const [expandedObjectMap, setExpandedObjectMap] = useState({});
+  const toggleObjectExpanded = (id) => {
+    setExpandedObjectMap((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
   // Support deep-linking from Calendar view ("Im Objekt öffnen")
   useEffect(() => {
     if (location.state?.openAddressId) {
@@ -5574,6 +5580,22 @@ export function ProtocolExtractorModule({ user, mode = 'objects' }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <button
               type="button"
+              onClick={() => {
+                const anyOpen = filteredAddresses.some((a) => Boolean(expandedObjectMap[a.id]));
+                const next = {};
+                filteredAddresses.forEach((a) => {
+                  next[a.id] = !anyOpen;
+                });
+                setExpandedObjectMap(next);
+              }}
+              disabled={filteredAddresses.length === 0}
+              className="btn-secondary btn-sm"
+              style={{ padding: '6px 10px', fontSize: 11.5 }}
+            >
+              {filteredAddresses.some((a) => Boolean(expandedObjectMap[a.id])) ? 'Alle zuklappen' : 'Alle aufklappen'}
+            </button>
+            <button
+              type="button"
               onClick={resetAllFilters}
               className="btn-secondary btn-sm"
               style={{ padding: '6px 10px', fontSize: 11.5 }}
@@ -5592,526 +5614,418 @@ export function ProtocolExtractorModule({ user, mode = 'objects' }) {
           </div>
         </div>
 
-        {/* DESKTOP OVERVIEW TABLE (Light Mode, No Email / No Eigentümer) */}
-        <div className="protocol-desktop-table">
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
-            <thead>
-              <tr
-                style={{
-                  background: '#f1f5f9',
-                  color: '#475569',
-                  textTransform: 'uppercase',
-                  fontSize: 10.5,
-                  fontWeight: 700,
-                  letterSpacing: '0.04em',
-                  borderBottom: '1px solid #e2e8f0',
-                }}
-              >
-                <th
-                  style={{ padding: '9px 8px', width: 32, textAlign: 'center', cursor: 'pointer', userSelect: 'none' }}
-                  onClick={() => toggleColumnSort('priority')}
-                  title="Nach Priorität sortieren"
-                >
-                  ★ {sortBy === 'priority' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
-                </th>
-                <th
-                  style={{ padding: '9px 10px', textAlign: 'left', cursor: 'pointer', userSelect: 'none' }}
-                  onClick={() => toggleColumnSort('adress_id')}
-                >
-                  Projekt / Adress-ID / WE-Nr {sortBy === 'adress_id' || sortBy === 'projektnummer' || sortBy === 'project_name' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
-                </th>
-                <th
-                  style={{ padding: '9px 10px', textAlign: 'left', cursor: 'pointer', userSelect: 'none' }}
-                  onClick={() => toggleColumnSort('ort')}
-                >
-                  Gemeinde {sortBy === 'ort' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
-                </th>
-                <th
-                  style={{ padding: '9px 10px', textAlign: 'left', cursor: 'pointer', userSelect: 'none' }}
-                  onClick={() => toggleColumnSort('strasse')}
-                >
-                  Straße {sortBy === 'strasse' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
-                </th>
-                <th
-                  style={{ padding: '9px 8px', textAlign: 'center', cursor: 'pointer', userSelect: 'none' }}
-                  onClick={() => toggleColumnSort('hausnummer')}
-                >
-                  Haus {sortBy === 'hausnummer' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
-                </th>
-                <th
-                  style={{ padding: '9px 10px', textAlign: 'left', minWidth: 165, cursor: 'pointer', userSelect: 'none' }}
-                  onClick={() => toggleColumnSort('progress')}
-                >
-                  Fortschritt (%) & WE {sortBy === 'progress' || sortBy === 'total_we' || sortBy === 'ta_count' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
-                </th>
-                <th
-                  style={{ padding: '9px 10px', textAlign: 'left', cursor: 'pointer', userSelect: 'none' }}
-                  onClick={() => toggleColumnSort('ausbau_typ')}
-                >
-                  Ausbau-Typ {sortBy === 'ausbau_typ' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
-                </th>
-                <th
-                  style={{ padding: '9px 10px', textAlign: 'left', cursor: 'pointer', userSelect: 'none' }}
-                  onClick={() => toggleColumnSort('team')}
-                >
-                  Team {sortBy === 'team' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
-                </th>
-                <th
-                  style={{ padding: '9px 10px', textAlign: 'left', cursor: 'pointer', userSelect: 'none' }}
-                  onClick={() => toggleColumnSort('building_status')}
-                >
-                  Status {sortBy === 'building_status' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
-                </th>
-                <th
-                  style={{ padding: '9px 10px', textAlign: 'left', minWidth: 135, cursor: 'pointer', userSelect: 'none' }}
-                  onClick={() => toggleColumnSort('ausbautermin')}
-                >
-                  Ausbau Datum {sortBy === 'ausbautermin' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
-                </th>
-                <th
-                  style={{ padding: '9px 10px', textAlign: 'left', minWidth: 135, cursor: 'pointer', userSelect: 'none' }}
-                  onClick={() => toggleColumnSort('abgeschlossen_datum')}
-                >
-                  Abgeschlossen {sortBy === 'abgeschlossen_datum' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
-                </th>
-                <th
-                  style={{ padding: '9px 10px', textAlign: 'left', minWidth: 135, cursor: 'pointer', userSelect: 'none' }}
-                  onClick={() => toggleColumnSort('restarbeit_termin')}
-                >
-                  Restarbeit {sortBy === 'restarbeit_termin' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
-                </th>
-                <th
-                  style={{ padding: '9px 10px', textAlign: 'left', cursor: 'pointer', userSelect: 'none' }}
-                  onClick={() => toggleColumnSort('checklist')}
-                >
-                  Gebäude-Checkliste {sortBy === 'checklist' ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
-                </th>
-                <th style={{ padding: '9px 12px', textAlign: 'right' }}>Aktionen</th>
-              </tr>
+        {/* DESKTOP MINIMAL ACCORDION VIEW (Important infos in main row, smooth animated expand) */}
+        <div className="protocol-desktop-table" style={{ padding: '10px 14px' }}>
+          {loading ? (
+            <div style={{ padding: 32, textAlign: 'center', color: '#64748b', fontSize: 12.5 }}>
+              Lade Objekte &amp; Properties…
+            </div>
+          ) : filteredAddresses.length === 0 ? (
+            <div style={{ padding: 32, textAlign: 'center', color: '#64748b', fontSize: 12.5, border: '1px dashed #cbd5e1', borderRadius: 10 }}>
+              Keine Objekte gefunden. Ziehen Sie oben ein PDF in den Import oder klicken Sie auf{' '}
+              <strong style={{ color: '#FF6B00' }}>„+ New“</strong>.
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {filteredAddresses.map((addr) => {
+                const commentsCount = (addr.comments || []).length;
+                const lastCommentObj = commentsCount > 0 ? addr.comments[0] : null;
+                const bStatus = addr.building_status || 'Ausbau terminiert';
+                const canonicalCity = normalizeGemeinde(addr.plz ? `${addr.ort}` : addr.ort, addr.plz) || addr.ort;
+                const pillStyle = BUILDING_STATUS_PILL[bStatus] || BUILDING_STATUS_PILL.Offen;
+                const isOpen = Boolean(expandedObjectMap[addr.id]);
 
-              {/* Inline Column Filters Row (Light Mode) */}
-              <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                <th style={{ padding: '5px 6px' }} />
-                <th style={{ padding: '5px 8px' }}>
-                  <input
-                    value={colAdressId}
-                    onChange={(e) => setColAdressId(e.target.value)}
-                    placeholder="Adress-ID / WE-Nr…"
-                    style={{ padding: '4px 7px', fontSize: 11, borderRadius: 5 }}
-                  />
-                </th>
-                <th style={{ padding: '5px 8px' }}>
-                  <input
-                    value={colGemeinde}
-                    onChange={(e) => setColGemeinde(e.target.value)}
-                    placeholder="Ort / PLZ…"
-                    style={{ padding: '4px 7px', fontSize: 11, borderRadius: 5 }}
-                  />
-                </th>
-                <th style={{ padding: '5px 8px' }}>
-                  <input
-                    value={colStrasse}
-                    onChange={(e) => setColStrasse(e.target.value)}
-                    placeholder="Straße…"
-                    style={{ padding: '4px 7px', fontSize: 11, borderRadius: 5 }}
-                  />
-                </th>
-                <th style={{ padding: '5px 6px' }}>
-                  <div style={{ display: 'flex', gap: 3 }}>
-                    <input
-                      value={colHausVon}
-                      onChange={(e) => setColHausVon(e.target.value)}
-                      placeholder="Von"
-                      style={{ width: 42, padding: '4px 5px', fontSize: 11, borderRadius: 5 }}
-                    />
-                    <input
-                      value={colHausBis}
-                      onChange={(e) => setColHausBis(e.target.value)}
-                      placeholder="Bis"
-                      style={{ width: 42, padding: '4px 5px', fontSize: 11, borderRadius: 5 }}
-                    />
-                  </div>
-                </th>
-                <th style={{ padding: '5px 8px' }} />
-                <th style={{ padding: '5px 8px' }} />
-                <th style={{ padding: '5px 8px' }} />
-                <th style={{ padding: '5px 8px' }} />
-                <th colSpan={3} style={{ padding: '5px 8px' }}>
-                  <input
-                    value={colDateSearch}
-                    onChange={(e) => setColDateSearch(e.target.value)}
-                    placeholder="Datum filtern (TT.MM.JJJJ)…"
-                    style={{ padding: '4px 7px', fontSize: 11, borderRadius: 5 }}
-                  />
-                </th>
-                <th colSpan={2} style={{ padding: '5px 8px' }} />
-              </tr>
-            </thead>
-
-            <tbody>
-              {loading ? (
-                <tr>
-                  <td colSpan={14} style={{ padding: 32, textAlign: 'center', color: '#64748b' }}>
-                    Lade Objekte & Properties…
-                  </td>
-                </tr>
-              ) : filteredAddresses.length === 0 ? (
-                <tr>
-                  <td colSpan={14} style={{ padding: 36, textAlign: 'center', color: '#64748b' }}>
-                    Keine Objekte gefunden. Ziehen Sie oben ein PDF in den Import oder klicken Sie auf{' '}
-                    <strong style={{ color: '#FF6B00' }}>„+ New“</strong>.
-                  </td>
-                </tr>
-              ) : (
-                filteredAddresses.map((addr) => {
-                  const commentsCount = (addr.comments || []).length;
-                  const lastCommentObj = commentsCount > 0 ? addr.comments[0] : null;
-                  const bStatus = addr.building_status || 'Ausbau terminiert';
-                  const canonicalCity = normalizeGemeinde(addr.ort, addr.plz) || addr.ort;
-                  const pillStyle = BUILDING_STATUS_PILL[bStatus] || BUILDING_STATUS_PILL.Offen;
-
-                  return (
-                    <tr
-                      key={addr.id}
-                      onClick={() => setSelectedBuildingId(addr.id)}
+                return (
+                  <div
+                    key={addr.id}
+                    style={{
+                      border: `1px solid ${addr.is_priority ? '#fde047' : '#e2e8f0'}`,
+                      borderRadius: 8,
+                      overflow: 'hidden',
+                      background: '#fff',
+                    }}
+                  >
+                    {/* Minimal Main Row (Important Infos Only) */}
+                    <div
+                      onClick={() => toggleObjectExpanded(addr.id)}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          toggleObjectExpanded(addr.id);
+                        }
+                      }}
                       style={{
-                        borderBottom: '1px solid #f1f5f9',
+                        padding: '8px 12px',
+                        background: isOpen ? '#f8fafc' : '#ffffff',
+                        borderBottom: isOpen ? '1px solid #e2e8f0' : '1px solid transparent',
+                        transition: 'background 0.2s ease, border-color 0.2s ease',
+                        display: 'grid',
+                        gridTemplateColumns: '24px minmax(110px, 0.9fr) minmax(190px, 1.8fr) minmax(150px, 1.1fr) minmax(110px, 0.8fr) auto auto',
+                        alignItems: 'center',
+                        gap: 10,
                         cursor: 'pointer',
-                        transition: 'background 140ms ease',
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.background = '#f8fafc';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.background = 'transparent';
+                        userSelect: 'none',
                       }}
                     >
                       {/* ★ Priority */}
-                      <td
-                        style={{ padding: '9px 8px', textAlign: 'center' }}
+                      <div
                         onClick={(e) => {
                           e.stopPropagation();
                           handlePatchBuilding(addr.id, { is_priority: !addr.is_priority });
                         }}
+                        style={{ display: 'flex', justifyContent: 'center', cursor: 'pointer' }}
+                        title="Priorität umschalten"
                       >
                         <Star
                           size={15}
                           style={{ color: addr.is_priority ? '#eab308' : '#cbd5e1' }}
                           fill={addr.is_priority ? '#eab308' : 'none'}
                         />
-                      </td>
+                      </div>
 
-                      {/* Projekt + Adress-ID + WE-Nr (Never fabricated if empty!) */}
-                      <td style={{ padding: '9px 10px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 2 }}>
-                          <span
-                            style={{
-                              fontSize: 9.5,
-                              fontWeight: 700,
-                              padding: '1px 5px',
-                              borderRadius: 4,
-                              background: '#f3e8ff',
-                              color: '#6b21a8',
-                              border: '1px solid #d8b4fe',
-                            }}
-                          >
-                            {addr.project_name || 'UGG'}
-                          </span>
-                          <span
-                            style={{
-                              fontFamily: 'monospace',
-                              fontWeight: 700,
-                              color: addr.adress_id ? '#1d4ed8' : '#94a3b8',
-                              fontSize: 12,
-                            }}
-                            title={addr.adress_id ? 'Adress-ID' : 'Keine Adress-ID im PDF — im Gebäude-Detail eintragbar'}
-                          >
-                            {addr.adress_id || '—'}
-                          </span>
+                      {/* Projekt + Adress-ID */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
+                        <span
+                          style={{
+                            fontSize: 9.5,
+                            fontWeight: 700,
+                            padding: '1px 5px',
+                            borderRadius: 4,
+                            background: '#f3e8ff',
+                            color: '#6b21a8',
+                            border: '1px solid #d8b4fe',
+                            flexShrink: 0,
+                          }}
+                        >
+                          {addr.project_name || 'UGG'}
+                        </span>
+                        <span
+                          style={{
+                            fontFamily: 'monospace',
+                            fontWeight: 700,
+                            color: addr.adress_id ? '#1d4ed8' : '#94a3b8',
+                            fontSize: 12,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
+                          title={addr.adress_id || 'Keine Adress-ID'}
+                        >
+                          {addr.adress_id || '—'}
+                        </span>
+                      </div>
+
+                      {/* Address: Straße Hausnummer · PLZ Gemeinde */}
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontWeight: 700, fontSize: 12.5, color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {addr.strasse} {addr.hausnummer}
                         </div>
-                        <div style={{ fontSize: 10.5, color: '#64748b', fontFamily: 'monospace' }}>
-                          {addr.projektnummer}
+                        <div style={{ fontSize: 11, color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {addr.plz ? `${addr.plz} ` : ''}{canonicalCity}
+                          {addr.ausbautermin ? ` · Termin: ${addr.ausbautermin}` : ''}
                         </div>
-                        {lastCommentObj?.text && (
-                          <div
-                            style={{
-                              marginTop: 2,
-                              fontSize: 10,
-                              color: '#b45309',
-                              background: '#fffbeb',
-                              border: '1px solid #fde68a',
-                              padding: '1px 5px',
-                              borderRadius: 4,
-                              maxWidth: 195,
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              whiteSpace: 'nowrap',
-                            }}
-                            title={`Letzter Kommentar (${lastCommentObj.author || 'Team'}): ${lastCommentObj.text}`}
-                          >
-                            💬 {lastCommentObj.text}
-                          </div>
-                        )}
-                      </td>
+                      </div>
 
-                      {/* Normalized Single-City Gemeinde */}
-                      <td style={{ padding: '9px 10px', fontWeight: 600, color: '#0f172a' }}>
-                        <div>{canonicalCity}</div>
-                        <div style={{ fontSize: 10.5, color: '#64748b', fontWeight: 400 }}>{addr.plz}</div>
-                      </td>
-
-                      {/* Straße */}
-                      <td style={{ padding: '9px 10px', color: '#0f172a', fontWeight: 500 }}>
-                        {addr.strasse}
-                      </td>
-
-                      {/* Haus */}
-                      <td style={{ padding: '9px 8px', textAlign: 'center', fontWeight: 700, color: '#0f172a' }}>
-                        {addr.hausnummer}
-                      </td>
-
-                      {/* Percent Line (Completion % + X/Y TA · Reserve · Ohne) */}
-                      <td style={{ padding: '9px 10px' }}>
+                      {/* Progress */}
+                      <div style={{ minWidth: 0 }}>
                         <PercentLine addr={addr} compact />
-                      </td>
+                      </div>
 
-                      {/* Ausbau-Typ */}
-                      <td style={{ padding: '9px 10px' }} onClick={(e) => e.stopPropagation()}>
-                        <select
-                          value={addr.ausbau_typ || 'Metalkanal'}
-                          onChange={(e) =>
-                            handlePatchBuilding(addr.id, { ausbau_typ: e.target.value })
-                          }
-                          style={{
-                            padding: '4px 7px',
-                            borderRadius: 6,
-                            fontSize: 11.5,
-                            fontWeight: 600,
-                            background: '#eff6ff',
-                            color: '#1e40af',
-                            border: '1px solid #bfdbfe',
-                            width: 'auto',
-                          }}
-                        >
-                          {AUSBAU_TYP_OPTIONS.map((opt) => (
-                            <option key={opt} value={opt}>
-                              {opt}
-                            </option>
-                          ))}
-                        </select>
-                      </td>
+                      {/* Team */}
+                      <div style={{ fontSize: 11.5, fontWeight: 600, color: addr.team ? '#334155' : '#94a3b8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {addr.team || '— Kein Team —'}
+                      </div>
 
-                      {/* Team (Selective from Projects & Objects Field Teams) */}
-                      <td style={{ padding: '9px 10px' }} onClick={(e) => e.stopPropagation()}>
-                        <select
-                          value={addr.team || ''}
-                          onChange={(e) => handlePatchBuilding(addr.id, { team: e.target.value })}
+                      {/* Status Pill */}
+                      <div>
+                        <span
                           style={{
-                            padding: '4px 7px',
-                            borderRadius: 6,
-                            fontSize: 11.5,
-                            fontWeight: 600,
-                            background: '#f8fafc',
-                            color: '#334155',
-                            border: '1px solid #cbd5e1',
-                            width: 'auto',
-                            minWidth: 120,
-                          }}
-                        >
-                          <option value="">— Team —</option>
-                          {filterOptions.teams.map((tName) => (
-                            <option key={tName} value={tName}>
-                              {tName}
-                            </option>
-                          ))}
-                        </select>
-                      </td>
-
-                      {/* Status */}
-                      <td style={{ padding: '9px 10px' }} onClick={(e) => e.stopPropagation()}>
-                        <select
-                          value={bStatus}
-                          onChange={(e) =>
-                            handlePatchBuilding(addr.id, { building_status: e.target.value })
-                          }
-                          style={{
-                            padding: '4px 8px',
+                            padding: '3px 9px',
                             borderRadius: 999,
                             fontSize: 11,
                             fontWeight: 700,
-                            width: 'auto',
+                            whiteSpace: 'nowrap',
+                            display: 'inline-block',
                             ...pillStyle,
                           }}
                         >
-                          {BUILDING_STATUS_OPTIONS.map((st) => (
-                            <option key={st} value={st}>
-                              {st}
-                            </option>
-                          ))}
-                        </select>
-                      </td>
+                          {bStatus}
+                        </span>
+                      </div>
 
-                      {/* Ausbau Datum (Modern Minimal Calendar DD.MM.YYYY) */}
-                      <td style={{ padding: '9px 8px' }} onClick={(e) => e.stopPropagation()}>
-                        <MinimalDatePicker
-                          value={addr.ausbautermin}
-                          onChange={(val) => handlePatchBuilding(addr.id, { ausbautermin: val })}
-                          compact
-                        />
-                      </td>
-
-                      {/* Abgeschlossen Datum (Modern Minimal Calendar DD.MM.YYYY) */}
-                      <td style={{ padding: '9px 8px' }} onClick={(e) => e.stopPropagation()}>
-                        <MinimalDatePicker
-                          value={addr.abgeschlossen_datum}
-                          onChange={(val) =>
-                            handlePatchBuilding(addr.id, { abgeschlossen_datum: val })
-                          }
-                          compact
-                        />
-                      </td>
-
-                      {/* Restarbeit Termin (Modern Minimal Calendar DD.MM.YYYY) */}
-                      <td style={{ padding: '9px 8px' }} onClick={(e) => e.stopPropagation()}>
-                        <MinimalDatePicker
-                          value={addr.restarbeit_termin}
-                          onChange={(val) =>
-                            handlePatchBuilding(addr.id, { restarbeit_termin: val })
-                          }
-                          compact
-                        />
-                      </td>
-
-                      {/* Whole-Building Checks Mini Badges (Includes Metalkanal + Fotos Uploaded) */}
-                      <td style={{ padding: '9px 10px' }} onClick={(e) => e.stopPropagation()}>
-                        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', maxWidth: 235 }}>
-                          {BUILDING_CHECK_ITEMS.map((b) => {
-                            const on = Boolean(addr[b.key]);
-                            return (
-                              <button
-                                key={b.key}
-                                type="button"
-                                onClick={() =>
-                                  handlePatchBuilding(addr.id, { [b.key]: !on })
-                                }
-                                title={`${b.label}: ${on ? 'Ja' : 'Nein'}`}
-                                style={{
-                                  padding: '2px 6px',
-                                  fontSize: 10,
-                                  fontWeight: 700,
-                                  borderRadius: 5,
-                                  cursor: 'pointer',
-                                  border: on ? `1px solid ${b.color}` : '1px solid #cbd5e1',
-                                  background: on ? b.bg : '#ffffff',
-                                  color: on ? b.color : '#64748b',
-                                }}
-                              >
-                                {b.short}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </td>
-
-                      {/* Aktionen */}
-                      <td
-                        style={{ padding: '9px 12px', textAlign: 'right', whiteSpace: 'nowrap' }}
+                      {/* Quick Actions */}
+                      <div
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}
                         onClick={(e) => e.stopPropagation()}
                       >
-                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                          <button
-                            type="button"
-                            onClick={() => setSelectedBuildingId(addr.id)}
-                            title="Gebäude öffnen"
-                            style={{
-                              width: 28,
-                              height: 28,
-                              borderRadius: 6,
-                              background: '#f8fafc',
-                              border: '1px solid #cbd5e1',
-                              color: '#334155',
-                              display: 'grid',
-                              placeItems: 'center',
-                              cursor: 'pointer',
-                            }}
-                          >
-                            <Eye size={13} />
-                          </button>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedBuildingId(addr.id)}
+                          title="Gebäude-Detail öffnen"
+                          style={{
+                            width: 26,
+                            height: 26,
+                            borderRadius: 6,
+                            background: '#f8fafc',
+                            border: '1px solid #cbd5e1',
+                            color: '#334155',
+                            display: 'grid',
+                            placeItems: 'center',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <Eye size={13} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setQuickCommentBuilding(addr);
+                            setQuickCommentText('');
+                          }}
+                          title="Kommentare & Updates"
+                          style={{
+                            position: 'relative',
+                            width: 26,
+                            height: 26,
+                            borderRadius: 6,
+                            background: '#f8fafc',
+                            border: '1px solid #cbd5e1',
+                            color: '#334155',
+                            display: 'grid',
+                            placeItems: 'center',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <MessageSquare size={13} />
+                          {commentsCount > 0 && (
+                            <span
+                              style={{
+                                position: 'absolute',
+                                top: -5,
+                                right: -5,
+                                minWidth: 14,
+                                height: 14,
+                                padding: '0 3px',
+                                borderRadius: 999,
+                                background: '#FF6B00',
+                                color: '#fff',
+                                fontSize: 9,
+                                fontWeight: 700,
+                                display: 'grid',
+                                placeItems: 'center',
+                              }}
+                            >
+                              {commentsCount}
+                            </span>
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setQuickPdfBuilding(addr)}
+                          title={addr.has_pdf ? `PDF (${addr.pdf_filename || 'PDF'})` : 'PDF hochladen'}
+                          style={{
+                            width: 26,
+                            height: 26,
+                            borderRadius: 6,
+                            background: addr.has_pdf ? '#dcfce7' : '#f8fafc',
+                            border: addr.has_pdf ? '1px solid #86efac' : '1px solid #cbd5e1',
+                            color: addr.has_pdf ? '#15803d' : '#64748b',
+                            display: 'grid',
+                            placeItems: 'center',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <FileText size={13} />
+                        </button>
+                      </div>
+                    </div>
 
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setQuickCommentBuilding(addr);
-                              setQuickCommentText('');
-                            }}
-                            title="Kommentare & Updates"
+                    {/* Smooth Animated Expanding Details Drawer */}
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateRows: isOpen ? '1fr' : '0fr',
+                        opacity: isOpen ? 1 : 0,
+                        transition: 'grid-template-rows 0.24s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.2s ease',
+                      }}
+                    >
+                      <div style={{ overflow: 'hidden', minHeight: 0 }}>
+                        <div
+                          style={{
+                            padding: '10px 14px',
+                            background: '#f8fafc',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: 10,
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {/* Editable Controls Grid */}
+                          <div
                             style={{
-                              position: 'relative',
-                              width: 28,
-                              height: 28,
-                              borderRadius: 6,
-                              background: '#f8fafc',
-                              border: '1px solid #cbd5e1',
-                              color: '#334155',
                               display: 'grid',
-                              placeItems: 'center',
-                              cursor: 'pointer',
+                              gridTemplateColumns: 'repeat(auto-fit, minmax(145px, 1fr))',
+                              gap: 10,
+                              alignItems: 'end',
                             }}
                           >
-                            <MessageSquare size={13} />
-                            {commentsCount > 0 && (
-                              <span
-                                style={{
-                                  position: 'absolute',
-                                  top: -5,
-                                  right: -5,
-                                  minWidth: 15,
-                                  height: 15,
-                                  padding: '0 3px',
-                                  borderRadius: 999,
-                                  background: '#FF6B00',
-                                  color: '#fff',
-                                  fontSize: 9.5,
-                                  fontWeight: 700,
-                                  display: 'grid',
-                                  placeItems: 'center',
-                                }}
+                            <div>
+                              <div style={{ fontSize: 10, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: 3 }}>
+                                WE-Nr. / Projekt-Nr.
+                              </div>
+                              <div style={{ fontSize: 12, fontFamily: 'monospace', fontWeight: 600, color: '#0f172a', padding: '5px 8px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: 6 }}>
+                                {addr.projektnummer || '—'}
+                              </div>
+                            </div>
+
+                            <div>
+                              <div style={{ fontSize: 10, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: 3 }}>
+                                Ausbau-Typ
+                              </div>
+                              <select
+                                value={addr.ausbau_typ || 'Metalkanal'}
+                                onChange={(e) => handlePatchBuilding(addr.id, { ausbau_typ: e.target.value })}
+                                style={{ padding: '5px 8px', borderRadius: 6, fontSize: 11.5, fontWeight: 600, background: '#fff', color: '#1e40af', border: '1px solid #bfdbfe', width: '100%' }}
                               >
-                                {commentsCount}
-                              </span>
-                            )}
-                          </button>
+                                {AUSBAU_TYP_OPTIONS.map((opt) => (
+                                  <option key={opt} value={opt}>{opt}</option>
+                                ))}
+                              </select>
+                            </div>
 
-                          <button
-                            type="button"
-                            onClick={() => setQuickPdfBuilding(addr)}
-                            title={
-                              addr.has_pdf
-                                ? `PDF ansehen / herunterladen (${addr.pdf_filename || 'PDF'})`
-                                : 'PDF für dieses Gebäude hochladen'
-                            }
-                            style={{
-                              width: 28,
-                              height: 28,
-                              borderRadius: 6,
-                              background: addr.has_pdf ? '#dcfce7' : '#f8fafc',
-                              border: addr.has_pdf ? '1px solid #86efac' : '1px solid #cbd5e1',
-                              color: addr.has_pdf ? '#15803d' : '#64748b',
-                              display: 'grid',
-                              placeItems: 'center',
-                              cursor: 'pointer',
-                            }}
-                          >
-                            <FileText size={13} />
-                          </button>
+                            <div>
+                              <div style={{ fontSize: 10, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: 3 }}>
+                                Ausbau Team
+                              </div>
+                              <select
+                                value={addr.team || ''}
+                                onChange={(e) => handlePatchBuilding(addr.id, { team: e.target.value })}
+                                style={{ padding: '5px 8px', borderRadius: 6, fontSize: 11.5, fontWeight: 600, background: '#fff', color: '#334155', border: '1px solid #cbd5e1', width: '100%' }}
+                              >
+                                <option value="">— Team —</option>
+                                {filterOptions.teams.map((tName) => (
+                                  <option key={tName} value={tName}>{tName}</option>
+                                ))}
+                              </select>
+                            </div>
+
+                            <div>
+                              <div style={{ fontSize: 10, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: 3 }}>
+                                Gebäude-Status
+                              </div>
+                              <select
+                                value={bStatus}
+                                onChange={(e) => handlePatchBuilding(addr.id, { building_status: e.target.value })}
+                                style={{ padding: '5px 8px', borderRadius: 6, fontSize: 11.5, fontWeight: 700, width: '100%', ...pillStyle }}
+                              >
+                                {BUILDING_STATUS_OPTIONS.map((st) => (
+                                  <option key={st} value={st}>{st}</option>
+                                ))}
+                              </select>
+                            </div>
+
+                            <div>
+                              <div style={{ fontSize: 10, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: 3 }}>
+                                Ausbau Datum
+                              </div>
+                              <MinimalDatePicker
+                                value={addr.ausbautermin}
+                                onChange={(val) => handlePatchBuilding(addr.id, { ausbautermin: val })}
+                                compact
+                              />
+                            </div>
+
+                            <div>
+                              <div style={{ fontSize: 10, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: 3 }}>
+                                Abgeschlossen
+                              </div>
+                              <MinimalDatePicker
+                                value={addr.abgeschlossen_datum}
+                                onChange={(val) => handlePatchBuilding(addr.id, { abgeschlossen_datum: val })}
+                                compact
+                              />
+                            </div>
+
+                            <div>
+                              <div style={{ fontSize: 10, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: 3 }}>
+                                Restarbeit Termin
+                              </div>
+                              <MinimalDatePicker
+                                value={addr.restarbeit_termin}
+                                onChange={(val) => handlePatchBuilding(addr.id, { restarbeit_termin: val })}
+                                compact
+                              />
+                            </div>
+                          </div>
+
+                          {/* Checklist + Last Comment + Open Detail */}
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, paddingTop: 6, borderTop: '1px solid #e2e8f0' }}>
+                            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
+                              <span style={{ fontSize: 10.5, fontWeight: 700, color: '#64748b', marginRight: 4 }}>Checkliste:</span>
+                              {BUILDING_CHECK_ITEMS.map((b) => {
+                                const on = Boolean(addr[b.key]);
+                                return (
+                                  <button
+                                    key={b.key}
+                                    type="button"
+                                    onClick={() => handlePatchBuilding(addr.id, { [b.key]: !on })}
+                                    title={`${b.label}: ${on ? 'Ja' : 'Nein'}`}
+                                    style={{
+                                      padding: '2px 7px',
+                                      fontSize: 10.5,
+                                      fontWeight: 700,
+                                      borderRadius: 5,
+                                      cursor: 'pointer',
+                                      border: on ? `1px solid ${b.color}` : '1px solid #cbd5e1',
+                                      background: on ? b.bg : '#ffffff',
+                                      color: on ? b.color : '#64748b',
+                                    }}
+                                  >
+                                    {b.short}
+                                  </button>
+                                );
+                              })}
+                              {lastCommentObj?.text && (
+                                <span
+                                  style={{
+                                    marginLeft: 6,
+                                    fontSize: 11,
+                                    color: '#b45309',
+                                    background: '#fffbeb',
+                                    border: '1px solid #fde68a',
+                                    padding: '2px 7px',
+                                    borderRadius: 5,
+                                    maxWidth: 260,
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    whiteSpace: 'nowrap',
+                                  }}
+                                  title={`Letzter Kommentar (${lastCommentObj.author || 'Team'}): ${lastCommentObj.text}`}
+                                >
+                                  💬 {lastCommentObj.text}
+                                </span>
+                              )}
+                            </div>
+
+                            <button
+                              type="button"
+                              className="btn-primary btn-sm"
+                              style={{ fontSize: 11.5, padding: '4px 10px', fontWeight: 700 }}
+                              onClick={() => setSelectedBuildingId(addr.id)}
+                            >
+                              Detailansicht öffnen →
+                            </button>
+                          </div>
                         </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* MOBILE RESPONSIVE BUILDING CARDS (Light Mode) */}
