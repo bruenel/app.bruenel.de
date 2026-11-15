@@ -186,74 +186,57 @@ export function generateContractHtml(code, emp, cond) {
 
         <h3 style="font-size:10pt;font-weight:700;margin:12px 0 4px 0;">§ 1 Beginn und Dauer des Arbeitsverhältnisses</h3>
         <p style="margin:0 0 8px 0;text-align:justify;">
-          Das Arbeitsverhältnis beginnt am <strong>${startDate}</strong> und wird auf unbestimmte Zeit (unbefristet) geschlossen.
+          Das Arbeitsverhältnis beginnt am <strong>${startDate}</strong> und wird unbefristet geschlossen.
         </p>
 
         <h3 style="font-size:10pt;font-weight:700;margin:12px 0 4px 0;">§ 2 Probezeit und Kündigung</h3>
-        <ol style="margin:0 0 8px 0;padding-left:18px;text-align:justify;">
-          <li style="margin-bottom:4px;">Die ersten <strong>${probezeitMonths} Monate</strong> (bis zum <strong>${probezeitEnd}</strong>) gelten als Probezeit. Während der Probezeit kann das Arbeitsverhältnis von beiden Seiten mit einer Frist von zwei Wochen zu jedem beliebigen Tag gekündigt werden (§ 622 Abs. 3 BGB).</li>
-          <li style="margin-bottom:4px;">Nach Ablauf der Probezeit gilt eine Kündigungsfrist von vier Wochen zum Fünfzehnten oder zum Ende eines Kalendermonats. Verlängert sich die Kündigungsfrist für den Arbeitgeber aus tariflichen oder gesetzlichen Gründen (insb. § 622 Abs. 2 BGB), gilt diese verlängerte Frist in gleicher Weise auch für eine Kündigung durch den Arbeitnehmer (Gleichstellungsklausel).</li>
-          <li style="margin-bottom:4px;">Jede Kündigung bedarf zu ihrer Wirksamkeit der Schriftform; die elektronische Form ist ausgeschlossen.</li>
-          <li style="margin-bottom:4px;">Der Arbeitgeber ist berechtigt, den Arbeitnehmer nach Ausspruch einer Kündigung unter Fortzahlung der Vergütung und unter Anrechnung auf etwaige Urlaubs- und Freizeitausgleichsansprüche widerruflich oder unwiderruflich von der Arbeitsleistung freizustellen.</li>
-        </ol>
+        <p style="margin:0 0 4px 0;text-align:justify;">(1) Die ersten ${probezeitMonths === 6 ? 'sechs' : probezeitMonths} Monate der Beschäftigung gelten als Probezeit. Während der Probezeit kann das Arbeitsverhältnis beiderseits mit einer Frist von zwei Wochen gekündigt werden.</p>
+        <p style="margin:0 0 4px 0;text-align:justify;">(2) Nach Ablauf der Probezeit kann das Arbeitsverhältnis von beiden Seiten mit einer Frist von vier Wochen zum Fünfzehnten oder zum Ende eines Kalendermonats gekündigt werden. Verlängern sich die Kündigungsfristen für den Arbeitgeber aufgrund gesetzlicher Bestimmungen (§ 622 Abs. 2 BGB), gelten diese verlängerten Fristen in gleicher Weise auch für eine Kündigung durch den Arbeitnehmer.</p>
+        <p style="margin:0 0 8px 0;text-align:justify;">(3) Jede Kündigung bedarf zu ihrer Wirksamkeit der Schriftform. Das Recht zur außerordentlichen Kündigung aus wichtigem Grund bleibt unberührt.</p>
 
         <h3 style="font-size:10pt;font-weight:700;margin:12px 0 4px 0;">§ 3 Tätigkeit, Versetzungsvorbehalt und Reisebereitschaft</h3>
-        <ol style="margin:0 0 8px 0;padding-left:18px;text-align:justify;">
-          <li style="margin-bottom:4px;">Der Arbeitnehmer wird als <strong>„${roleTitle}“</strong> eingestellt. Zu seinen Aufgaben gehören insbesondere die Planung, Steuerung, Koordination und Überwachung von IT- und Infrastrukturprojekten sowie die Führung von Projektteams und die Kommunikation mit Auftraggebern und Nachunternehmern.</li>
-          <li style="margin-bottom:4px;">Der Arbeitgeber behält sich vor, dem Arbeitnehmer innerhalb des Unternehmens eine andere, seinen Vorkenntnissen und Fähigkeiten entsprechende, gleichwertige und zumutbare Tätigkeit zuzuweisen.</li>
-          <li style="margin-bottom:4px;">Aufgrund der Natur der Projektarbeit hat der Arbeitnehmer keinen festen, ausschließlichen Arbeitsort. Er erklärt sich ausdrücklich bereit, im Rahmen seiner Tätigkeit <strong>deutschlandweit</strong> Dienstreisen zu unternehmen und vor Ort auf den jeweiligen Projektbaustellen bzw. bei Kunden tätig zu sein.</li>
-        </ol>
+        <p style="margin:0 0 4px 0;text-align:justify;">(1) Der Arbeitnehmer wird als <strong>${roleTitle}</strong> eingestellt.</p>
+        <p style="margin:0 0 4px 0;text-align:justify;">(2) Das Aufgabengebiet des Arbeitnehmers umfasst die flexible Mitwirkung an diversen IT- und Infrastrukturprojekten des Arbeitgebers. Die konkreten Einzelaufgaben richten sich nach dem jeweiligen Projektbedarf. Der Arbeitgeber behält sich ausdrücklich vor, den Arbeitnehmer nach Abschluss eines Projekts nahtlos in anderen Projekten des Unternehmens einzusetzen.</p>
+        <p style="margin:0 0 4px 0;text-align:justify;">(3) Die Tätigkeit erfordert wechselnde Einsatzorte. Der Arbeitnehmer erklärt sich mit der branchenüblichen Reisetätigkeit ausdrücklich einverstanden. Nach vorheriger Absprache und mit ausdrücklicher Zustimmung des Arbeitnehmers kann der Arbeitgeber den Arbeitnehmer an verschiedenen Standorten innerhalb Deutschlands einsetzen.</p>
+        <p style="margin:0 0 8px 0;text-align:justify;">(4) Der Arbeitgeber behält sich zudem vor, dem Arbeitnehmer unter Wahrung der Interessen des Arbeitnehmers eine andere, gleichwertige und zumutbare Tätigkeit zuzuweisen, sofern dies aus betrieblichen Gründen erforderlich ist.</p>
 
         <h3 style="font-size:10pt;font-weight:700;margin:12px 0 4px 0;">§ 4 Arbeitszeit</h3>
-        <ol style="margin:0 0 8px 0;padding-left:18px;text-align:justify;">
-          <li style="margin-bottom:4px;">Die regelmäßige wöchentliche Arbeitszeit beträgt <strong>${weeklyHours} Stunden</strong> (ohne Pausen).</li>
-          <li style="margin-bottom:4px;">Die Verteilung der Arbeitszeit sowie Beginn und Ende der täglichen Arbeitszeit und der Pausen richten sich nach den betrieblichen Erfordernissen und den Anforderungen der jeweiligen Projekte.</li>
-          <li style="margin-bottom:4px;">Der Arbeitnehmer ist verpflichtet, bei betrieblichem Bedarf im gesetzlich zulässigen Rahmen (Arbeitszeitgesetz) Überstunden und Mehrarbeit zu leisten.</li>
-        </ol>
+        <p style="margin:0 0 8px 0;text-align:justify;">
+          Die regelmäßige wöchentliche Arbeitszeit beträgt <strong>${weeklyHours} Stunden</strong>. Beginn und Ende der täglichen Arbeitszeit sowie die Pausen richten sich nach den betrieblichen Erfordernissen und Vorgaben des Arbeitgebers.
+        </p>
 
         <h3 style="font-size:10pt;font-weight:700;margin:12px 0 4px 0;">§ 5 Vergütung und Überstunden</h3>
-        <ol style="margin:0 0 8px 0;padding-left:18px;text-align:justify;">
-          <li style="margin-bottom:4px;">Der Arbeitnehmer erhält ein monatliches Bruttogehalt in Höhe von <strong>${grossSalary} EUR</strong>.</li>
-          <li style="margin-bottom:4px;">Die Vergütung ist jeweils am <strong>15. des Folgemonats</strong> fällig und wird bargeldlos auf das vom Arbeitnehmer benannte Konto überwiesen.</li>
-          <li style="margin-bottom:4px;">Überstunden werden nur berücksichtigt, wenn sie vom Arbeitgeber zuvor ausdrücklich angeordnet oder nachträglich genehmigt wurden. Geleistete und genehmigte Überstunden werden nach Wahl des Arbeitgebers entweder durch bezahlten Freizeitausgleich oder durch gesonderte Vergütung (berechnet auf Basis des individuellen Stundenlohns) abgegolten.</li>
-          <li style="margin-bottom:4px;">Die Gewährung von sonstigen Leistungen (z.B. Boni, Prämien, Weihnachtsgeld) erfolgt stets freiwillig und mit der Maßgabe, dass auch bei wiederholter Zahlung kein Rechtsanspruch für die Zukunft begründet wird (Freiwilligkeitsvorbehalt).</li>
-        </ol>
+        <p style="margin:0 0 4px 0;text-align:justify;">(1) Der Arbeitnehmer erhält ein monatliches Bruttogehalt in Höhe von <strong>${grossSalary} EUR</strong>. Die Auszahlung der Vergütung erfolgt jeweils am 15. des auf den Abrechnungsmonat folgenden Kalendermonats (Folgemonat). Fällt der 15. auf einen Samstag, Sonntag oder gesetzlichen Feiertag, so erfolgt die Auszahlung am vorhergehenden Bankarbeitstag.</p>
+        <p style="margin:0 0 8px 0;text-align:justify;">(2) Überstunden werden nur auf ausdrückliche, vorherige Anordnung des Arbeitgebers geleistet. Sämtliche geleisteten und angeordneten Überstunden werden nach Wahl des Arbeitgebers entweder durch entsprechende Freizeitgewährung ausgeglichen oder auf Basis des regulären Bruttomonatsgehalts anteilig vergütet.</p>
 
         <h3 style="font-size:10pt;font-weight:700;margin:12px 0 4px 0;">§ 6 Urlaub</h3>
-        <ol style="margin:0 0 8px 0;padding-left:18px;text-align:justify;">
-          <li style="margin-bottom:4px;">Der Arbeitnehmer hat bei einer 5-Tage-Woche Anspruch auf einen gesetzlichen Mindesturlaub von <strong>${statutoryLeave} Arbeitstagen</strong> pro Kalenderjahr.</li>
-          <li style="margin-bottom:4px;">Darüber hinaus gewährt der Arbeitgeber einen vertraglichen Zusatzurlaub von <strong>${extraLeave} Arbeitstagen</strong>. Somit beträgt der Gesamturlaubsanspruch insgesamt <strong>${totalLeave} Arbeitstage</strong> Urlaub pro Kalenderjahr.</li>
-          <li style="margin-bottom:4px;">Bei Eintritt oder Ausscheiden im Laufe eines Kalenderjahres wird der Urlaub anteilig gewährt (Zwölftelungsprinzip, unter Beachtung der gesetzlichen Mindestregelungen).</li>
-          <li style="margin-bottom:4px;">Der vertragliche Zusatzurlaub verfällt am 31. März des Folgejahres, auch wenn er wegen Arbeitsunfähigkeit nicht genommen werden konnte. Bei Beendigung des Arbeitsverhältnisses ist ein Anspruch auf Urlaubsabgeltung hinsichtlich des Zusatzurlaubs ausgeschlossen.</li>
-        </ol>
+        <p style="margin:0 0 4px 0;text-align:justify;">(1) Der Arbeitnehmer hat Anspruch auf einen gesetzlichen Mindesturlaub von <strong>${statutoryLeave} Arbeitstagen</strong> (bei einer 5-Tage-Woche). Darüber hinaus gewährt der Arbeitgeber einen vertraglichen Zusatzurlaub von <strong>${extraLeave} Arbeitstagen</strong>. Dem Arbeitnehmer stehen somit insgesamt <strong>${totalLeave} Arbeitstage</strong> Urlaub pro Kalenderjahr zu.</p>
+        <p style="margin:0 0 4px 0;text-align:justify;">(2) Bei der Gewährung von Urlaub wird zuerst der gesetzliche Urlaub eingebracht.</p>
+        <p style="margin:0 0 8px 0;text-align:justify;">(3) Der vertragliche Zusatzurlaub verfällt spätestens am 31. März des Folgejahres, auch wenn er wegen Arbeitsunfähigkeit des Arbeitnehmers nicht genommen werden konnte. Für den gesetzlichen Urlaub gelten die gesetzlichen Verfallsfristen.</p>
 
         <h3 style="font-size:10pt;font-weight:700;margin:12px 0 4px 0;">§ 7 Arbeitsverhinderung und Krankheit</h3>
-        <ol style="margin:0 0 8px 0;padding-left:18px;text-align:justify;">
-          <li style="margin-bottom:4px;">Der Arbeitnehmer ist verpflichtet, dem Arbeitgeber jede Arbeitsverhinderung und ihre voraussichtliche Dauer <strong>unverzüglich</strong> (vor Arbeitsbeginn am ersten Tag der Verhinderung) telefonisch oder per E-Mail anzuzeigen.</li>
-          <li style="margin-bottom:4px;">Dauert eine Arbeitsunfähigkeit länger als drei Kalendertage, hat der Arbeitnehmer spätestens am darauffolgenden Arbeitstag (dem vierten Tag) eine ärztliche Bescheinigung über das Bestehen der Arbeitsunfähigkeit sowie deren voraussichtliche Dauer vorzulegen bzw. das Vorliegen zur elektronischen Abrufung (eAU) sicherzustellen.</li>
-          <li style="margin-bottom:4px;">Der Arbeitgeber ist berechtigt, die Vorlage der ärztlichen Bescheinigung / Meldung bereits ab dem <strong>ersten Tag</strong> der Erkrankung zu verlangen.</li>
-        </ol>
+        <p style="margin:0 0 8px 0;text-align:justify;">
+          Im Falle einer Arbeitsverhinderung infolge Krankheit hat der Arbeitnehmer den Arbeitgeber unverzüglich zu unterrichten. Dauert die Arbeitsunfähigkeit länger als drei Kalendertage, ist der Arbeitnehmer verpflichtet, spätestens an dem darauffolgenden Arbeitstag eine ärztliche Bescheinigung vorzulegen. Der Arbeitgeber ist berechtigt, diese Bescheinigung auch früher zu verlangen.
+        </p>
 
         <h3 style="font-size:10pt;font-weight:700;margin:12px 0 4px 0;">§ 8 Nebentätigkeit</h3>
         <p style="margin:0 0 8px 0;text-align:justify;">
-          Jede entgeltliche Nebentätigkeit sowie jede unentgeltliche Nebentätigkeit, die die Arbeitsleistung des Arbeitnehmers oder die Interessen des Arbeitgebers beeinträchtigen könnte, bedarf der vorherigen schriftlichen Zustimmung des Arbeitgebers. Der Arbeitnehmer verpflichtet sich, Änderungen einer genehmigten Nebentätigkeit unverzüglich anzuzeigen.
+          Jede entgeltliche oder das Arbeitsverhältnis beeinträchtigende unentgeltliche Nebentätigkeit bedarf der vorherigen schriftlichen Zustimmung des Arbeitgebers.
         </p>
 
         <h3 style="font-size:10pt;font-weight:700;margin:12px 0 4px 0;">§ 9 Verschwiegenheitspflicht</h3>
         <p style="margin:0 0 8px 0;text-align:justify;">
-          Der Arbeitnehmer verpflichtet sich, über alle Betriebs- und Geschäftsgeheimnisse sowie alle sonstigen vertraulichen Angelegenheiten des Arbeitgebers und dessen Kunden (insbesondere Preislisten, Kalkulationen, Projektdaten, Kundendaten), die ihm im Rahmen seiner Tätigkeit bekannt werden, sowohl während der Dauer des Arbeitsverhältnisses als auch nach dessen Beendigung strengstes Stillschweigen zu bewahren. Ergänzend gilt die als <strong>Anlage 1</strong> beigefügte gesonderte Vertraulichkeitsvereinbarung.
+          Der Arbeitnehmer verpflichtet sich, über alle betrieblichen Angelegenheiten, insbesondere Geschäfts- und Betriebsgeheimnisse, strengstes Stillschweigen zu bewahren. Dies gilt auch nach Beendigung des Arbeitsverhältnisses.
         </p>
 
         <h3 style="font-size:10pt;font-weight:700;margin:12px 0 4px 0;">§ 10 Vertragsstrafe</h3>
         <p style="margin:0 0 8px 0;text-align:justify;">
-          Tritt der Arbeitnehmer das Arbeitsverhältnis schuldhaft nicht an oder löst er das Arbeitsverhältnis vertragswidrig ohne Einhaltung der maßgeblichen Kündigungsfrist und ohne wichtigen Grund auf, so hat er an den Arbeitgeber eine Vertragsstrafe in Höhe eines halben Bruttomonatsgehalts zu zahlen. Während der Probezeit reduziert sich die Vertragsstrafe auf die Höhe der Vergütung, die der Arbeitnehmer während der zweiwöchigen Kündigungsfrist verdient hätte. Die Geltendmachung eines weitergehenden Schadens bleibt unberührt.
+          Tritt der Arbeitnehmer das Arbeitsverhältnis schuldhaft nicht an oder beendet er es vertragswidrig ohne Einhaltung der Kündigungsfrist, so hat er dem Arbeitgeber eine Vertragsstrafe in Höhe eines halben Bruttomonatsgehalts zu zahlen. Die Geltendmachung eines weitergehenden Schadens bleibt vorbehalten.
         </p>
 
         <h3 style="font-size:10pt;font-weight:700;margin:12px 0 4px 0;">§ 11 Schlussbestimmungen</h3>
-        <ol style="margin:0 0 12px 0;padding-left:18px;text-align:justify;">
-          <li style="margin-bottom:4px;">Mündliche Nebenabreden bestehen nicht. Änderungen oder Ergänzungen dieses Vertrages bedürfen zu ihrer Wirksamkeit der Text- oder Schriftform. Dies gilt auch für die Änderung dieser Klausel selbst, sofern es sich nicht um individuelle Vertragsabreden (§ 305b BGB) handelt.</li>
-          <li style="margin-bottom:4px;">Sollten einzelne Bestimmungen dieses Vertrages ganz oder teilweise unwirksam sein oder werden, so wird hierdurch die Gültigkeit der übrigen Bestimmungen nicht berührt.</li>
-        </ol>
+        <p style="margin:0 0 4px 0;text-align:justify;">(1) Änderungen, Ergänzungen und die Aufhebung dieses Vertrages bedürfen der Schriftform.</p>
+        <p style="margin:0 0 12px 0;text-align:justify;">(2) Sollten einzelne Bestimmungen dieses Vertrages unwirksam sein, bleibt der Vertrag im Übrigen wirksam.</p>
 
         <p style="margin:16px 0 24px 0;">Karben, den <strong>${signedDate}</strong></p>
 
