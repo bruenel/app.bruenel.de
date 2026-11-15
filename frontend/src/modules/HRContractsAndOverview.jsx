@@ -952,6 +952,17 @@ export const HRContractGeneratorView = ({
   const [onboardingEmailModal, setOnboardingEmailModal] = useState(null);
   const [sendingOnboardingEmpId, setSendingOnboardingEmpId] = useState(null);
   const [copiedOnboardingText, setCopiedOnboardingText] = useState(false);
+  const [showGeneratorModal, setShowGeneratorModal] = useState(Boolean(effectivePreselectedId));
+  const [contractsViewMode, setContractsViewMode] = useState('BOTH');
+
+  const openGeneratorForEmployee = (empId) => {
+    if (empId) {
+      setSelectedEmpId(empId);
+    } else if (!selectedEmpId && employees[0]?.id) {
+      setSelectedEmpId(employees[0].id);
+    }
+    setShowGeneratorModal(true);
+  };
 
   const [conditions, setConditions] = useState({
     salutation: 'Herr',
@@ -1310,22 +1321,29 @@ export const HRContractGeneratorView = ({
     }
   };
 
-  // Group contracts by employee for the Contracts Overview section
-  const groupedByEmployee = useMemo(() => {
+  // Filtered flat list of contracts
+  const filteredContractsList = useMemo(() => {
     const q = contractSearch.trim().toLowerCase();
-    const filtered = contractsList.filter((c) => {
+    return contractsList.filter((c) => {
       if (contractFilterEmpId !== 'ALL' && String(c.employee_id) !== String(contractFilterEmpId)) return false;
       if (contractFilterStatus === 'PENDING' && c.status !== 'Pending_Signature') return false;
       if (contractFilterStatus === 'SIGNED' && c.status !== 'Signed') return false;
+      if (contractFilterStatus === 'NONE') return false;
       if (q) {
         const hay = `${c.employee_name || ''} ${c.title || ''} ${c.contract_type || ''} ${c.employee_number || ''}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
     });
+  }, [contractsList, contractFilterEmpId, contractFilterStatus, contractSearch]);
 
+  // Group contracts by employee for the Contracts Overview section (separated for each Mitarbeiter)
+  const groupedByEmployee = useMemo(() => {
+    const q = contractSearch.trim().toLowerCase();
     const map = new Map();
-    for (const c of filtered) {
+
+    // First populate from filtered contracts
+    for (const c of filteredContractsList) {
       const eid = c.employee_id || 'unknown';
       if (!map.has(eid)) {
         const empObj = employees.find((e) => String(e.id) === String(eid));
@@ -1343,43 +1361,92 @@ export const HRContractGeneratorView = ({
       }
       map.get(eid).contracts.push(c);
     }
-    return Array.from(map.values());
-  }, [contractsList, employees, contractFilterEmpId, contractFilterStatus, contractSearch]);
+
+    // Also include registered employees so each Mitarbeiter has their own separated section
+    if (contractFilterStatus === 'ALL' || contractFilterStatus === 'NONE') {
+      for (const empObj of employees) {
+        if (contractFilterEmpId !== 'ALL' && String(empObj.id) !== String(contractFilterEmpId)) continue;
+        const empHasAnyContract = contractsList.some((c) => String(c.employee_id) === String(empObj.id));
+        if (contractFilterStatus === 'NONE' && empHasAnyContract) continue;
+        if (!map.has(empObj.id)) {
+          if (q) {
+            const hay = `${empObj.full_name || ''} ${empObj.employee_number || ''} ${empObj.role || ''} ${empObj.employment_type || ''}`.toLowerCase();
+            if (!hay.includes(q)) continue;
+          }
+          if (contractFilterStatus === 'ALL' && empHasAnyContract) continue;
+          map.set(empObj.id, {
+            employee_id: empObj.id,
+            employee_name: empObj.full_name || `${empObj.first_name || ''} ${empObj.last_name || ''}`.trim() || 'Mitarbeiter',
+            employee_number: empObj.employee_number || '—',
+            role: empObj.role || '—',
+            employment_type: empObj.employment_type || '—',
+            base_salary: empObj.base_salary || 0,
+            attributes: empObj.attributes || {},
+            empObj,
+            contracts: [],
+          });
+        }
+      }
+    }
+
+    return Array.from(map.values()).sort((a, b) => b.contracts.length - a.contracts.length);
+  }, [filteredContractsList, contractsList, employees, contractFilterEmpId, contractFilterStatus, contractSearch]);
 
   const pendingTotal = contractsList.filter((c) => c.status === 'Pending_Signature').length;
   const signedTotal = contractsList.filter((c) => c.status === 'Signed').length;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {/* Top Workflow Explanation & KPI Banner */}
-      <div className="glass-panel" style={{ padding: '14px 18px', borderRadius: 12, background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)', color: '#fff', border: '1px solid #334155' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      {/* Top Workflow Explanation, KPI Banner & Generate Contract Button */}
+      <div className="glass-panel" style={{ padding: '16px 20px', borderRadius: 12, background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)', color: '#fff', border: '1px solid #334155' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 14 }}>
+          <div style={{ flex: 1, minWidth: 280 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <span style={{ padding: '3px 9px', borderRadius: 6, background: '#FF6B00', color: '#fff', fontSize: 11, fontWeight: 800 }}>
                 ARBEITSRECHT &amp; DSGVO KONFORM
               </span>
-              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: '#fff' }}>
-                HR Vertragsgenerator &amp; Digitale Vertragsverwaltung (5 Vertragsmodule)
+              <h3 style={{ margin: 0, fontSize: 16.5, fontWeight: 800, color: '#fff' }}>
+                Vertragsübersicht &amp; HR Vertragsgenerator (5 Vertragsmodule)
               </h3>
             </div>
-            <p style={{ margin: '5px 0 0', fontSize: 12, color: '#cbd5e1', maxWidth: 880 }}>
-              <strong>Ablauf:</strong> 1. Mitarbeiter auswählen (oder neu mit KI-Dokumentenscan anlegen) → 2. Einen oder mehrere Verträge auswählen (inkl. Pflichtmodul 5: DSGVO-Datenschutzerklärung) → 3. Konditionen (Startdatum, Gehalt, Probezeit, Praktikum, Fahrzeug) prüfen &amp; Vertragstext frei anpassen → 4. Ausstellen &amp; als PDF speichern (Status: <em>Ausstehend / Nicht für Mitarbeiter sichtbar</em>) → 5. Nach Unterschrift PDF hochladen → Vertrag wird als <em>Abgeschlossen</em> markiert &amp; automatisch im Mitarbeiter-Portal unter Dokumente freigeschaltet!
+            <p style={{ margin: '6px 0 0', fontSize: 12, color: '#cbd5e1', maxWidth: 820 }}>
+              Übersicht aller Verträge und deren Status (<strong>Ausstehend</strong> vs. <strong>Unterschrieben / Abgeschlossen</strong>), getrennt nach Mitarbeiter sowie als Gesamtliste. Klicken Sie auf <strong>„+ Vertrag generieren“</strong>, um im internen Generator-Fenster neue Verträge für einen Mitarbeiter zu erstellen.
             </p>
           </div>
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
             <div style={{ padding: '8px 14px', borderRadius: 10, background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', textAlign: 'center' }}>
-              <div style={{ fontSize: 10.5, color: '#cbd5e1', fontWeight: 700 }}>AUSGESTELLT GESAMT</div>
+              <div style={{ fontSize: 10, color: '#cbd5e1', fontWeight: 700 }}>VERTRÄGE GESAMT</div>
               <div style={{ fontSize: 18, fontWeight: 800, color: '#fff' }}>{contractsList.length}</div>
             </div>
             <div style={{ padding: '8px 14px', borderRadius: 10, background: 'rgba(245,158,11,0.18)', border: '1px solid rgba(245,158,11,0.4)', textAlign: 'center' }}>
-              <div style={{ fontSize: 10.5, color: '#fde68a', fontWeight: 700 }}>AUSSTEHEND (INTERN)</div>
+              <div style={{ fontSize: 10, color: '#fde68a', fontWeight: 700 }}>AUSSTEHEND (INTERN)</div>
               <div style={{ fontSize: 18, fontWeight: 800, color: '#fbbf24' }}>{pendingTotal}</div>
             </div>
             <div style={{ padding: '8px 14px', borderRadius: 10, background: 'rgba(16,185,129,0.18)', border: '1px solid rgba(16,185,129,0.4)', textAlign: 'center' }}>
-              <div style={{ fontSize: 10.5, color: '#a7f3d0', fontWeight: 700 }}>UNTERSCHRIEBEN (AKTIV)</div>
+              <div style={{ fontSize: 10, color: '#a7f3d0', fontWeight: 700 }}>UNTERSCHRIEBEN (AKTIV)</div>
               <div style={{ fontSize: 18, fontWeight: 800, color: '#34d399' }}>{signedTotal}</div>
             </div>
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={() => openGeneratorForEmployee(selectedEmpId || employees[0]?.id)}
+              style={{
+                padding: '12px 18px',
+                fontSize: 13.5,
+                fontWeight: 800,
+                background: 'linear-gradient(135deg, #FF6B00 0%, #ea580c 100%)',
+                border: '1px solid #fb923c',
+                borderRadius: 10,
+                boxShadow: '0 8px 20px rgba(255,107,0,0.35)',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 8,
+                cursor: 'pointer',
+              }}
+            >
+              <Plus size={16} /> Vertrag generieren (Generate Contract)
+            </button>
           </div>
         </div>
       </div>
@@ -1417,783 +1484,1133 @@ export const HRContractGeneratorView = ({
       )}
 
       {/* =====================================================================
-          STEP 1 & STEP 2: SELECT MITARBEITER & MULTI-SELECT CONTRACT MODULES
+          FILTER, SEARCH & VIEW MODE TOOLBAR
          ===================================================================== */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.6fr', gap: 14 }}>
-        {/* STEP 1: Select Mitarbeiter */}
-        <div className="glass-panel" style={{ padding: 16, borderRadius: 12, background: '#fff', border: '1px solid #e2e8f0' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ width: 24, height: 24, borderRadius: 999, background: '#FF6B00', color: '#fff', fontWeight: 800, fontSize: 12, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>1</span>
-              <strong style={{ fontSize: 14, color: '#0f172a' }}>Mitarbeiter auswählen</strong>
-            </div>
-            {onOpenCreateEmployeeModal && (
-              <button type="button" className="btn-secondary btn-sm" onClick={onOpenCreateEmployeeModal} style={{ fontSize: 11.5, fontWeight: 700 }}>
-                <Plus size={12} /> Neuer Mitarbeiter (KI-Scan)
-              </button>
-            )}
-          </div>
+      <div className="glass-panel" style={{ padding: '12px 16px', borderRadius: 12, background: '#fff', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+          {[
+            { id: 'BOTH', label: '📋 Beide Ansichten (Nach Mitarbeiter & Gesamtliste)' },
+            { id: 'BY_EMPLOYEE', label: `👥 Getrennt nach Mitarbeiter (${groupedByEmployee.length})` },
+            { id: 'FLAT_LIST', label: `📄 Alle Verträge — Listenansicht (${filteredContractsList.length})` },
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setContractsViewMode(tab.id)}
+              style={{
+                padding: '7px 12px',
+                borderRadius: 8,
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: 'pointer',
+                border: contractsViewMode === tab.id ? '1.5px solid #FF6B00' : '1px solid #cbd5e1',
+                background: contractsViewMode === tab.id ? '#fff7ed' : '#f8fafc',
+                color: contractsViewMode === tab.id ? '#9a3412' : '#334155',
+              }}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
 
-          <label style={{ fontSize: 11.5, fontWeight: 700, color: '#475569' }}>Registrierter Mitarbeiter aus Datenbank *</label>
-          <select
-            value={selectedEmpId}
-            onChange={(e) => setSelectedEmpId(e.target.value)}
-            style={{ fontWeight: 700, fontSize: 13, marginBottom: 12, borderColor: '#FF6B00', background: '#fffbf7' }}
-          >
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          <input
+            placeholder="Suchen (Mitarbeiter, Vertrag, Typ)..."
+            value={contractSearch}
+            onChange={(e) => setContractSearch(e.target.value)}
+            style={{ width: 220, fontSize: 12 }}
+          />
+          <select value={contractFilterEmpId} onChange={(e) => setContractFilterEmpId(e.target.value)} style={{ width: 'auto', fontSize: 12 }}>
+            <option value="ALL">Alle Mitarbeiter ({employees.length})</option>
             {employees.map((e) => (
-              <option key={e.id} value={e.id}>
-                {e.full_name} ({e.employee_number || 'EMP'} · {e.role} · {e.employment_type})
-              </option>
+              <option key={e.id} value={e.id}>{e.full_name}</option>
             ))}
           </select>
-
-          {selectedEmp && (
-            <div style={{ padding: 12, borderRadius: 10, background: '#f8fafc', border: '1px solid #e2e8f0', fontSize: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <strong style={{ fontSize: 13.5, color: '#0f172a' }}>{selectedEmp.full_name}</strong>
-                <span style={{ padding: '2px 8px', borderRadius: 6, background: '#eff6ff', color: '#1d4ed8', fontWeight: 700, fontSize: 11 }}>
-                  {selectedEmp.employee_number}
-                </span>
-              </div>
-              <div style={{ color: '#475569' }}>
-                <strong>Portal-Login (@bruenel.de):</strong> <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#0f172a' }}>{selectedEmp.email || '—'}</span>
-              </div>
-              <div style={{ color: '#047857' }}>
-                <strong>Private E-Mail (Onboarding):</strong> <strong>{selectedEmp.attributes?.private_email || '— (Bitte eintragen)'}</strong>
-              </div>
-              <div style={{ color: '#475569' }}>
-                <strong>Adresse:</strong> {conditions.street || '—'}, {conditions.postal_code || '—'} {conditions.city || '—'}
-              </div>
-              <div style={{ color: '#475569' }}>
-                <strong>Position / Typ:</strong> {selectedEmp.role} · {selectedEmp.employment_type}
-              </div>
-              <div style={{ color: '#475569' }}>
-                <strong>Steuer-ID / SV-Nr.:</strong> {selectedEmp.attributes?.steuer_id || '—'} · {selectedEmp.attributes?.sozialversicherungsnummer || '—'}
-              </div>
-              <div style={{ display: 'flex', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
-                {effectiveOpenEmpModal && (
-                  <button type="button" className="btn-secondary btn-sm" style={{ fontSize: 11, padding: '4px 8px' }} onClick={() => effectiveOpenEmpModal(selectedEmp)}>
-                    <Edit3 size={11} /> Personalakte / Stammdaten bearbeiten
-                  </button>
-                )}
-                <button
-                  type="button"
-                  className="btn-secondary btn-sm"
-                  style={{ fontSize: 11, padding: '4px 8px', color: '#047857', borderColor: '#6ee7b7', background: '#ecfdf5', fontWeight: 700 }}
-                  onClick={() => handleTriggerOnboardingEmail(selectedEmp.id, false)}
-                  disabled={sendingOnboardingEmpId === selectedEmp.id}
-                >
-                  <Mail size={11} /> Willkommens-E-Mail &amp; App-Login
-                </button>
-              </div>
-            </div>
-          )}
+          <select value={contractFilterStatus} onChange={(e) => setContractFilterStatus(e.target.value)} style={{ width: 'auto', fontSize: 12 }}>
+            <option value="ALL">Status: Alle ({contractsList.length})</option>
+            <option value="PENDING">🟠 Ausstehend / Nicht unterschrieben ({pendingTotal})</option>
+            <option value="SIGNED">🟢 Unterschrieben / Abgeschlossen ({signedTotal})</option>
+            <option value="NONE">⚪ Mitarbeiter ohne Vertrag</option>
+          </select>
+          <button
+            type="button"
+            className="btn-primary btn-sm"
+            onClick={() => openGeneratorForEmployee(contractFilterEmpId !== 'ALL' ? contractFilterEmpId : selectedEmpId)}
+            style={{ fontWeight: 800, padding: '7px 13px', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+          >
+            <Plus size={14} /> Vertrag generieren
+          </button>
         </div>
+      </div>
 
-        {/* STEP 2: Multi-Select Contract Modules */}
+      {/* =====================================================================
+          SECTION A: ALL CONTRACTS FLAT LIST VIEW WITH STATUS
+         ===================================================================== */}
+      {(contractsViewMode === 'BOTH' || contractsViewMode === 'FLAT_LIST') && (
         <div className="glass-panel" style={{ padding: 16, borderRadius: 12, background: '#fff', border: '1px solid #e2e8f0' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ width: 24, height: 24, borderRadius: 999, background: '#FF6B00', color: '#fff', fontWeight: 800, fontSize: 12, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>2</span>
-              <strong style={{ fontSize: 14, color: '#0f172a' }}>Vertragsmodule auswählen (Mehrfachauswahl möglich)</strong>
-            </div>
-            <span style={{ fontSize: 11.5, fontWeight: 700, color: '#047857', background: '#ecfdf5', padding: '3px 9px', borderRadius: 999, border: '1px solid #6ee7b7' }}>
-              {selectedCodes.length} von 5 Modulen aktiv
-            </span>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 8 }}>
-            {CONTRACT_CATALOG.map((mod) => {
-              const IconComp = mod.icon;
-              const isSelected = selectedCodes.includes(mod.code) || mod.mandatory;
-              return (
-                <div
-                  key={mod.code}
-                  onClick={() => toggleContractCode(mod.code)}
-                  style={{
-                    padding: '10px 12px',
-                    borderRadius: 10,
-                    border: isSelected ? `2px solid ${mod.mandatory ? '#059669' : '#FF6B00'}` : '1px solid #e2e8f0',
-                    background: isSelected ? (mod.mandatory ? '#ecfdf5' : '#fff7ed') : '#ffffff',
-                    cursor: mod.mandatory ? 'default' : 'pointer',
-                    display: 'flex',
-                    alignItems: 'flex-start',
-                    gap: 10,
-                    transition: 'all 0.15s',
-                  }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={isSelected}
-                    disabled={mod.mandatory}
-                    onChange={() => {}}
-                    style={{ width: 16, height: 16, marginTop: 2, accentColor: mod.mandatory ? '#059669' : '#FF6B00' }}
-                  />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4 }}>
-                      <strong style={{ fontSize: 12.5, color: '#0f172a', display: 'flex', alignItems: 'center', gap: 5 }}>
-                        <IconComp size={14} style={{ color: mod.color, flexShrink: 0 }} />
-                        {mod.shortLabel}
-                      </strong>
-                      <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 4, background: '#e2e8f0', color: '#334155' }}>
-                        {mod.pages} S.
-                      </span>
-                    </div>
-                    <div style={{ fontSize: 11, color: '#64748b', marginTop: 3, lineHeight: 1.35 }}>
-                      {mod.subtitle}
-                    </div>
-                    {mod.mandatory && (
-                      <div style={{ marginTop: 4, fontSize: 10, fontWeight: 800, color: '#047857' }}>
-                        🔒 PFLICHTVERTRAG — Wird automatisch jedem Vertragspaket beigefügt
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-
-      {/* =====================================================================
-          STEP 3: DYNAMIC CONDITIONS & PARAMETERS FORM
-         ===================================================================== */}
-      <div className="glass-panel" style={{ padding: 16, borderRadius: 12, background: '#fff', border: '1px solid #e2e8f0' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ width: 24, height: 24, borderRadius: 999, background: '#FF6B00', color: '#fff', fontWeight: 800, fontSize: 12, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>3</span>
-            <strong style={{ fontSize: 14, color: '#0f172a' }}>
-              Vertragskonditionen &amp; Mitarbeiterdaten (Synchronisiert mit Personalakte &amp; Vertragsvorlagen)
-            </strong>
-          </div>
-          <span style={{ fontSize: 11.5, color: '#64748b' }}>
-            Alle Eingaben werden sofort live in die ausgewählten Vertragsvorlagen übernommen.
-          </span>
-        </div>
-
-        {/* Common Personal & Address Row */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginBottom: 12, paddingBottom: 12, borderBottom: '1px solid #f1f5f9' }}>
-          <div>
-            <label style={{ fontSize: 11, fontWeight: 700 }}>Anrede (Herr / Frau / Firma) *</label>
-            <select
-              value={conditions.salutation || 'Herr'}
-              onChange={(e) => updateCond('salutation', e.target.value)}
-              style={{ fontWeight: 700 }}
-            >
-              <option value="Herr">Herr</option>
-              <option value="Frau">Frau</option>
-              <option value="Firma">Firma</option>
-            </select>
-          </div>
-          <div>
-            <label style={{ fontSize: 11, fontWeight: 700 }}>Vorname *</label>
-            <input value={conditions.first_name} onChange={(e) => updateCond('first_name', e.target.value)} />
-          </div>
-          <div>
-            <label style={{ fontSize: 11, fontWeight: 700 }}>Nachname *</label>
-            <input value={conditions.last_name} onChange={(e) => updateCond('last_name', e.target.value)} />
-          </div>
-          <div>
-            <label style={{ fontSize: 11, fontWeight: 700 }}>Straße &amp; Hausnr. *</label>
-            <input value={conditions.street} onChange={(e) => updateCond('street', e.target.value)} placeholder="z.B. Hauptstr. 12" />
-          </div>
-          <div>
-            <label style={{ fontSize: 11, fontWeight: 700 }}>PLZ *</label>
-            <input value={conditions.postal_code} onChange={(e) => updateCond('postal_code', e.target.value)} placeholder="61184" />
-          </div>
-          <div>
-            <label style={{ fontSize: 11, fontWeight: 700 }}>Wohnort / Stadt *</label>
-            <input value={conditions.city} onChange={(e) => updateCond('city', e.target.value)} placeholder="Karben" />
-          </div>
-          <div>
-            <label style={{ fontSize: 11, fontWeight: 700, color: '#047857' }}>Private E-Mail (Onboarding)</label>
-            <input
-              type="email"
-              value={conditions.private_email || ''}
-              onChange={(e) => updateCond('private_email', e.target.value)}
-              placeholder="name@gmail.com"
-              style={{ borderColor: '#6ee7b7', background: '#f0fdf4' }}
-            />
-          </div>
-          <div>
-            <label style={{ fontSize: 11, fontWeight: 700 }}>Vertragsdatum (Karben, den)</label>
-            <DateInput value={conditions.signed_date} onChange={(e) => updateCond('signed_date', e.target.value)} />
-          </div>
-        </div>
-
-        {/* Arbeitsvertrag Conditions */}
-        {selectedCodes.includes('ARBEITSVERTRAG') && (
-          <div style={{ padding: 12, borderRadius: 10, background: '#f8fafc', border: '1px solid #cbd5e1', marginBottom: 10 }}>
-            <div style={{ fontWeight: 800, fontSize: 12.5, color: '#0f172a', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-              <Briefcase size={14} /> Konditionen für 1. Arbeitsvertrag &amp; Anlage 1 (Vertraulichkeitsvereinbarung)
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(155px, 1fr))', gap: 10 }}>
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 700 }}>Job-Titel / Position (§ 3) *</label>
-                <input value={conditions.role} onChange={(e) => updateCond('role', e.target.value)} placeholder="z.B. Projektleiter" />
-              </div>
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 700 }}>Vertragsbeginn am (§ 1) *</label>
-                <DateInput value={conditions.contract_start_date} onChange={(e) => updateCond('contract_start_date', e.target.value)} />
-              </div>
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 700 }}>Probezeit (Monate, § 2)</label>
-                <input type="number" min="0" max="6" value={conditions.probezeit_months} onChange={(e) => updateCond('probezeit_months', e.target.value)} />
-              </div>
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 700, color: '#c2410c' }}>Probezeit Ende am (§ 2)</label>
-                <DateInput value={conditions.probezeit_end_date} onChange={(e) => updateCond('probezeit_end_date', e.target.value)} />
-              </div>
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 700 }}>Wochenstunden (§ 4)</label>
-                <input type="number" step="0.5" value={conditions.weekly_hours} onChange={(e) => updateCond('weekly_hours', e.target.value)} />
-              </div>
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 700, color: '#047857' }}>Monatsgehalt Brutto EUR (§ 5) *</label>
-                <input type="number" step="50" value={conditions.base_salary} onChange={(e) => updateCond('base_salary', e.target.value)} style={{ fontWeight: 800, borderColor: '#10b981', background: '#ecfdf5' }} />
-              </div>
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 700 }}>Mindesturlaub + Zusatz (§ 6)</label>
-                <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                  <input type="number" value={conditions.statutory_leave_days} onChange={(e) => updateCond('statutory_leave_days', e.target.value)} title="Gesetzlicher Mindesturlaub (20)" />
-                  <span>+</span>
-                  <input type="number" value={conditions.extra_leave_days} onChange={(e) => updateCond('extra_leave_days', e.target.value)} title="Vertraglicher Zusatzurlaub (4)" />
-                  <span style={{ fontWeight: 800, fontSize: 12, whiteSpace: 'nowrap' }}>= {conditions.annual_leave_days} T.</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Orientierungspraktikum Conditions */}
-        {selectedCodes.includes('PRAKTIKUM') && (
-          <div style={{ padding: 12, borderRadius: 10, background: '#f5f3ff', border: '1px solid #ddd6fe', marginBottom: 10 }}>
-            <div style={{ fontWeight: 800, fontSize: 12.5, color: '#5b21b6', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-              <GraduationCap size={14} /> Konditionen für 3. Unbezahltes Orientierungspraktikum (Einfühlungsverhältnis gem. § 22 Abs. 1 Nr. 2 MiLoG)
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 700 }}>Praktikum Beginn (vom) *</label>
-                <DateInput value={conditions.praktikum_start_date} onChange={(e) => updateCond('praktikum_start_date', e.target.value)} />
-              </div>
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 700 }}>Praktikum Ende (bis zum) *</label>
-                <DateInput value={conditions.praktikum_end_date} onChange={(e) => updateCond('praktikum_end_date', e.target.value)} />
-              </div>
-              <div style={{ display: 'flex', alignItems: 'end', fontSize: 11.5, color: '#5b21b6', fontWeight: 600 }}>
-                ✓ Unentgeltliches Einfühlungsverhältnis (§ 22 Abs. 1 Nr. 2 MiLoG) — wird im Mitarbeiterprofil gespeichert.
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Kfz-Übergabeprotokoll Conditions */}
-        {selectedCodes.includes('KFZ_UEBERGABE') && (
-          <div style={{ padding: 12, borderRadius: 10, background: '#eff6ff', border: '1px solid #bfdbfe', marginBottom: 10 }}>
-            <div style={{ fontWeight: 800, fontSize: 12.5, color: '#1e40af', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-              <Car size={14} /> Konditionen für 2. Kfz-Übergabeprotokoll und Nutzungsvereinbarung
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(175px, 1fr))', gap: 10 }}>
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 700 }}>Fahrzeug aus Fuhrpark wählen</label>
-                <select value={conditions.vehicle_id} onChange={(e) => handleSelectFleetVehicle(e.target.value)}>
-                  <option value="">— Manuelle Eingabe / Fahrzeug wählen —</option>
-                  {vehicles.map((v) => (
-                    <option key={v.id} value={v.id}>
-                      {v.plate_number} · {v.model} ({v.mileage_km || 0} km)
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 700 }}>Fahrzeugmarke / Modell (§ 1)</label>
-                <input value={conditions.vehicle_model} onChange={(e) => updateCond('vehicle_model', e.target.value)} placeholder="z.B. Ford Transit / VW Crafter" />
-              </div>
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 700 }}>Amtliches Kennzeichen (§ 1)</label>
-                <input value={conditions.vehicle_plate} onChange={(e) => updateCond('vehicle_plate', e.target.value)} placeholder="z.B. FB-BR 104" />
-              </div>
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 700 }}>Fahrgestellnummer (FIN)</label>
-                <input value={conditions.vehicle_vin} onChange={(e) => updateCond('vehicle_vin', e.target.value)} placeholder="WF0XXX..." />
-              </div>
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 700 }}>Kilometerstand (km)</label>
-                <input type="number" value={conditions.vehicle_mileage} onChange={(e) => updateCond('vehicle_mileage', e.target.value)} placeholder="42500" />
-              </div>
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 700 }}>Nächste HU / TÜV</label>
-                <DateInput value={conditions.vehicle_tuv} onChange={(e) => updateCond('vehicle_tuv', e.target.value)} />
-              </div>
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 700 }}>Zustand bei Übergabe (§ 2)</label>
-                <select value={conditions.vehicle_condition} onChange={(e) => updateCond('vehicle_condition', e.target.value)}>
-                  <option value="ok">Einwandfrei &amp; unbeschädigt</option>
-                  <option value="defects">Vorhandene Mängel / Kratzer</option>
-                </select>
-              </div>
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 700 }}>Tankkarte / Schlüssel / Zubehör (§ 3)</label>
-                <input value={conditions.vehicle_fuel_card} onChange={(e) => updateCond('vehicle_fuel_card', e.target.value)} placeholder="DKV / 2 Schlüssel" />
-              </div>
-              <div style={{ gridColumn: '1 / -1' }}>
-                <label style={{ fontSize: 11, fontWeight: 700 }}>Vorhandene Mängel / Schäden (§ 2) &amp; Sonstiges Zubehör (§ 3)</label>
-                <input value={conditions.vehicle_defects} onChange={(e) => updateCond('vehicle_defects', e.target.value)} />
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Subunternehmervertrag Conditions */}
-        {selectedCodes.includes('SUBUNTERNEHMER') && (
-          <div style={{ padding: 12, borderRadius: 10, background: '#fff7ed', border: '1px solid #fed7aa' }}>
-            <div style={{ fontWeight: 800, fontSize: 12.5, color: '#9a3412', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-              <ShieldCheck size={14} /> Konditionen für 4. Subunternehmervertrag (Werkvertrag NE4) + Ausführungs- &amp; Sicherheitsrichtlinien
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(175px, 1fr))', gap: 10 }}>
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 700 }}>Firmenname / Auftragnehmer</label>
-                <input value={conditions.company_name} onChange={(e) => updateCond('company_name', e.target.value)} />
-              </div>
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 700 }}>Projektstandort (§ 1 Abs. 2)</label>
-                <input value={conditions.sub_location} onChange={(e) => updateCond('sub_location', e.target.value)} placeholder="77704 Oberkirch" />
-              </div>
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 700 }}>Umkreis (km)</label>
-                <input type="number" value={conditions.sub_radius_km} onChange={(e) => updateCond('sub_radius_km', e.target.value)} />
-              </div>
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 700 }}>Variante A Vollausbau (€/WE)</label>
-                <input type="number" step="1" value={conditions.sub_rate_variante_a} onChange={(e) => updateCond('sub_rate_variante_a', e.target.value)} />
-              </div>
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 700 }}>Variante B Teilausbau (€/WE)</label>
-                <input type="number" step="1" value={conditions.sub_rate_variante_b} onChange={(e) => updateCond('sub_rate_variante_b', e.target.value)} />
-              </div>
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 700 }}>Zahlungsziel (Tage, § 3)</label>
-                <input type="number" value={conditions.sub_payment_term_days} onChange={(e) => updateCond('sub_payment_term_days', e.target.value)} />
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* =====================================================================
-          STEP 4: LIVE EDITABLE CONTRACT TEMPLATE PREVIEW & ISSUE / PDF ACTIONS
-         ===================================================================== */}
-      <div className="glass-panel" style={{ padding: 16, borderRadius: 12, background: '#fff', border: '1px solid #e2e8f0' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 12 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ width: 24, height: 24, borderRadius: 999, background: '#FF6B00', color: '#fff', fontWeight: 800, fontSize: 12, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>4</span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 12 }}>
             <div>
-              <strong style={{ fontSize: 14, color: '#0f172a' }}>
-                Live-Vertragsvorschau &amp; Freier Text-Editor (Direkt im Dokument editierbar)
+              <strong style={{ fontSize: 14.5, color: '#0f172a', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <FileText size={16} style={{ color: '#FF6B00' }} />
+                Alle Verträge — Gesamtliste mit Status ({filteredContractsList.length})
               </strong>
               <div style={{ fontSize: 11.5, color: '#64748b' }}>
-                Klicken Sie direkt in das Vertragsdokument unten, um beliebige Paragraphen, Klauseln oder Formulierungen vor dem Ausstellen individuell anzupassen.
+                Direkte Listenansicht sämtlicher ausgestellter Verträge inklusive aktuellem Unterschriftsstatus und Portal-Freigabe.
               </div>
             </div>
-          </div>
-
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button
               type="button"
-              className="btn-secondary btn-sm"
-              onClick={() => handleResetTemplateText(activePreviewCode)}
-              title="Aktuelle Vorlage auf Standardtext mit aktuellen Konditionen zurücksetzen"
+              className="btn-primary btn-sm"
+              onClick={() => openGeneratorForEmployee(selectedEmpId || employees[0]?.id)}
+              style={{ fontWeight: 800 }}
             >
-              <RefreshCw size={13} /> Vorlage zurücksetzen
-            </button>
-            <button
-              type="button"
-              className="btn-secondary btn-sm"
-              onClick={() => {
-                const currentHtml = editorRef.current ? editorRef.current.innerHTML : draftHtmlMap[activePreviewCode];
-                const mod = CONTRACT_CATALOG.find((c) => c.code === activePreviewCode);
-                openContractPrintPdfWindow(
-                  `${mod?.title || 'Vertrag'} — ${conditions.first_name} ${conditions.last_name}`,
-                  [currentHtml]
-                );
-              }}
-            >
-              <Printer size={14} /> Aktuellen Vertrag als PDF speichern
-            </button>
-            <button
-              type="button"
-              className="btn-secondary btn-sm"
-              style={{ borderColor: '#0f172a', color: '#0f172a', fontWeight: 700 }}
-              onClick={() => {
-                const currentMap = { ...draftHtmlMap };
-                if (editorRef.current && activePreviewCode) {
-                  currentMap[activePreviewCode] = editorRef.current.innerHTML;
-                }
-                const ordered = CONTRACT_CATALOG.filter((c) => selectedCodes.includes(c.code) || c.mandatory);
-                openContractPrintPdfWindow(
-                  `Vertragspaket (${ordered.length} Dokumente) — ${conditions.first_name} ${conditions.last_name}`,
-                  ordered.map((c) => currentMap[c.code] || generateContractHtml(c.code, selectedEmp, conditions))
-                );
-              }}
-            >
-              <Download size={14} /> Alle {selectedCodes.length} Verträge als PDF speichern
-            </button>
-            <button
-              type="button"
-              className="btn-primary"
-              disabled={issuing}
-              onClick={handleIssueSelectedContracts}
-              style={{ fontWeight: 800, padding: '8px 16px' }}
-            >
-              <Check size={15} />{' '}
-              {issuing
-                ? 'Verträge werden ausgestellt...'
-                : `Verträge verbindlich ausstellen (${selectedCodes.length}) & Akte aktualisieren`}
+              <Plus size={13} /> Neuer Vertrag (Vertrag generieren)
             </button>
           </div>
-        </div>
 
-        {/* Contract Switcher Tabs for Preview */}
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12, paddingBottom: 10, borderBottom: '1px solid #e2e8f0' }}>
-          {CONTRACT_CATALOG.filter((c) => selectedCodes.includes(c.code) || c.mandatory).map((c) => {
-            const active = activePreviewCode === c.code;
-            return (
-              <button
-                key={c.code}
-                type="button"
-                onClick={() => {
-                  if (editorRef.current && activePreviewCode) {
-                    const html = editorRef.current.innerHTML;
-                    setDraftHtmlMap((prev) => ({ ...prev, [activePreviewCode]: html }));
-                  }
-                  setActivePreviewCode(c.code);
-                }}
-                style={{
-                  padding: '7px 14px',
-                  borderRadius: 8,
-                  fontSize: 12,
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  border: active ? '2px solid #FF6B00' : '1px solid #cbd5e1',
-                  background: active ? '#fff7ed' : '#f8fafc',
-                  color: active ? '#9a3412' : '#334155',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 6,
-                }}
-              >
-                <FileText size={13} />
-                {c.shortLabel}
-                {manuallyEditedCodes[c.code] && (
-                  <span style={{ fontSize: 10, background: '#fde68a', color: '#92400e', padding: '1px 5px', borderRadius: 4 }}>
-                    Bearbeitet
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Editable A4 Paper Preview */}
-        <div style={{ background: '#e2e8f0', padding: '20px 14px', borderRadius: 10, maxHeight: 680, overflowY: 'auto' }}>
-          <div
-            ref={editorRef}
-            contentEditable
-            suppressContentEditableWarning
-            onBlur={(e) => {
-              const updatedHtml = e.currentTarget.innerHTML;
-              setDraftHtmlMap((prev) => ({ ...prev, [activePreviewCode]: updatedHtml }));
-              setManuallyEditedCodes((prev) => ({ ...prev, [activePreviewCode]: true }));
-            }}
-            style={{
-              maxWidth: '210mm',
-              minHeight: '260mm',
-              margin: '0 auto',
-              background: '#ffffff',
-              padding: '20mm 22mm',
-              borderRadius: 4,
-              boxShadow: '0 8px 25px rgba(15,23,42,0.12)',
-              fontFamily: "'Segoe UI', Arial, sans-serif",
-              fontSize: '10.5pt',
-              lineHeight: 1.55,
-              color: '#111827',
-              outline: 'none',
-            }}
-            dangerouslySetInnerHTML={{
-              __html: draftHtmlMap[activePreviewCode] || generateContractHtml(activePreviewCode, selectedEmp, conditions),
-            }}
-          />
-        </div>
-      </div>
-
-      {/* =====================================================================
-          STEP 5: CONTRACTS OVERVIEW GROUPED BY MITARBEITER + UPLOAD SIGNED PDF
-         ===================================================================== */}
-      <div className="glass-panel" style={{ padding: 16, borderRadius: 12, background: '#fff', border: '1px solid #e2e8f0' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 14 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ width: 24, height: 24, borderRadius: 999, background: '#0f172a', color: '#fff', fontWeight: 800, fontSize: 12, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>5</span>
-            <div>
-              <strong style={{ fontSize: 14.5, color: '#0f172a' }}>
-                Vertragsübersicht nach Mitarbeiter &amp; Upload unterschriebener Verträge
-              </strong>
-              <div style={{ fontSize: 11.5, color: '#64748b' }}>
-                Ausstehende Verträge (🟠) sind für den Mitarbeiter gesperrt. Sobald Sie den unterschriebenen Vertrag hochladen, wird er als Abgeschlossen (🟢) markiert und im Mitarbeiter-Portal unter „Dokumente“ freigegeben.
-              </div>
+          {loadingContracts ? (
+            <div style={{ padding: 24, textAlign: 'center', color: '#64748b' }}>Lade Verträge...</div>
+          ) : filteredContractsList.length === 0 ? (
+            <div style={{ padding: 24, textAlign: 'center', border: '1px dashed #cbd5e1', borderRadius: 10, color: '#64748b', fontSize: 12.5 }}>
+              Keine Verträge für die aktuelle Filterung vorhanden. Klicken Sie oben rechts auf <strong>„+ Vertrag generieren“</strong>, um neue Verträge auszustellen.
             </div>
-          </div>
-
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-            <input
-              placeholder="Suchen (Mitarbeiter, Vertrag)..."
-              value={contractSearch}
-              onChange={(e) => setContractSearch(e.target.value)}
-              style={{ width: 210, fontSize: 12 }}
-            />
-            <select value={contractFilterEmpId} onChange={(e) => setContractFilterEmpId(e.target.value)} style={{ width: 'auto', fontSize: 12 }}>
-              <option value="ALL">Alle Mitarbeiter</option>
-              {employees.map((e) => (
-                <option key={e.id} value={e.id}>{e.full_name}</option>
-              ))}
-            </select>
-            <select value={contractFilterStatus} onChange={(e) => setContractFilterStatus(e.target.value)} style={{ width: 'auto', fontSize: 12 }}>
-              <option value="ALL">Status: Alle ({contractsList.length})</option>
-              <option value="PENDING">🟠 Ausstehend / Nicht unterschrieben ({pendingTotal})</option>
-              <option value="SIGNED">🟢 Unterschrieben / Abgeschlossen ({signedTotal})</option>
-            </select>
-          </div>
-        </div>
-
-        {loadingContracts ? (
-          <div style={{ padding: 24, textAlign: 'center', color: '#64748b' }}>Lade Verträge...</div>
-        ) : groupedByEmployee.length === 0 ? (
-          <div style={{ padding: 28, textAlign: 'center', border: '1px dashed #cbd5e1', borderRadius: 10, color: '#64748b', fontSize: 13 }}>
-            Noch keine Verträge für die gewählten Filter vorhanden. Wählen Sie oben einen Mitarbeiter aus und klicken Sie auf <strong>„Verträge verbindlich ausstellen“</strong>.
-          </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            {groupedByEmployee.map((grp) => {
-              const pendCount = grp.contracts.filter((c) => c.status === 'Pending_Signature').length;
-              const signCount = grp.contracts.filter((c) => c.status === 'Signed').length;
-              const attr = grp.attributes || {};
-              return (
-                <div key={grp.employee_id} style={{ border: '1px solid #cbd5e1', borderRadius: 12, overflow: 'hidden', background: '#fff' }}>
-                  {/* Employee Group Header */}
-                  <div style={{ padding: '10px 14px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                      <span style={{ padding: '2px 8px', borderRadius: 6, background: '#0f172a', color: '#fff', fontFamily: 'monospace', fontSize: 11, fontWeight: 700 }}>
-                        {grp.employee_number}
-                      </span>
-                      <strong style={{ fontSize: 14, color: '#0f172a' }}>{grp.employee_name}</strong>
-                      <span style={{ fontSize: 12, color: '#475569', fontWeight: 600 }}>
-                        {grp.role} · {grp.employment_type}
-                      </span>
-                      {grp.base_salary > 0 && (
-                        <span style={{ fontSize: 11.5, fontWeight: 700, color: '#047857', background: '#ecfdf5', padding: '2px 8px', borderRadius: 6 }}>
-                          Brutto: {formatEuro(grp.base_salary)}/Mo
-                        </span>
-                      )}
-                      {attr.contract_start_date && (
-                        <span style={{ fontSize: 11.5, color: '#334155', background: '#f1f5f9', padding: '2px 8px', borderRadius: 6 }}>
-                          Start: <strong>{formatDate(attr.contract_start_date)}</strong>
-                        </span>
-                      )}
-                      {attr.probezeit_end_date && (
-                        <span style={{ fontSize: 11.5, color: '#9a3412', background: '#fff7ed', padding: '2px 8px', borderRadius: 6 }}>
-                          Probezeit bis: <strong>{formatDate(attr.probezeit_end_date)}</strong>
-                        </span>
-                      )}
-                      {attr.praktikum_start_date && (
-                        <span style={{ fontSize: 11.5, color: '#5b21b6', background: '#f5f3ff', padding: '2px 8px', borderRadius: 6 }}>
-                          Praktikum: <strong>{formatDate(attr.praktikum_start_date)} – {formatDate(attr.praktikum_end_date)}</strong>
-                        </span>
-                      )}
-                    </div>
-
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                      {pendCount > 0 && (
-                        <span style={{ padding: '3px 9px', borderRadius: 999, background: '#fef3c7', color: '#b45309', fontSize: 11, fontWeight: 800 }}>
-                          ⏳ {pendCount} Ausstehend (Pending)
-                        </span>
-                      )}
-                      {signCount > 0 && (
-                        <span style={{ padding: '3px 9px', borderRadius: 999, background: '#dcfce7', color: '#15803d', fontSize: 11, fontWeight: 800 }}>
-                          ✅ {signCount} Unterschrieben (Completed)
-                        </span>
-                      )}
-                      <button
-                        type="button"
-                        className="btn-secondary btn-sm"
-                        style={{ fontSize: 11, padding: '4px 9px', color: '#047857', borderColor: '#6ee7b7', background: '#ecfdf5', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4 }}
-                        onClick={() => handleTriggerOnboardingEmail(grp.employee_id, false)}
-                        disabled={sendingOnboardingEmpId === grp.employee_id}
-                        title="Willkommens-E-Mail mit Benutzername, Einmal-Passwort (OTP) und iPhone/Android App-Anleitung senden oder ansehen"
-                      >
-                        <Mail size={12} />
-                        {sendingOnboardingEmpId === grp.employee_id ? 'Sende...' : '🎉 Willkommens-E-Mail & App-Login'}
-                      </button>
-                      {grp.empObj && effectiveOpenEmpModal && (
-                        <button type="button" className="btn-secondary btn-sm" style={{ fontSize: 11, padding: '4px 8px' }} onClick={() => effectiveOpenEmpModal(grp.empObj)}>
-                          Personalakte öffnen
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Employee's Contracts Table */}
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
-                    <thead>
-                      <tr style={{ background: '#f1f5f9', color: '#475569', fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase' }}>
-                        <th style={{ padding: '8px 12px', textAlign: 'left' }}>Vertragsmodul / Bezeichnung</th>
-                        <th style={{ padding: '8px 12px', textAlign: 'left' }}>Ausgestellt am</th>
-                        <th style={{ padding: '8px 12px', textAlign: 'left' }}>Status &amp; Mitarbeiter-Sichtbarkeit</th>
-                        <th style={{ padding: '8px 12px', textAlign: 'right' }}>Aktionen &amp; Unterschrift-Upload</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {grp.contracts.map((c) => {
-                        const isSigned = c.status === 'Signed';
-                        const isUploadingThis = uploadingSignedId === c.id;
-                        const fileUrl = c.url || c.download_url;
-                        return (
-                          <tr key={c.id} style={{ borderBottom: '1px solid #f1f5f9', background: isSigned ? '#f0fdf4' : '#ffffff' }}>
-                            <td style={{ padding: '10px 12px' }}>
-                              <div style={{ fontWeight: 700, color: '#0f172a', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                                <FileText size={14} style={{ color: isSigned ? '#059669' : '#FF6B00' }} />
-                                {c.title}
-                                {c.is_mandatory_dsgvo && (
-                                  <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: '#d1fae5', color: '#065f46', fontWeight: 800 }}>
-                                    PFLICHT-DSGVO
-                                  </span>
-                                )}
-                              </div>
-                              <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
-                                Typ: {c.contract_type} {c.signed_file_name ? `· Datei: ${c.signed_file_name}` : ''}
-                              </div>
-                            </td>
-                            <td style={{ padding: '10px 12px', whiteSpace: 'nowrap', color: '#334155' }}>
-                              <div>{formatDate(c.issued_at || c.created_at)}</div>
-                              {isSigned && c.signed_at && (
-                                <div style={{ fontSize: 10.5, color: '#059669', fontWeight: 700 }}>
-                                  Unterschrieben: {formatDate(c.signed_at)}
-                                </div>
-                              )}
-                            </td>
-                            <td style={{ padding: '10px 12px' }}>
-                              {isSigned ? (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 3, alignItems: 'flex-start' }}>
-                                  <span style={{ padding: '3px 9px', borderRadius: 999, background: '#dcfce7', color: '#15803d', fontWeight: 800, fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                                    <Check size={12} /> Abgeschlossen / Unterschrieben
-                                  </span>
-                                  <span style={{ fontSize: 10.5, color: '#047857', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                                    <Unlock size={11} /> Sichtbar für Mitarbeiter unter „Dokumente“
-                                  </span>
-                                </div>
-                              ) : (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 3, alignItems: 'flex-start' }}>
-                                  <span style={{ padding: '3px 9px', borderRadius: 999, background: '#fef3c7', color: '#b45309', fontWeight: 800, fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                                    <Clock size={12} /> Ausstehend (Pending Signature)
-                                  </span>
-                                  <span style={{ fontSize: 10.5, color: '#dc2626', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                                    <Lock size={11} /> Nicht sichtbar für Mitarbeiter im Portal
-                                  </span>
-                                </div>
-                              )}
-                            </td>
-                            <td style={{ padding: '10px 12px', textAlign: 'right' }}>
-                              <div style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center' }}>
-                                {c.html_content && (
-                                  <>
-                                    <button
-                                      type="button"
-                                      className="btn-secondary btn-sm"
-                                      style={{ padding: '5px 9px', fontSize: 11.5 }}
-                                      onClick={() => setEditingIssuedContract({ ...c })}
-                                      title="Vertragstext ansehen oder bearbeiten"
-                                    >
-                                      <Edit3 size={12} /> Vorschau / Edit
-                                    </button>
-                                    <button
-                                      type="button"
-                                      className="btn-secondary btn-sm"
-                                      style={{ padding: '5px 9px', fontSize: 11.5 }}
-                                      onClick={() => openContractPrintPdfWindow(c.title, [c.html_content])}
-                                      title="Als A4 PDF speichern oder drucken"
-                                    >
-                                      <Printer size={12} /> Als PDF
-                                    </button>
-                                  </>
-                                )}
-                                {isSigned && fileUrl && (
-                                  <a
-                                    href={resolveMediaUrl(fileUrl)}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    download={c.file_name || true}
-                                    className="btn-secondary btn-sm"
-                                    style={{ textDecoration: 'none', color: '#047857', borderColor: '#6ee7b7', background: '#ecfdf5', fontWeight: 700, padding: '5px 9px', fontSize: 11.5 }}
-                                  >
-                                    <Download size={12} /> Signiertes PDF
-                                  </a>
-                                )}
-
-                                {/* Upload Signed Contract PDF Button */}
-                                <label
-                                  className="btn-primary btn-sm"
-                                  style={{
-                                    cursor: isUploadingThis ? 'not-allowed' : 'pointer',
-                                    background: isSigned ? '#059669' : '#FF6B00',
-                                    padding: '5px 10px',
-                                    fontSize: 11.5,
-                                    fontWeight: 700,
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: 5,
-                                    margin: 0,
-                                  }}
-                                  title="Unterschriebenen Vertrag (PDF/Scan) hochladen → Markiert Vertrag als Abgeschlossen und schaltet ihn für den Mitarbeiter frei"
-                                >
-                                  <Upload size={12} />
-                                  {isUploadingThis
-                                    ? 'Lädt hoch...'
-                                    : isSigned
-                                    ? 'Signiertes PDF ersetzen'
-                                    : 'Unterschriebenen Vertrag hochladen'}
-                                  <input
-                                    type="file"
-                                    accept=".pdf,image/*"
-                                    style={{ display: 'none' }}
-                                    disabled={isUploadingThis}
-                                    onChange={(e) => {
-                                      const f = e.target.files?.[0];
-                                      if (f) handleUploadSignedContract(c, f);
-                                      e.target.value = '';
-                                    }}
-                                  />
-                                </label>
-
+          ) : (
+            <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: 10 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+                <thead>
+                  <tr style={{ background: '#0f172a', color: '#fff', fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase' }}>
+                    <th style={{ padding: '10px 12px', textAlign: 'left' }}>Mitarbeiter</th>
+                    <th style={{ padding: '10px 12px', textAlign: 'left' }}>Vertragsmodul / Bezeichnung</th>
+                    <th style={{ padding: '10px 12px', textAlign: 'left' }}>Ausgestellt / Signiert</th>
+                    <th style={{ padding: '10px 12px', textAlign: 'left' }}>Status &amp; Portal-Sichtbarkeit</th>
+                    <th style={{ padding: '10px 12px', textAlign: 'right' }}>Aktionen &amp; Unterschrift-Upload</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredContractsList.map((c) => {
+                    const isSigned = c.status === 'Signed';
+                    const isUploadingThis = uploadingSignedId === c.id;
+                    const fileUrl = c.url || c.download_url;
+                    const empObj = employees.find((e) => String(e.id) === String(c.employee_id));
+                    return (
+                      <tr key={`flat-${c.id}`} style={{ borderBottom: '1px solid #e2e8f0', background: isSigned ? '#f0fdf4' : '#ffffff' }}>
+                        <td style={{ padding: '10px 12px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ padding: '2px 6px', borderRadius: 5, background: '#0f172a', color: '#fff', fontFamily: 'monospace', fontSize: 10.5, fontWeight: 700 }}>
+                              {empObj?.employee_number || c.employee_number || 'EMP'}
+                            </span>
+                            <strong style={{ color: '#0f172a' }}>{empObj?.full_name || c.employee_name || 'Mitarbeiter'}</strong>
+                          </div>
+                          <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+                            {empObj?.role || c.employee_role || '—'} · {empObj?.employment_type || c.employment_type || '—'}
+                          </div>
+                        </td>
+                        <td style={{ padding: '10px 12px' }}>
+                          <div style={{ fontWeight: 700, color: '#0f172a', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                            <FileText size={14} style={{ color: isSigned ? '#059669' : '#FF6B00' }} />
+                            {c.title}
+                            {c.is_mandatory_dsgvo && (
+                              <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: '#d1fae5', color: '#065f46', fontWeight: 800 }}>
+                                PFLICHT-DSGVO
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+                            Typ: {c.contract_type} {c.signed_file_name ? `· Signiert: ${c.signed_file_name}` : ''}
+                          </div>
+                        </td>
+                        <td style={{ padding: '10px 12px', whiteSpace: 'nowrap', color: '#334155' }}>
+                          <div>Ausgestellt: {formatDate(c.issued_at || c.created_at)}</div>
+                          {isSigned && c.signed_at && (
+                            <div style={{ fontSize: 10.5, color: '#059669', fontWeight: 700 }}>
+                              Signiert: {formatDate(c.signed_at)}
+                            </div>
+                          )}
+                        </td>
+                        <td style={{ padding: '10px 12px' }}>
+                          {isSigned ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 3, alignItems: 'flex-start' }}>
+                              <span style={{ padding: '3px 9px', borderRadius: 999, background: '#dcfce7', color: '#15803d', fontWeight: 800, fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                <Check size={12} /> Abgeschlossen / Unterschrieben
+                              </span>
+                              <span style={{ fontSize: 10.5, color: '#047857', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                <Unlock size={11} /> Sichtbar für Mitarbeiter
+                              </span>
+                            </div>
+                          ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 3, alignItems: 'flex-start' }}>
+                              <span style={{ padding: '3px 9px', borderRadius: 999, background: '#fef3c7', color: '#b45309', fontWeight: 800, fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                <Clock size={12} /> Ausstehend (Pending)
+                              </span>
+                              <span style={{ fontSize: 10.5, color: '#dc2626', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                <Lock size={11} /> Gesperrt im Mitarbeiter-Portal
+                              </span>
+                            </div>
+                          )}
+                        </td>
+                        <td style={{ padding: '10px 12px', textAlign: 'right' }}>
+                          <div style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center' }}>
+                            {c.html_content && (
+                              <>
                                 <button
                                   type="button"
                                   className="btn-secondary btn-sm"
-                                  style={{ color: '#dc2626', padding: '5px 8px' }}
-                                  onClick={() => handleDeleteContract(c)}
-                                  title="Vertrag löschen"
+                                  style={{ padding: '5px 9px', fontSize: 11.5 }}
+                                  onClick={() => setEditingIssuedContract({ ...c })}
                                 >
-                                  <Trash2 size={12} />
+                                  <Edit3 size={12} /> Vorschau / Edit
                                 </button>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                                <button
+                                  type="button"
+                                  className="btn-secondary btn-sm"
+                                  style={{ padding: '5px 9px', fontSize: 11.5 }}
+                                  onClick={() => openContractPrintPdfWindow(c.title, [c.html_content])}
+                                >
+                                  <Printer size={12} /> Als PDF
+                                </button>
+                              </>
+                            )}
+                            {isSigned && fileUrl && (
+                              <a
+                                href={resolveMediaUrl(fileUrl)}
+                                target="_blank"
+                                rel="noreferrer"
+                                download={c.file_name || true}
+                                className="btn-secondary btn-sm"
+                                style={{ textDecoration: 'none', color: '#047857', borderColor: '#6ee7b7', background: '#ecfdf5', fontWeight: 700, padding: '5px 9px', fontSize: 11.5 }}
+                              >
+                                <Download size={12} /> Signiertes PDF
+                              </a>
+                            )}
+                            <label
+                              className="btn-primary btn-sm"
+                              style={{
+                                cursor: isUploadingThis ? 'not-allowed' : 'pointer',
+                                background: isSigned ? '#059669' : '#FF6B00',
+                                padding: '5px 10px',
+                                fontSize: 11.5,
+                                fontWeight: 700,
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 5,
+                                margin: 0,
+                              }}
+                            >
+                              <Upload size={12} />
+                              {isUploadingThis ? 'Lädt hoch...' : isSigned ? 'PDF ersetzen' : 'Unterschrieben hochladen'}
+                              <input
+                                type="file"
+                                accept=".pdf,image/*"
+                                style={{ display: 'none' }}
+                                disabled={isUploadingThis}
+                                onChange={(e) => {
+                                  const f = e.target.files?.[0];
+                                  if (f) handleUploadSignedContract(c, f);
+                                  e.target.value = '';
+                                }}
+                              />
+                            </label>
+                            <button
+                              type="button"
+                              className="btn-secondary btn-sm"
+                              style={{ color: '#dc2626', padding: '5px 8px' }}
+                              onClick={() => handleDeleteContract(c)}
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* =====================================================================
+          SECTION B: CONTRACTS OVERVIEW SEPARATED FOR EACH MITARBEITER
+         ===================================================================== */}
+      {(contractsViewMode === 'BOTH' || contractsViewMode === 'BY_EMPLOYEE') && (
+        <div className="glass-panel" style={{ padding: 16, borderRadius: 12, background: '#fff', border: '1px solid #e2e8f0' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div>
+                <strong style={{ fontSize: 14.5, color: '#0f172a' }}>
+                  Verträge getrennt nach Mitarbeiter &amp; Upload unterschriebener Verträge ({groupedByEmployee.length} Mitarbeiter)
+                </strong>
+                <div style={{ fontSize: 11.5, color: '#64748b' }}>
+                  Für jeden Mitarbeiter sehen Sie hier alle zugehörigen Verträge mit Status. Über <strong>„+ Vertrag generieren“</strong> öffnen Sie das Vertragsgenerator-Fenster direkt für diesen Mitarbeiter.
                 </div>
-              );
-            })}
+              </div>
+            </div>
           </div>
-        )}
-      </div>
+
+          {loadingContracts ? (
+            <div style={{ padding: 24, textAlign: 'center', color: '#64748b' }}>Lade Verträge...</div>
+          ) : groupedByEmployee.length === 0 ? (
+            <div style={{ padding: 28, textAlign: 'center', border: '1px dashed #cbd5e1', borderRadius: 10, color: '#64748b', fontSize: 13 }}>
+              Noch keine Einträge für die gewählten Filter vorhanden. Klicken Sie auf <strong>„+ Vertrag generieren“</strong>, um Verträge auszustellen.
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {groupedByEmployee.map((grp) => {
+                const pendCount = grp.contracts.filter((c) => c.status === 'Pending_Signature').length;
+                const signCount = grp.contracts.filter((c) => c.status === 'Signed').length;
+                const attr = grp.attributes || {};
+                const salutationPrefix = attr.salutation || attr.anrede || '';
+                return (
+                  <div key={grp.employee_id} style={{ border: '1px solid #cbd5e1', borderRadius: 12, overflow: 'hidden', background: '#fff' }}>
+                    {/* Employee Group Header */}
+                    <div style={{ padding: '10px 14px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                        <span style={{ padding: '2px 8px', borderRadius: 6, background: '#0f172a', color: '#fff', fontFamily: 'monospace', fontSize: 11, fontWeight: 700 }}>
+                          {grp.employee_number}
+                        </span>
+                        <strong style={{ fontSize: 14, color: '#0f172a' }}>
+                          {salutationPrefix ? `${salutationPrefix} ` : ''}{grp.employee_name}
+                        </strong>
+                        <span style={{ fontSize: 12, color: '#475569', fontWeight: 600 }}>
+                          {grp.role} · {grp.employment_type}
+                        </span>
+                        {grp.base_salary > 0 && (
+                          <span style={{ fontSize: 11.5, fontWeight: 700, color: '#047857', background: '#ecfdf5', padding: '2px 8px', borderRadius: 6 }}>
+                            Brutto: {formatEuro(grp.base_salary)}/Mo
+                          </span>
+                        )}
+                        {attr.contract_start_date && (
+                          <span style={{ fontSize: 11.5, color: '#334155', background: '#f1f5f9', padding: '2px 8px', borderRadius: 6 }}>
+                            Start: <strong>{formatDate(attr.contract_start_date)}</strong>
+                          </span>
+                        )}
+                        {attr.probezeit_end_date && (
+                          <span style={{ fontSize: 11.5, color: '#9a3412', background: '#fff7ed', padding: '2px 8px', borderRadius: 6 }}>
+                            Probezeit bis: <strong>{formatDate(attr.probezeit_end_date)}</strong>
+                          </span>
+                        )}
+                        {attr.praktikum_start_date && (
+                          <span style={{ fontSize: 11.5, color: '#5b21b6', background: '#f5f3ff', padding: '2px 8px', borderRadius: 6 }}>
+                            Praktikum: <strong>{formatDate(attr.praktikum_start_date)} – {formatDate(attr.praktikum_end_date)}</strong>
+                          </span>
+                        )}
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        {grp.contracts.length === 0 && (
+                          <span style={{ padding: '3px 9px', borderRadius: 999, background: '#f1f5f9', color: '#64748b', fontSize: 11, fontWeight: 700 }}>
+                            ⚪ Noch kein Vertrag ausgestellt
+                          </span>
+                        )}
+                        {pendCount > 0 && (
+                          <span style={{ padding: '3px 9px', borderRadius: 999, background: '#fef3c7', color: '#b45309', fontSize: 11, fontWeight: 800 }}>
+                            ⏳ {pendCount} Ausstehend (Pending)
+                          </span>
+                        )}
+                        {signCount > 0 && (
+                          <span style={{ padding: '3px 9px', borderRadius: 999, background: '#dcfce7', color: '#15803d', fontSize: 11, fontWeight: 800 }}>
+                            ✅ {signCount} Unterschrieben (Completed)
+                          </span>
+                        )}
+                        <button
+                          type="button"
+                          className="btn-primary btn-sm"
+                          style={{ fontSize: 11.5, padding: '5px 11px', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: 5 }}
+                          onClick={() => openGeneratorForEmployee(grp.employee_id)}
+                        >
+                          <Plus size={12} /> Vertrag generieren
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-secondary btn-sm"
+                          style={{ fontSize: 11, padding: '4px 9px', color: '#047857', borderColor: '#6ee7b7', background: '#ecfdf5', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                          onClick={() => handleTriggerOnboardingEmail(grp.employee_id, false)}
+                          disabled={sendingOnboardingEmpId === grp.employee_id}
+                          title="Willkommens-E-Mail mit Benutzername, Einmal-Passwort (OTP) und iPhone/Android App-Anleitung senden oder ansehen"
+                        >
+                          <Mail size={12} />
+                          {sendingOnboardingEmpId === grp.employee_id ? 'Sende...' : '🎉 Willkommens-E-Mail & App-Login'}
+                        </button>
+                        {grp.empObj && effectiveOpenEmpModal && (
+                          <button type="button" className="btn-secondary btn-sm" style={{ fontSize: 11, padding: '4px 8px' }} onClick={() => effectiveOpenEmpModal(grp.empObj)}>
+                            Personalakte öffnen
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Employee's Contracts Table */}
+                    {grp.contracts.length === 0 ? (
+                      <div style={{ padding: '12px 16px', fontSize: 12, color: '#64748b', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fcfcfd' }}>
+                        <span>Für {grp.employee_name} wurden noch keine Verträge generiert.</span>
+                        <button
+                          type="button"
+                          className="btn-secondary btn-sm"
+                          style={{ fontSize: 11.5, fontWeight: 700, borderColor: '#FF6B00', color: '#c2410c' }}
+                          onClick={() => openGeneratorForEmployee(grp.employee_id)}
+                        >
+                          Jetzt Verträge für {grp.employee_name} erstellen →
+                        </button>
+                      </div>
+                    ) : (
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+                        <thead>
+                          <tr style={{ background: '#f1f5f9', color: '#475569', fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase' }}>
+                            <th style={{ padding: '8px 12px', textAlign: 'left' }}>Vertragsmodul / Bezeichnung</th>
+                            <th style={{ padding: '8px 12px', textAlign: 'left' }}>Ausgestellt am</th>
+                            <th style={{ padding: '8px 12px', textAlign: 'left' }}>Status &amp; Mitarbeiter-Sichtbarkeit</th>
+                            <th style={{ padding: '8px 12px', textAlign: 'right' }}>Aktionen &amp; Unterschrift-Upload</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {grp.contracts.map((c) => {
+                            const isSigned = c.status === 'Signed';
+                            const isUploadingThis = uploadingSignedId === c.id;
+                            const fileUrl = c.url || c.download_url;
+                            return (
+                              <tr key={c.id} style={{ borderBottom: '1px solid #f1f5f9', background: isSigned ? '#f0fdf4' : '#ffffff' }}>
+                                <td style={{ padding: '10px 12px' }}>
+                                  <div style={{ fontWeight: 700, color: '#0f172a', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                    <FileText size={14} style={{ color: isSigned ? '#059669' : '#FF6B00' }} />
+                                    {c.title}
+                                    {c.is_mandatory_dsgvo && (
+                                      <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: '#d1fae5', color: '#065f46', fontWeight: 800 }}>
+                                        PFLICHT-DSGVO
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+                                    Typ: {c.contract_type} {c.signed_file_name ? `· Datei: ${c.signed_file_name}` : ''}
+                                  </div>
+                                </td>
+                                <td style={{ padding: '10px 12px', whiteSpace: 'nowrap', color: '#334155' }}>
+                                  <div>{formatDate(c.issued_at || c.created_at)}</div>
+                                  {isSigned && c.signed_at && (
+                                    <div style={{ fontSize: 10.5, color: '#059669', fontWeight: 700 }}>
+                                      Unterschrieben: {formatDate(c.signed_at)}
+                                    </div>
+                                  )}
+                                </td>
+                                <td style={{ padding: '10px 12px' }}>
+                                  {isSigned ? (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 3, alignItems: 'flex-start' }}>
+                                      <span style={{ padding: '3px 9px', borderRadius: 999, background: '#dcfce7', color: '#15803d', fontWeight: 800, fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                        <Check size={12} /> Abgeschlossen / Unterschrieben
+                                      </span>
+                                      <span style={{ fontSize: 10.5, color: '#047857', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                        <Unlock size={11} /> Sichtbar für Mitarbeiter unter „Dokumente“
+                                      </span>
+                                    </div>
+                                  ) : (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 3, alignItems: 'flex-start' }}>
+                                      <span style={{ padding: '3px 9px', borderRadius: 999, background: '#fef3c7', color: '#b45309', fontWeight: 800, fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                        <Clock size={12} /> Ausstehend (Pending Signature)
+                                      </span>
+                                      <span style={{ fontSize: 10.5, color: '#dc2626', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                        <Lock size={11} /> Nicht sichtbar für Mitarbeiter im Portal
+                                      </span>
+                                    </div>
+                                  )}
+                                </td>
+                                <td style={{ padding: '10px 12px', textAlign: 'right' }}>
+                                  <div style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center' }}>
+                                    {c.html_content && (
+                                      <>
+                                        <button
+                                          type="button"
+                                          className="btn-secondary btn-sm"
+                                          style={{ padding: '5px 9px', fontSize: 11.5 }}
+                                          onClick={() => setEditingIssuedContract({ ...c })}
+                                          title="Vertragstext ansehen oder bearbeiten"
+                                        >
+                                          <Edit3 size={12} /> Vorschau / Edit
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className="btn-secondary btn-sm"
+                                          style={{ padding: '5px 9px', fontSize: 11.5 }}
+                                          onClick={() => openContractPrintPdfWindow(c.title, [c.html_content])}
+                                          title="Als A4 PDF speichern oder drucken"
+                                        >
+                                          <Printer size={12} /> Als PDF
+                                        </button>
+                                      </>
+                                    )}
+                                    {isSigned && fileUrl && (
+                                      <a
+                                        href={resolveMediaUrl(fileUrl)}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        download={c.file_name || true}
+                                        className="btn-secondary btn-sm"
+                                        style={{ textDecoration: 'none', color: '#047857', borderColor: '#6ee7b7', background: '#ecfdf5', fontWeight: 700, padding: '5px 9px', fontSize: 11.5 }}
+                                      >
+                                        <Download size={12} /> Signiertes PDF
+                                      </a>
+                                    )}
+
+                                    {/* Upload Signed Contract PDF Button */}
+                                    <label
+                                      className="btn-primary btn-sm"
+                                      style={{
+                                        cursor: isUploadingThis ? 'not-allowed' : 'pointer',
+                                        background: isSigned ? '#059669' : '#FF6B00',
+                                        padding: '5px 10px',
+                                        fontSize: 11.5,
+                                        fontWeight: 700,
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: 5,
+                                        margin: 0,
+                                      }}
+                                      title="Unterschriebenen Vertrag (PDF/Scan) hochladen → Markiert Vertrag als Abgeschlossen und schaltet ihn für den Mitarbeiter frei"
+                                    >
+                                      <Upload size={12} />
+                                      {isUploadingThis
+                                        ? 'Lädt hoch...'
+                                        : isSigned
+                                        ? 'Signiertes PDF ersetzen'
+                                        : 'Unterschriebenen Vertrag hochladen'}
+                                      <input
+                                        type="file"
+                                        accept=".pdf,image/*"
+                                        style={{ display: 'none' }}
+                                        disabled={isUploadingThis}
+                                        onChange={(e) => {
+                                          const f = e.target.files?.[0];
+                                          if (f) handleUploadSignedContract(c, f);
+                                          e.target.value = '';
+                                        }}
+                                      />
+                                    </label>
+
+                                    <button
+                                      type="button"
+                                      className="btn-secondary btn-sm"
+                                      style={{ color: '#dc2626', padding: '5px 8px' }}
+                                      onClick={() => handleDeleteContract(c)}
+                                      title="Vertrag löschen"
+                                    >
+                                      <Trash2 size={12} />
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* =====================================================================
+          INTERNAL MODAL WINDOW: GENERATE CONTRACT WIZARD (STEPS 1 TO 4)
+         ===================================================================== */}
+      {showGeneratorModal && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15,23,42,0.72)',
+            backdropFilter: 'blur(4px)',
+            zIndex: 9998,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 16,
+          }}
+          onClick={() => setShowGeneratorModal(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: '96vw',
+              maxWidth: 1320,
+              maxHeight: '94vh',
+              background: '#f8fafc',
+              borderRadius: 16,
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+              boxShadow: '0 25px 60px rgba(15,23,42,0.45)',
+              border: '1px solid #334155',
+            }}
+          >
+            {/* Modal Sticky Header */}
+            <div style={{ padding: '14px 20px', background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)', color: '#fff', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, borderBottom: '3px solid #FF6B00' }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ padding: '3px 9px', borderRadius: 6, background: '#FF6B00', color: '#fff', fontSize: 11, fontWeight: 800 }}>
+                    VERTRAGS-GENERATOR
+                  </span>
+                  <strong style={{ fontSize: 15.5 }}>
+                    Neuen Vertrag / Vertragspaket generieren {selectedEmp ? `— ${selectedEmp.full_name}` : ''}
+                  </strong>
+                </div>
+                <div style={{ fontSize: 11.5, color: '#cbd5e1', marginTop: 2 }}>
+                  Mitarbeiter &amp; Vertragsmodule auswählen → Konditionen prüfen → Vertragstext live im Dokument anpassen → Verbindlich ausstellen &amp; als PDF speichern
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <button
+                  type="button"
+                  className="btn-primary btn-sm"
+                  disabled={issuing}
+                  onClick={handleIssueSelectedContracts}
+                  style={{ fontWeight: 800, padding: '8px 14px' }}
+                >
+                  <Check size={14} />{' '}
+                  {issuing ? 'Wird ausgestellt...' : `Verträge ausstellen (${selectedCodes.length})`}
+                </button>
+                <button
+                  type="button"
+                  className="btn-secondary btn-sm"
+                  onClick={() => setShowGeneratorModal(false)}
+                  style={{ background: 'rgba(255,255,255,0.12)', color: '#fff', border: '1px solid rgba(255,255,255,0.25)' }}
+                >
+                  <X size={14} /> Fenster schließen
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Scrollable Body */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: 18, display: 'flex', flexDirection: 'column', gap: 16 }}>
+              {issueSuccessBanner && (
+                <div style={{ padding: '14px 18px', borderRadius: 12, background: '#ecfdf5', border: '1.5px solid #10b981', color: '#065f46', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+                  <div>
+                    <div style={{ fontWeight: 800, fontSize: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <CheckCircle2 size={18} style={{ color: '#059669' }} />
+                      {issueSuccessBanner.count} Verträge für {issueSuccessBanner.employeeName} erfolgreich ausgestellt!
+                    </div>
+                    <div style={{ fontSize: 12, marginTop: 4, color: '#047857' }}>
+                      Die Verträge wurden in der Liste hinterlegt (Status: <strong>Ausstehend</strong>). Sie können die PDFs jetzt drucken/speichern oder dieses Fenster schließen.
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button
+                      type="button"
+                      className="btn-primary btn-sm"
+                      onClick={() =>
+                        openContractPrintPdfWindow(
+                          `Vertragspaket — ${issueSuccessBanner.employeeName}`,
+                          issueSuccessBanner.contracts.map((c) => c.html_content)
+                        )
+                      }
+                    >
+                      <Printer size={14} /> Alle {issueSuccessBanner.count} Verträge als PDF speichern
+                    </button>
+                    <button type="button" className="btn-secondary btn-sm" onClick={() => setShowGeneratorModal(false)}>
+                      Fertig &amp; Zurück zur Liste
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* STEP 1 & STEP 2: SELECT MITARBEITER & MULTI-SELECT CONTRACT MODULES */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.6fr', gap: 14 }}>
+                {/* STEP 1: Select Mitarbeiter */}
+                <div className="glass-panel" style={{ padding: 16, borderRadius: 12, background: '#fff', border: '1px solid #e2e8f0' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ width: 24, height: 24, borderRadius: 999, background: '#FF6B00', color: '#fff', fontWeight: 800, fontSize: 12, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>1</span>
+                      <strong style={{ fontSize: 14, color: '#0f172a' }}>Mitarbeiter auswählen</strong>
+                    </div>
+                    {onOpenCreateEmployeeModal && (
+                      <button type="button" className="btn-secondary btn-sm" onClick={onOpenCreateEmployeeModal} style={{ fontSize: 11.5, fontWeight: 700 }}>
+                        <Plus size={12} /> Neuer Mitarbeiter (KI-Scan)
+                      </button>
+                    )}
+                  </div>
+
+                  <label style={{ fontSize: 11.5, fontWeight: 700, color: '#475569' }}>Registrierter Mitarbeiter aus Datenbank *</label>
+                  <select
+                    value={selectedEmpId}
+                    onChange={(e) => setSelectedEmpId(e.target.value)}
+                    style={{ fontWeight: 700, fontSize: 13, marginBottom: 12, borderColor: '#FF6B00', background: '#fffbf7' }}
+                  >
+                    {employees.map((e) => (
+                      <option key={e.id} value={e.id}>
+                        {e.full_name} ({e.employee_number || 'EMP'} · {e.role} · {e.employment_type})
+                      </option>
+                    ))}
+                  </select>
+
+                  {selectedEmp && (
+                    <div style={{ padding: 12, borderRadius: 10, background: '#f8fafc', border: '1px solid #e2e8f0', fontSize: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <strong style={{ fontSize: 13.5, color: '#0f172a' }}>{conditions.salutation || 'Herr'} {selectedEmp.full_name}</strong>
+                        <span style={{ padding: '2px 8px', borderRadius: 6, background: '#eff6ff', color: '#1d4ed8', fontWeight: 700, fontSize: 11 }}>
+                          {selectedEmp.employee_number}
+                        </span>
+                      </div>
+                      <div style={{ color: '#475569' }}>
+                        <strong>Portal-Login (@bruenel.de):</strong> <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#0f172a' }}>{selectedEmp.email || '—'}</span>
+                      </div>
+                      <div style={{ color: '#047857' }}>
+                        <strong>Private E-Mail (Onboarding):</strong> <strong>{selectedEmp.attributes?.private_email || '— (Bitte eintragen)'}</strong>
+                      </div>
+                      <div style={{ color: '#475569' }}>
+                        <strong>Adresse:</strong> {conditions.street || '—'}, {conditions.postal_code || '—'} {conditions.city || '—'}
+                      </div>
+                      <div style={{ color: '#475569' }}>
+                        <strong>Position / Typ:</strong> {selectedEmp.role} · {selectedEmp.employment_type}
+                      </div>
+                      <div style={{ color: '#475569' }}>
+                        <strong>Steuer-ID / SV-Nr.:</strong> {selectedEmp.attributes?.steuer_id || '—'} · {selectedEmp.attributes?.sozialversicherungsnummer || '—'}
+                      </div>
+                      <div style={{ display: 'flex', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
+                        {effectiveOpenEmpModal && (
+                          <button type="button" className="btn-secondary btn-sm" style={{ fontSize: 11, padding: '4px 8px' }} onClick={() => effectiveOpenEmpModal(selectedEmp)}>
+                            <Edit3 size={11} /> Personalakte / Stammdaten bearbeiten
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* STEP 2: Multi-Select Contract Modules */}
+                <div className="glass-panel" style={{ padding: 16, borderRadius: 12, background: '#fff', border: '1px solid #e2e8f0' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ width: 24, height: 24, borderRadius: 999, background: '#FF6B00', color: '#fff', fontWeight: 800, fontSize: 12, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>2</span>
+                      <strong style={{ fontSize: 14, color: '#0f172a' }}>Vertragsmodule auswählen (Mehrfachauswahl möglich)</strong>
+                    </div>
+                    <span style={{ fontSize: 11.5, fontWeight: 700, color: '#047857', background: '#ecfdf5', padding: '3px 9px', borderRadius: 999, border: '1px solid #6ee7b7' }}>
+                      {selectedCodes.length} von 5 Modulen aktiv
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 8 }}>
+                    {CONTRACT_CATALOG.map((mod) => {
+                      const IconComp = mod.icon;
+                      const isSelected = selectedCodes.includes(mod.code) || mod.mandatory;
+                      return (
+                        <div
+                          key={mod.code}
+                          onClick={() => toggleContractCode(mod.code)}
+                          style={{
+                            padding: '10px 12px',
+                            borderRadius: 10,
+                            border: isSelected ? `2px solid ${mod.mandatory ? '#059669' : '#FF6B00'}` : '1px solid #e2e8f0',
+                            background: isSelected ? (mod.mandatory ? '#ecfdf5' : '#fff7ed') : '#ffffff',
+                            cursor: mod.mandatory ? 'default' : 'pointer',
+                            display: 'flex',
+                            alignItems: 'flex-start',
+                            gap: 10,
+                            transition: 'all 0.15s',
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            disabled={mod.mandatory}
+                            onChange={() => {}}
+                            style={{ width: 16, height: 16, marginTop: 2, accentColor: mod.mandatory ? '#059669' : '#FF6B00' }}
+                          />
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4 }}>
+                              <strong style={{ fontSize: 12.5, color: '#0f172a', display: 'flex', alignItems: 'center', gap: 5 }}>
+                                <IconComp size={14} style={{ color: mod.color, flexShrink: 0 }} />
+                                {mod.shortLabel}
+                              </strong>
+                              <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 4, background: '#e2e8f0', color: '#334155' }}>
+                                {mod.pages} S.
+                              </span>
+                            </div>
+                            <div style={{ fontSize: 11, color: '#64748b', marginTop: 3, lineHeight: 1.35 }}>
+                              {mod.subtitle}
+                            </div>
+                            {mod.mandatory && (
+                              <div style={{ marginTop: 4, fontSize: 10, fontWeight: 800, color: '#047857' }}>
+                                🔒 PFLICHTVERTRAG — Wird automatisch jedem Vertragspaket beigefügt
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              {/* STEP 3: DYNAMIC CONDITIONS & PARAMETERS FORM */}
+              <div className="glass-panel" style={{ padding: 16, borderRadius: 12, background: '#fff', border: '1px solid #e2e8f0' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ width: 24, height: 24, borderRadius: 999, background: '#FF6B00', color: '#fff', fontWeight: 800, fontSize: 12, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>3</span>
+                    <strong style={{ fontSize: 14, color: '#0f172a' }}>
+                      Vertragskonditionen &amp; Mitarbeiterdaten (Synchronisiert mit Personalakte &amp; Vertragsvorlagen)
+                    </strong>
+                  </div>
+                  <span style={{ fontSize: 11.5, color: '#64748b' }}>
+                    Alle Eingaben werden sofort live in die ausgewählten Vertragsvorlagen übernommen.
+                  </span>
+                </div>
+
+                {/* Common Personal & Address Row */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginBottom: 12, paddingBottom: 12, borderBottom: '1px solid #f1f5f9' }}>
+                  <div>
+                    <label style={{ fontSize: 11, fontWeight: 700 }}>Anrede (Herr / Frau / Firma) *</label>
+                    <select
+                      value={conditions.salutation || 'Herr'}
+                      onChange={(e) => updateCond('salutation', e.target.value)}
+                      style={{ fontWeight: 700 }}
+                    >
+                      <option value="Herr">Herr</option>
+                      <option value="Frau">Frau</option>
+                      <option value="Firma">Firma</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 11, fontWeight: 700 }}>Vorname *</label>
+                    <input value={conditions.first_name} onChange={(e) => updateCond('first_name', e.target.value)} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 11, fontWeight: 700 }}>Nachname *</label>
+                    <input value={conditions.last_name} onChange={(e) => updateCond('last_name', e.target.value)} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 11, fontWeight: 700 }}>Straße &amp; Hausnr. *</label>
+                    <input value={conditions.street} onChange={(e) => updateCond('street', e.target.value)} placeholder="z.B. Hauptstr. 12" />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 11, fontWeight: 700 }}>PLZ *</label>
+                    <input value={conditions.postal_code} onChange={(e) => updateCond('postal_code', e.target.value)} placeholder="61184" />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 11, fontWeight: 700 }}>Wohnort / Stadt *</label>
+                    <input value={conditions.city} onChange={(e) => updateCond('city', e.target.value)} placeholder="Karben" />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 11, fontWeight: 700, color: '#047857' }}>Private E-Mail (Onboarding)</label>
+                    <input
+                      type="email"
+                      value={conditions.private_email || ''}
+                      onChange={(e) => updateCond('private_email', e.target.value)}
+                      placeholder="name@gmail.com"
+                      style={{ borderColor: '#6ee7b7', background: '#f0fdf4' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 11, fontWeight: 700 }}>Vertragsdatum (Karben, den)</label>
+                    <DateInput value={conditions.signed_date} onChange={(e) => updateCond('signed_date', e.target.value)} />
+                  </div>
+                </div>
+
+                {/* Arbeitsvertrag Conditions */}
+                {selectedCodes.includes('ARBEITSVERTRAG') && (
+                  <div style={{ padding: 12, borderRadius: 10, background: '#f8fafc', border: '1px solid #cbd5e1', marginBottom: 10 }}>
+                    <div style={{ fontWeight: 800, fontSize: 12.5, color: '#0f172a', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <Briefcase size={14} /> Konditionen für 1. Arbeitsvertrag &amp; Anlage 1 (Vertraulichkeitsvereinbarung)
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(155px, 1fr))', gap: 10 }}>
+                      <div>
+                        <label style={{ fontSize: 11, fontWeight: 700 }}>Job-Titel / Position (§ 3) *</label>
+                        <input value={conditions.role} onChange={(e) => updateCond('role', e.target.value)} placeholder="z.B. Projektleiter" />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 11, fontWeight: 700 }}>Vertragsbeginn am (§ 1) *</label>
+                        <DateInput value={conditions.contract_start_date} onChange={(e) => updateCond('contract_start_date', e.target.value)} />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 11, fontWeight: 700 }}>Probezeit (Monate, § 2)</label>
+                        <input type="number" min="0" max="6" value={conditions.probezeit_months} onChange={(e) => updateCond('probezeit_months', e.target.value)} />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 11, fontWeight: 700, color: '#c2410c' }}>Probezeit Ende am (§ 2)</label>
+                        <DateInput value={conditions.probezeit_end_date} onChange={(e) => updateCond('probezeit_end_date', e.target.value)} />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 11, fontWeight: 700 }}>Wochenstunden (§ 4)</label>
+                        <input type="number" step="0.5" value={conditions.weekly_hours} onChange={(e) => updateCond('weekly_hours', e.target.value)} />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 11, fontWeight: 700, color: '#047857' }}>Monatsgehalt Brutto EUR (§ 5) *</label>
+                        <input type="number" step="50" value={conditions.base_salary} onChange={(e) => updateCond('base_salary', e.target.value)} style={{ fontWeight: 800, borderColor: '#10b981', background: '#ecfdf5' }} />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 11, fontWeight: 700 }}>Mindesturlaub + Zusatz (§ 6)</label>
+                        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                          <input type="number" value={conditions.statutory_leave_days} onChange={(e) => updateCond('statutory_leave_days', e.target.value)} title="Gesetzlicher Mindesturlaub (20)" />
+                          <span>+</span>
+                          <input type="number" value={conditions.extra_leave_days} onChange={(e) => updateCond('extra_leave_days', e.target.value)} title="Vertraglicher Zusatzurlaub (4)" />
+                          <span style={{ fontWeight: 800, fontSize: 12, whiteSpace: 'nowrap' }}>= {conditions.annual_leave_days} T.</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Orientierungspraktikum Conditions */}
+                {selectedCodes.includes('PRAKTIKUM') && (
+                  <div style={{ padding: 12, borderRadius: 10, background: '#f5f3ff', border: '1px solid #ddd6fe', marginBottom: 10 }}>
+                    <div style={{ fontWeight: 800, fontSize: 12.5, color: '#5b21b6', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <GraduationCap size={14} /> Konditionen für 3. Unbezahltes Orientierungspraktikum (Einfühlungsverhältnis gem. § 22 Abs. 1 Nr. 2 MiLoG)
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
+                      <div>
+                        <label style={{ fontSize: 11, fontWeight: 700 }}>Praktikum Beginn (vom) *</label>
+                        <DateInput value={conditions.praktikum_start_date} onChange={(e) => updateCond('praktikum_start_date', e.target.value)} />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 11, fontWeight: 700 }}>Praktikum Ende (bis zum) *</label>
+                        <DateInput value={conditions.praktikum_end_date} onChange={(e) => updateCond('praktikum_end_date', e.target.value)} />
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'end', fontSize: 11.5, color: '#5b21b6', fontWeight: 600 }}>
+                        ✓ Unentgeltliches Einfühlungsverhältnis (§ 22 Abs. 1 Nr. 2 MiLoG) — wird im Mitarbeiterprofil gespeichert.
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Kfz-Übergabeprotokoll Conditions */}
+                {selectedCodes.includes('KFZ_UEBERGABE') && (
+                  <div style={{ padding: 12, borderRadius: 10, background: '#eff6ff', border: '1px solid #bfdbfe', marginBottom: 10 }}>
+                    <div style={{ fontWeight: 800, fontSize: 12.5, color: '#1e40af', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <Car size={14} /> Konditionen für 2. Kfz-Übergabeprotokoll und Nutzungsvereinbarung
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(175px, 1fr))', gap: 10 }}>
+                      <div>
+                        <label style={{ fontSize: 11, fontWeight: 700 }}>Fahrzeug aus Fuhrpark wählen</label>
+                        <select value={conditions.vehicle_id} onChange={(e) => handleSelectFleetVehicle(e.target.value)}>
+                          <option value="">— Manuelle Eingabe / Fahrzeug wählen —</option>
+                          {vehicles.map((v) => (
+                            <option key={v.id} value={v.id}>
+                              {v.plate_number} · {v.model} ({v.mileage_km || 0} km)
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 11, fontWeight: 700 }}>Fahrzeugmarke / Modell (§ 1)</label>
+                        <input value={conditions.vehicle_model} onChange={(e) => updateCond('vehicle_model', e.target.value)} placeholder="z.B. Ford Transit / VW Crafter" />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 11, fontWeight: 700 }}>Amtliches Kennzeichen (§ 1)</label>
+                        <input value={conditions.vehicle_plate} onChange={(e) => updateCond('vehicle_plate', e.target.value)} placeholder="z.B. FB-BR 104" />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 11, fontWeight: 700 }}>Fahrgestellnummer (FIN)</label>
+                        <input value={conditions.vehicle_vin} onChange={(e) => updateCond('vehicle_vin', e.target.value)} placeholder="WF0XXX..." />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 11, fontWeight: 700 }}>Kilometerstand (km)</label>
+                        <input type="number" value={conditions.vehicle_mileage} onChange={(e) => updateCond('vehicle_mileage', e.target.value)} placeholder="42500" />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 11, fontWeight: 700 }}>Nächste HU / TÜV</label>
+                        <DateInput value={conditions.vehicle_tuv} onChange={(e) => updateCond('vehicle_tuv', e.target.value)} />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 11, fontWeight: 700 }}>Zustand bei Übergabe (§ 2)</label>
+                        <select value={conditions.vehicle_condition} onChange={(e) => updateCond('vehicle_condition', e.target.value)}>
+                          <option value="ok">Einwandfrei &amp; unbeschädigt</option>
+                          <option value="defects">Vorhandene Mängel / Kratzer</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 11, fontWeight: 700 }}>Tankkarte / Schlüssel / Zubehör (§ 3)</label>
+                        <input value={conditions.vehicle_fuel_card} onChange={(e) => updateCond('vehicle_fuel_card', e.target.value)} placeholder="DKV / 2 Schlüssel" />
+                      </div>
+                      <div style={{ gridColumn: '1 / -1' }}>
+                        <label style={{ fontSize: 11, fontWeight: 700 }}>Vorhandene Mängel / Schäden (§ 2) &amp; Sonstiges Zubehör (§ 3)</label>
+                        <input value={conditions.vehicle_defects} onChange={(e) => updateCond('vehicle_defects', e.target.value)} />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Subunternehmervertrag Conditions */}
+                {selectedCodes.includes('SUBUNTERNEHMER') && (
+                  <div style={{ padding: 12, borderRadius: 10, background: '#fff7ed', border: '1px solid #fed7aa' }}>
+                    <div style={{ fontWeight: 800, fontSize: 12.5, color: '#9a3412', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <ShieldCheck size={14} /> Konditionen für 4. Subunternehmervertrag (Werkvertrag NE4) + Ausführungs- &amp; Sicherheitsrichtlinien
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(175px, 1fr))', gap: 10 }}>
+                      <div>
+                        <label style={{ fontSize: 11, fontWeight: 700 }}>Firmenname / Auftragnehmer</label>
+                        <input value={conditions.company_name} onChange={(e) => updateCond('company_name', e.target.value)} />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 11, fontWeight: 700 }}>Projektstandort (§ 1 Abs. 2)</label>
+                        <input value={conditions.sub_location} onChange={(e) => updateCond('sub_location', e.target.value)} placeholder="77704 Oberkirch" />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 11, fontWeight: 700 }}>Umkreis (km)</label>
+                        <input type="number" value={conditions.sub_radius_km} onChange={(e) => updateCond('sub_radius_km', e.target.value)} />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 11, fontWeight: 700 }}>Variante A Vollausbau (€/WE)</label>
+                        <input type="number" step="1" value={conditions.sub_rate_variante_a} onChange={(e) => updateCond('sub_rate_variante_a', e.target.value)} />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 11, fontWeight: 700 }}>Variante B Teilausbau (€/WE)</label>
+                        <input type="number" step="1" value={conditions.sub_rate_variante_b} onChange={(e) => updateCond('sub_rate_variante_b', e.target.value)} />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 11, fontWeight: 700 }}>Zahlungsziel (Tage, § 3)</label>
+                        <input type="number" value={conditions.sub_payment_term_days} onChange={(e) => updateCond('sub_payment_term_days', e.target.value)} />
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* STEP 4: LIVE EDITABLE CONTRACT TEMPLATE PREVIEW & ISSUE / PDF ACTIONS */}
+              <div className="glass-panel" style={{ padding: 16, borderRadius: 12, background: '#fff', border: '1px solid #e2e8f0' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 12 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ width: 24, height: 24, borderRadius: 999, background: '#FF6B00', color: '#fff', fontWeight: 800, fontSize: 12, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>4</span>
+                    <div>
+                      <strong style={{ fontSize: 14, color: '#0f172a' }}>
+                        Live-Vertragsvorschau &amp; Freier Text-Editor (Direkt im Dokument editierbar)
+                      </strong>
+                      <div style={{ fontSize: 11.5, color: '#64748b' }}>
+                        Klicken Sie direkt in das Vertragsdokument unten, um beliebige Paragraphen, Klauseln oder Formulierungen vor dem Ausstellen individuell anzupassen.
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      className="btn-secondary btn-sm"
+                      onClick={() => handleResetTemplateText(activePreviewCode)}
+                      title="Aktuelle Vorlage auf Standardtext mit aktuellen Konditionen zurücksetzen"
+                    >
+                      <RefreshCw size={13} /> Vorlage zurücksetzen
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-secondary btn-sm"
+                      onClick={() => {
+                        const currentHtml = editorRef.current ? editorRef.current.innerHTML : draftHtmlMap[activePreviewCode];
+                        const mod = CONTRACT_CATALOG.find((c) => c.code === activePreviewCode);
+                        openContractPrintPdfWindow(
+                          `${mod?.title || 'Vertrag'} — ${conditions.first_name} ${conditions.last_name}`,
+                          [currentHtml]
+                        );
+                      }}
+                    >
+                      <Printer size={14} /> Aktuellen Vertrag als PDF speichern
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-secondary btn-sm"
+                      style={{ borderColor: '#0f172a', color: '#0f172a', fontWeight: 700 }}
+                      onClick={() => {
+                        const currentMap = { ...draftHtmlMap };
+                        if (editorRef.current && activePreviewCode) {
+                          currentMap[activePreviewCode] = editorRef.current.innerHTML;
+                        }
+                        const ordered = CONTRACT_CATALOG.filter((c) => selectedCodes.includes(c.code) || c.mandatory);
+                        openContractPrintPdfWindow(
+                          `Vertragspaket (${ordered.length} Dokumente) — ${conditions.first_name} ${conditions.last_name}`,
+                          ordered.map((c) => currentMap[c.code] || generateContractHtml(c.code, selectedEmp, conditions))
+                        );
+                      }}
+                    >
+                      <Download size={14} /> Alle {selectedCodes.length} Verträge als PDF speichern
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-primary"
+                      disabled={issuing}
+                      onClick={handleIssueSelectedContracts}
+                      style={{ fontWeight: 800, padding: '8px 16px' }}
+                    >
+                      <Check size={15} />{' '}
+                      {issuing
+                        ? 'Verträge werden ausgestellt...'
+                        : `Verträge verbindlich ausstellen (${selectedCodes.length}) & Akte aktualisieren`}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Contract Switcher Tabs for Preview */}
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12, paddingBottom: 10, borderBottom: '1px solid #e2e8f0' }}>
+                  {CONTRACT_CATALOG.filter((c) => selectedCodes.includes(c.code) || c.mandatory).map((c) => {
+                    const active = activePreviewCode === c.code;
+                    return (
+                      <button
+                        key={c.code}
+                        type="button"
+                        onClick={() => {
+                          if (editorRef.current && activePreviewCode) {
+                            const html = editorRef.current.innerHTML;
+                            setDraftHtmlMap((prev) => ({ ...prev, [activePreviewCode]: html }));
+                          }
+                          setActivePreviewCode(c.code);
+                        }}
+                        style={{
+                          padding: '7px 14px',
+                          borderRadius: 8,
+                          fontSize: 12,
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          border: active ? '2px solid #FF6B00' : '1px solid #cbd5e1',
+                          background: active ? '#fff7ed' : '#f8fafc',
+                          color: active ? '#9a3412' : '#334155',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 6,
+                        }}
+                      >
+                        <FileText size={13} />
+                        {c.shortLabel}
+                        {manuallyEditedCodes[c.code] && (
+                          <span style={{ fontSize: 10, background: '#fde68a', color: '#92400e', padding: '1px 5px', borderRadius: 4 }}>
+                            Bearbeitet
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Editable A4 Paper Preview */}
+                <div style={{ background: '#e2e8f0', padding: '20px 14px', borderRadius: 10, maxHeight: 580, overflowY: 'auto' }}>
+                  <div
+                    ref={editorRef}
+                    contentEditable
+                    suppressContentEditableWarning
+                    onBlur={(e) => {
+                      const updatedHtml = e.currentTarget.innerHTML;
+                      setDraftHtmlMap((prev) => ({ ...prev, [activePreviewCode]: updatedHtml }));
+                      setManuallyEditedCodes((prev) => ({ ...prev, [activePreviewCode]: true }));
+                    }}
+                    style={{
+                      maxWidth: '210mm',
+                      minHeight: '260mm',
+                      margin: '0 auto',
+                      background: '#ffffff',
+                      padding: '20mm 22mm',
+                      borderRadius: 4,
+                      boxShadow: '0 8px 25px rgba(15,23,42,0.12)',
+                      fontFamily: "'Segoe UI', Arial, sans-serif",
+                      fontSize: '10.5pt',
+                      lineHeight: 1.55,
+                      color: '#111827',
+                      outline: 'none',
+                    }}
+                    dangerouslySetInnerHTML={{
+                      __html: draftHtmlMap[activePreviewCode] || generateContractHtml(activePreviewCode, selectedEmp, conditions),
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal for viewing / editing an already issued contract */}
       {editingIssuedContract && (
