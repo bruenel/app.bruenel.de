@@ -8,7 +8,8 @@ import {
 import { fetchWithToken, uploadMediaFile, resolveMediaUrl, formatDate, formatEuro } from '../core/api';
 import { DateInput } from '../components/DateTimeInputs';
 import { downloadCsv } from '../components/ui';
-import html2pdf from 'html2pdf.js';
+import html2canvas from 'html2canvas';
+import { jsPDF } from 'jspdf';
 
 // ==============================================================================
 // 5 OFFICIAL BRÜNEL DEUTSCHLAND UG CONTRACT MODULES
@@ -844,42 +845,131 @@ function buildSafePdfFilename(rawTitle, employeeName = '') {
   return `${base.slice(0, 110) || 'Vertrag'}.pdf`;
 }
 
-// Helper to download a single contract directly as an individual .pdf file
+// Helper to download a single contract directly as an individual .pdf file (renders every page cleanly with html2canvas + jsPDF)
 export async function downloadSingleContractPdf(title, htmlContent, customFileName = '') {
   if (!htmlContent) return;
   const filename = customFileName
     ? (customFileName.toLowerCase().endsWith('.pdf') ? customFileName : `${customFileName}.pdf`)
     : buildSafePdfFilename(title);
 
-  const wrapper = document.createElement('div');
-  wrapper.style.position = 'fixed';
-  wrapper.style.left = '-99999px';
-  wrapper.style.top = '0';
-  wrapper.style.width = '180mm';
-  wrapper.style.background = '#ffffff';
-  wrapper.style.color = '#111827';
-  wrapper.style.fontFamily = "'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Arial, sans-serif";
-  wrapper.style.fontSize = '10.5pt';
-  wrapper.style.lineHeight = '1.55';
-  wrapper.innerHTML = htmlContent;
-  document.body.appendChild(wrapper);
+  // Split by explicit .page-break markers so each contract page starts cleanly on a new A4 page
+  const rawSections = String(htmlContent)
+    .split(/<div[^>]*class=["'][^"']*page-break[^"']*["'][^>]*>[\s\S]*?<\/div>/i)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const sections = rawSections.length > 0 ? rawSections : [String(htmlContent)];
+
+  const stage = document.createElement('div');
+  stage.style.cssText = [
+    'position: fixed',
+    'top: 0',
+    'left: 0',
+    'width: 794px',
+    'background: #ffffff',
+    'color: #111827',
+    'z-index: -1',
+    'opacity: 1',
+    'visibility: visible',
+    'pointer-events: none',
+    'overflow: visible',
+  ].join(';');
+  document.body.appendChild(stage);
 
   try {
-    const opt = {
-      margin: [14, 15, 14, 15],
-      filename,
-      image: { type: 'jpeg', quality: 0.98 },
-      html2canvas: { scale: 2, useCORS: true, logging: false },
-      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-      pagebreak: { mode: ['css', 'legacy'], before: '.page-break' },
-    };
-    await html2pdf().set(opt).from(wrapper).save();
+    const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait', compress: true });
+    const pageWidthMm = 210;
+    const pageHeightMm = 297;
+    const scale = 2;
+    const a4WidthPx = 794;
+    const a4HeightPx = Math.floor((a4WidthPx * pageHeightMm) / pageWidthMm); // ~1123px
+    const sliceHeightCanvasPx = a4HeightPx * scale;
+    let isFirstPdfPage = true;
+
+    for (let i = 0; i < sections.length; i++) {
+      stage.innerHTML = '';
+      const pageEl = document.createElement('div');
+      pageEl.style.cssText = [
+        'width: 794px',
+        'min-height: 980px',
+        'padding: 48px 56px',
+        'background: #ffffff',
+        'color: #111827',
+        "font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Arial, sans-serif",
+        'font-size: 10.5pt',
+        'line-height: 1.55',
+        'box-sizing: border-box',
+      ].join(';');
+      pageEl.innerHTML = sections[i];
+      stage.appendChild(pageEl);
+
+      // Wait for browser layout before rasterizing
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+      const canvas = await html2canvas(pageEl, {
+        scale,
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#ffffff',
+        width: a4WidthPx,
+        windowWidth: a4WidthPx,
+        scrollX: 0,
+        scrollY: 0,
+        x: 0,
+        y: 0,
+        onclone: (_clonedDoc, clonedEl) => {
+          if (clonedEl) {
+            clonedEl.style.opacity = '1';
+            clonedEl.style.visibility = 'visible';
+            clonedEl.style.zIndex = '999999';
+          }
+        },
+      });
+
+      if (canvas.height <= sliceHeightCanvasPx * 1.06) {
+        if (!isFirstPdfPage) pdf.addPage();
+        isFirstPdfPage = false;
+        const renderedHeightMm = Math.min(pageHeightMm, (canvas.height * pageWidthMm) / canvas.width);
+        const imgData = canvas.toDataURL('image/jpeg', 0.96);
+        pdf.addImage(imgData, 'JPEG', 0, 0, pageWidthMm, renderedHeightMm, undefined, 'FAST');
+      } else {
+        // Section spans more than 1 A4 page: slice vertically into A4 pages
+        let offsetY = 0;
+        while (offsetY < canvas.height) {
+          const currentSlicePx = Math.min(sliceHeightCanvasPx, canvas.height - offsetY);
+          const sliceCanvas = document.createElement('canvas');
+          sliceCanvas.width = canvas.width;
+          sliceCanvas.height = currentSlicePx;
+          const ctx = sliceCanvas.getContext('2d');
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, sliceCanvas.width, sliceCanvas.height);
+          ctx.drawImage(
+            canvas,
+            0,
+            offsetY,
+            canvas.width,
+            currentSlicePx,
+            0,
+            0,
+            canvas.width,
+            currentSlicePx
+          );
+          if (!isFirstPdfPage) pdf.addPage();
+          isFirstPdfPage = false;
+          const sliceHeightMm = (currentSlicePx * pageWidthMm) / canvas.width;
+          const sliceImg = sliceCanvas.toDataURL('image/jpeg', 0.96);
+          pdf.addImage(sliceImg, 'JPEG', 0, 0, pageWidthMm, sliceHeightMm, undefined, 'FAST');
+          offsetY += currentSlicePx;
+        }
+      }
+    }
+
+    pdf.save(filename);
   } catch (err) {
     console.error('PDF export error, falling back to print dialog:', err);
     openContractPrintPdfWindow(title, [htmlContent]);
   } finally {
-    if (wrapper.parentNode) {
-      wrapper.parentNode.removeChild(wrapper);
+    if (stage.parentNode) {
+      stage.parentNode.removeChild(stage);
     }
   }
 }

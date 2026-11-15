@@ -12,7 +12,7 @@ import { TASK_STATUS_CONFIG, getStatusStyle } from '../core/i18n';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { PageHead, SubTabs, useQuickAction, Empty, downloadCsv, confirmDelete } from '../components/ui';
 import { MasterCalendarModule } from './ErpOperationsModules';
-import { HRContractGeneratorView, HREmployeeOverviewView } from './HRContractsAndOverview';
+import { HRContractGeneratorView, HREmployeeOverviewView, downloadSingleContractPdf } from './HRContractsAndOverview';
 
 // ==============================================================================
 // EXECUTIVE COMMAND DASHBOARD (app.bruenel.de Overview)
@@ -2983,10 +2983,11 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                               {/* Filter, Sort & Bulk Action Toolbar */}
                               <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center', padding: '10px 12px', borderRadius: '10px', background: '#f8fafc', border: '1px solid var(--border)' }}>
-                                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer', margin: 0 }}>
+                                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer', margin: 0, whiteSpace: 'nowrap' }}>
                                   <input
                                     type="checkbox"
                                     checked={allVisibleSelected}
+                                    style={{ width: '16px', height: '16px', flexShrink: 0, margin: 0, padding: 0 }}
                                     onChange={(ev) => {
                                       if (ev.target.checked) {
                                         setSelectedDocIds(Array.from(new Set([...selectedDocIds, ...filteredEmpDocs.map(d => d.id)])));
@@ -2996,7 +2997,7 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                                       }
                                     }}
                                   />
-                                  Alle auswählen ({selectedDocIds.length})
+                                  <span>Alle auswählen ({selectedDocIds.length})</span>
                                 </label>
                                 <input
                                   placeholder="Dokument suchen..."
@@ -3050,8 +3051,8 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                                   const isChecked = selectedDocIds.includes(doc.id);
                                   const isPayslipDoc = (doc.effectiveKind || '').toLowerCase().includes('lohnabrechnung') || doc.reference_type === 'Lohnabrechnung';
                                   return (
-                                    <div key={doc.id} className="flex-between" style={{ padding: '10px 14px', borderRadius: '8px', background: isChecked ? '#fff7ed' : 'var(--surface)', border: isChecked ? '1.5px solid var(--accent)' : '1px solid var(--border)', fontSize: '0.8rem', gap: '12px' }}>
-                                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', minWidth: 0, flex: 1 }}>
+                                    <div key={doc.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', padding: '12px 14px', borderRadius: '8px', background: isChecked ? '#fff7ed' : 'var(--surface)', border: isChecked ? '1.5px solid var(--accent)' : '1px solid var(--border)', fontSize: '0.8rem', gap: '12px' }}>
+                                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', minWidth: '260px', flex: '1 1 360px' }}>
                                         <input
                                           type="checkbox"
                                           checked={isChecked}
@@ -3059,7 +3060,7 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                                             if (ev.target.checked) setSelectedDocIds(prev => [...prev, doc.id]);
                                             else setSelectedDocIds(prev => prev.filter(id => id !== doc.id));
                                           }}
-                                          style={{ marginTop: '6px' }}
+                                          style={{ width: '16px', height: '16px', flexShrink: 0, marginTop: '4px', padding: 0 }}
                                         />
                                         <div style={{ marginTop: '2px', padding: '6px', borderRadius: '6px', background: isPayslipDoc ? '#ecfdf5' : 'rgba(255,107,0,0.1)', color: isPayslipDoc ? '#059669' : 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                                           <FileText size={16} />
@@ -3084,7 +3085,7 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                                             </div>
                                           ) : (
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '4px' }}>
-                                              <strong style={{ wordBreak: 'break-word', fontSize: '0.86rem' }}>{doc.title}</strong>
+                                              <strong style={{ fontSize: '0.86rem', color: 'var(--text-main)', lineHeight: 1.35 }}>{doc.title}</strong>
                                               <span className="badge" style={{ fontSize: '0.68rem', padding: '2px 7px', background: isPayslipDoc ? '#d1fae5' : 'rgba(255,107,0,0.12)', color: isPayslipDoc ? '#065f46' : 'var(--accent)', fontWeight: 700 }}>
                                                 {doc.effectiveKind}
                                               </span>
@@ -3116,12 +3117,21 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                                           </div>
                                         </div>
                                       </div>
-                                      <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexShrink: 0 }}>
-                                        {fileUrl && (
+                                      <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexShrink: 0, flexWrap: 'wrap' }}>
+                                        {doc.html_content ? (
+                                          <button
+                                            type="button"
+                                            className="btn-secondary btn-sm"
+                                            style={{ color: 'var(--accent)', display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '4px 9px' }}
+                                            onClick={() => downloadSingleContractPdf(doc.title, doc.html_content)}
+                                          >
+                                            <Download size={13} /> Als PDF
+                                          </button>
+                                        ) : fileUrl ? (
                                           <a href={resolveMediaUrl(fileUrl)} target="_blank" rel="noreferrer" download={doc.file_name || true} className="btn-secondary btn-sm" style={{ textDecoration: 'none', color: 'var(--accent)', display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '4px 9px' }}>
                                             <Download size={13} /> Download
                                           </a>
-                                        )}
+                                        ) : null}
                                         {!isEditingThis && (
                                           <button
                                             type="button"
