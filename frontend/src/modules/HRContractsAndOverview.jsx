@@ -106,13 +106,13 @@ export const addMonthsIso = (isoDate, months = 6) => {
 };
 
 const renderPageHeader = () => `
-  <div class="brn-doc-header" style="display:flex;justify-content:flex-end;align-items:center;margin-bottom:18px;padding-bottom:8px;">
-    <img src="/bruenel-dark.svg" alt="Brünel" style="height:28px;object-fit:contain;" onerror="this.style.display='none'" />
+  <div class="brn-doc-header" style="display:flex;justify-content:flex-end;align-items:center;margin-bottom:14px;padding-bottom:6px;">
+    <img src="/bruenel-logo-dark.png" alt="Brünel" width="106" height="26" style="width:106px;height:26px;object-fit:contain;display:block;" onerror="this.style.display='none'" />
   </div>
 `;
 
 const renderPageFooter = (pageLabel = '') => `
-  <div class="brn-doc-footer" style="display:flex;justify-content:space-between;align-items:center;margin-top:28px;padding-top:10px;border-top:1px solid #e2e8f0;font-size:9pt;color:#64748b;">
+  <div class="brn-doc-footer" style="display:flex;justify-content:space-between;align-items:center;margin-top:20px;padding-top:8px;border-top:1px solid #e2e8f0;font-size:7.5pt;color:#64748b;">
     <span>${pageLabel}</span>
     <span style="font-weight:700;color:#475569;">bruenel.de</span>
   </div>
@@ -170,132 +170,132 @@ export function generateContractHtml(code, emp, cond) {
 
   if (code === 'ARBEITSVERTRAG') {
     return `
-      <div class="brn-contract-sheet">
+      <div class="brn-contract-sheet" style="font-size:8pt;line-height:1.45;color:#111827;">
         ${renderPageHeader()}
-        <h1 style="font-size:18pt;font-weight:800;margin:0 0 18px 0;color:#111827;">Arbeitsvertrag</h1>
-        <p style="margin:0 0 8px 0;">Zwischen</p>
-        <p style="margin:0 0 4px 0;"><strong>Brünel Deutschland UG (haftungsbeschränkt)</strong></p>
-        <p style="margin:0 0 4px 0;">Ramonville Str. 28, 61184 Karben</p>
-        <p style="margin:0 0 4px 0;">vertreten durch den Geschäftsführer Herrn Sam Rastegar Moghadam</p>
-        <p style="margin:0 0 14px 0;color:#374151;">– nachfolgend „Arbeitgeber“ genannt –</p>
-        <p style="margin:0 0 8px 0;">und</p>
-        <p style="margin:0 0 4px 0;">${partyLineAccusative}</p>
-        <p style="margin:0 0 4px 0;">wohnhaft in: <strong>${fullAddress}</strong></p>
-        <p style="margin:0 0 16px 0;color:#374151;">– nachfolgend „Arbeitnehmer“ genannt –</p>
-        <p style="margin:0 0 18px 0;">wird folgender Arbeitsvertrag geschlossen:</p>
+        <h1 style="font-size:10pt;font-weight:800;margin:0 0 12px 0;color:#111827;">Arbeitsvertrag</h1>
+        <p style="margin:0 0 6px 0;">Zwischen</p>
+        <p style="margin:0 0 3px 0;"><strong>Brünel Deutschland UG (haftungsbeschränkt)</strong></p>
+        <p style="margin:0 0 3px 0;">Ramonville Str. 28, 61184 Karben</p>
+        <p style="margin:0 0 3px 0;">vertreten durch den Geschäftsführer Herrn Sam Rastegar Moghadam</p>
+        <p style="margin:0 0 10px 0;color:#374151;">– nachfolgend „Arbeitgeber“ genannt –</p>
+        <p style="margin:0 0 6px 0;">und</p>
+        <p style="margin:0 0 3px 0;">${partyLineAccusative}</p>
+        <p style="margin:0 0 3px 0;">wohnhaft in: <strong>${fullAddress}</strong></p>
+        <p style="margin:0 0 12px 0;color:#374151;">– nachfolgend „Arbeitnehmer“ genannt –</p>
+        <p style="margin:0 0 12px 0;">wird folgender Arbeitsvertrag geschlossen:</p>
 
-        <h3 style="font-size:11.5pt;font-weight:700;margin:16px 0 6px 0;">§ 1 Beginn und Dauer des Arbeitsverhältnisses</h3>
-        <p style="margin:0 0 12px 0;text-align:justify;">
+        <h3 style="font-size:10pt;font-weight:700;margin:12px 0 4px 0;">§ 1 Beginn und Dauer des Arbeitsverhältnisses</h3>
+        <p style="margin:0 0 8px 0;text-align:justify;">
           Das Arbeitsverhältnis beginnt am <strong>${startDate}</strong> und wird auf unbestimmte Zeit (unbefristet) geschlossen.
         </p>
 
-        <h3 style="font-size:11.5pt;font-weight:700;margin:16px 0 6px 0;">§ 2 Probezeit und Kündigung</h3>
-        <ol style="margin:0 0 12px 0;padding-left:20px;text-align:justify;">
-          <li style="margin-bottom:6px;">Die ersten <strong>${probezeitMonths} Monate</strong> (bis zum <strong>${probezeitEnd}</strong>) gelten als Probezeit. Während der Probezeit kann das Arbeitsverhältnis von beiden Seiten mit einer Frist von zwei Wochen zu jedem beliebigen Tag gekündigt werden (§ 622 Abs. 3 BGB).</li>
-          <li style="margin-bottom:6px;">Nach Ablauf der Probezeit gilt eine Kündigungsfrist von vier Wochen zum Fünfzehnten oder zum Ende eines Kalendermonats. Verlängert sich die Kündigungsfrist für den Arbeitgeber aus tariflichen oder gesetzlichen Gründen (insb. § 622 Abs. 2 BGB), gilt diese verlängerte Frist in gleicher Weise auch für eine Kündigung durch den Arbeitnehmer (Gleichstellungsklausel).</li>
-          <li style="margin-bottom:6px;">Jede Kündigung bedarf zu ihrer Wirksamkeit der Schriftform; die elektronische Form ist ausgeschlossen.</li>
-          <li style="margin-bottom:6px;">Der Arbeitgeber ist berechtigt, den Arbeitnehmer nach Ausspruch einer Kündigung unter Fortzahlung der Vergütung und unter Anrechnung auf etwaige Urlaubs- und Freizeitausgleichsansprüche widerruflich oder unwiderruflich von der Arbeitsleistung freizustellen.</li>
+        <h3 style="font-size:10pt;font-weight:700;margin:12px 0 4px 0;">§ 2 Probezeit und Kündigung</h3>
+        <ol style="margin:0 0 8px 0;padding-left:18px;text-align:justify;">
+          <li style="margin-bottom:4px;">Die ersten <strong>${probezeitMonths} Monate</strong> (bis zum <strong>${probezeitEnd}</strong>) gelten als Probezeit. Während der Probezeit kann das Arbeitsverhältnis von beiden Seiten mit einer Frist von zwei Wochen zu jedem beliebigen Tag gekündigt werden (§ 622 Abs. 3 BGB).</li>
+          <li style="margin-bottom:4px;">Nach Ablauf der Probezeit gilt eine Kündigungsfrist von vier Wochen zum Fünfzehnten oder zum Ende eines Kalendermonats. Verlängert sich die Kündigungsfrist für den Arbeitgeber aus tariflichen oder gesetzlichen Gründen (insb. § 622 Abs. 2 BGB), gilt diese verlängerte Frist in gleicher Weise auch für eine Kündigung durch den Arbeitnehmer (Gleichstellungsklausel).</li>
+          <li style="margin-bottom:4px;">Jede Kündigung bedarf zu ihrer Wirksamkeit der Schriftform; die elektronische Form ist ausgeschlossen.</li>
+          <li style="margin-bottom:4px;">Der Arbeitgeber ist berechtigt, den Arbeitnehmer nach Ausspruch einer Kündigung unter Fortzahlung der Vergütung und unter Anrechnung auf etwaige Urlaubs- und Freizeitausgleichsansprüche widerruflich oder unwiderruflich von der Arbeitsleistung freizustellen.</li>
         </ol>
 
-        <h3 style="font-size:11.5pt;font-weight:700;margin:16px 0 6px 0;">§ 3 Tätigkeit, Versetzungsvorbehalt und Reisebereitschaft</h3>
-        <ol style="margin:0 0 12px 0;padding-left:20px;text-align:justify;">
-          <li style="margin-bottom:6px;">Der Arbeitnehmer wird als <strong>„${roleTitle}“</strong> eingestellt. Zu seinen Aufgaben gehören insbesondere die Planung, Steuerung, Koordination und Überwachung von IT- und Infrastrukturprojekten sowie die Führung von Projektteams und die Kommunikation mit Auftraggebern und Nachunternehmern.</li>
-          <li style="margin-bottom:6px;">Der Arbeitgeber behält sich vor, dem Arbeitnehmer innerhalb des Unternehmens eine andere, seinen Vorkenntnissen und Fähigkeiten entsprechende, gleichwertige und zumutbare Tätigkeit zuzuweisen.</li>
-          <li style="margin-bottom:6px;">Aufgrund der Natur der Projektarbeit hat der Arbeitnehmer keinen festen, ausschließlichen Arbeitsort. Er erklärt sich ausdrücklich bereit, im Rahmen seiner Tätigkeit <strong>deutschlandweit</strong> Dienstreisen zu unternehmen und vor Ort auf den jeweiligen Projektbaustellen bzw. bei Kunden tätig zu sein.</li>
+        <h3 style="font-size:10pt;font-weight:700;margin:12px 0 4px 0;">§ 3 Tätigkeit, Versetzungsvorbehalt und Reisebereitschaft</h3>
+        <ol style="margin:0 0 8px 0;padding-left:18px;text-align:justify;">
+          <li style="margin-bottom:4px;">Der Arbeitnehmer wird als <strong>„${roleTitle}“</strong> eingestellt. Zu seinen Aufgaben gehören insbesondere die Planung, Steuerung, Koordination und Überwachung von IT- und Infrastrukturprojekten sowie die Führung von Projektteams und die Kommunikation mit Auftraggebern und Nachunternehmern.</li>
+          <li style="margin-bottom:4px;">Der Arbeitgeber behält sich vor, dem Arbeitnehmer innerhalb des Unternehmens eine andere, seinen Vorkenntnissen und Fähigkeiten entsprechende, gleichwertige und zumutbare Tätigkeit zuzuweisen.</li>
+          <li style="margin-bottom:4px;">Aufgrund der Natur der Projektarbeit hat der Arbeitnehmer keinen festen, ausschließlichen Arbeitsort. Er erklärt sich ausdrücklich bereit, im Rahmen seiner Tätigkeit <strong>deutschlandweit</strong> Dienstreisen zu unternehmen und vor Ort auf den jeweiligen Projektbaustellen bzw. bei Kunden tätig zu sein.</li>
         </ol>
 
-        <h3 style="font-size:11.5pt;font-weight:700;margin:16px 0 6px 0;">§ 4 Arbeitszeit</h3>
-        <ol style="margin:0 0 12px 0;padding-left:20px;text-align:justify;">
-          <li style="margin-bottom:6px;">Die regelmäßige wöchentliche Arbeitszeit beträgt <strong>${weeklyHours} Stunden</strong> (ohne Pausen).</li>
-          <li style="margin-bottom:6px;">Die Verteilung der Arbeitszeit sowie Beginn und Ende der täglichen Arbeitszeit und der Pausen richten sich nach den betrieblichen Erfordernissen und den Anforderungen der jeweiligen Projekte.</li>
-          <li style="margin-bottom:6px;">Der Arbeitnehmer ist verpflichtet, bei betrieblichem Bedarf im gesetzlich zulässigen Rahmen (Arbeitszeitgesetz) Überstunden und Mehrarbeit zu leisten.</li>
+        <h3 style="font-size:10pt;font-weight:700;margin:12px 0 4px 0;">§ 4 Arbeitszeit</h3>
+        <ol style="margin:0 0 8px 0;padding-left:18px;text-align:justify;">
+          <li style="margin-bottom:4px;">Die regelmäßige wöchentliche Arbeitszeit beträgt <strong>${weeklyHours} Stunden</strong> (ohne Pausen).</li>
+          <li style="margin-bottom:4px;">Die Verteilung der Arbeitszeit sowie Beginn und Ende der täglichen Arbeitszeit und der Pausen richten sich nach den betrieblichen Erfordernissen und den Anforderungen der jeweiligen Projekte.</li>
+          <li style="margin-bottom:4px;">Der Arbeitnehmer ist verpflichtet, bei betrieblichem Bedarf im gesetzlich zulässigen Rahmen (Arbeitszeitgesetz) Überstunden und Mehrarbeit zu leisten.</li>
         </ol>
 
-        <h3 style="font-size:11.5pt;font-weight:700;margin:16px 0 6px 0;">§ 5 Vergütung und Überstunden</h3>
-        <ol style="margin:0 0 12px 0;padding-left:20px;text-align:justify;">
-          <li style="margin-bottom:6px;">Der Arbeitnehmer erhält ein monatliches Bruttogehalt in Höhe von <strong>${grossSalary} EUR</strong>.</li>
-          <li style="margin-bottom:6px;">Die Vergütung ist jeweils am <strong>15. des Folgemonats</strong> fällig und wird bargeldlos auf das vom Arbeitnehmer benannte Konto überwiesen.</li>
-          <li style="margin-bottom:6px;">Überstunden werden nur berücksichtigt, wenn sie vom Arbeitgeber zuvor ausdrücklich angeordnet oder nachträglich genehmigt wurden. Geleistete und genehmigte Überstunden werden nach Wahl des Arbeitgebers entweder durch bezahlten Freizeitausgleich oder durch gesonderte Vergütung (berechnet auf Basis des individuellen Stundenlohns) abgegolten.</li>
-          <li style="margin-bottom:6px;">Die Gewährung von sonstigen Leistungen (z.B. Boni, Prämien, Weihnachtsgeld) erfolgt stets freiwillig und mit der Maßgabe, dass auch bei wiederholter Zahlung kein Rechtsanspruch für die Zukunft begründet wird (Freiwilligkeitsvorbehalt).</li>
+        <h3 style="font-size:10pt;font-weight:700;margin:12px 0 4px 0;">§ 5 Vergütung und Überstunden</h3>
+        <ol style="margin:0 0 8px 0;padding-left:18px;text-align:justify;">
+          <li style="margin-bottom:4px;">Der Arbeitnehmer erhält ein monatliches Bruttogehalt in Höhe von <strong>${grossSalary} EUR</strong>.</li>
+          <li style="margin-bottom:4px;">Die Vergütung ist jeweils am <strong>15. des Folgemonats</strong> fällig und wird bargeldlos auf das vom Arbeitnehmer benannte Konto überwiesen.</li>
+          <li style="margin-bottom:4px;">Überstunden werden nur berücksichtigt, wenn sie vom Arbeitgeber zuvor ausdrücklich angeordnet oder nachträglich genehmigt wurden. Geleistete und genehmigte Überstunden werden nach Wahl des Arbeitgebers entweder durch bezahlten Freizeitausgleich oder durch gesonderte Vergütung (berechnet auf Basis des individuellen Stundenlohns) abgegolten.</li>
+          <li style="margin-bottom:4px;">Die Gewährung von sonstigen Leistungen (z.B. Boni, Prämien, Weihnachtsgeld) erfolgt stets freiwillig und mit der Maßgabe, dass auch bei wiederholter Zahlung kein Rechtsanspruch für die Zukunft begründet wird (Freiwilligkeitsvorbehalt).</li>
         </ol>
 
-        <h3 style="font-size:11.5pt;font-weight:700;margin:16px 0 6px 0;">§ 6 Urlaub</h3>
-        <ol style="margin:0 0 12px 0;padding-left:20px;text-align:justify;">
-          <li style="margin-bottom:6px;">Der Arbeitnehmer hat bei einer 5-Tage-Woche Anspruch auf einen gesetzlichen Mindesturlaub von <strong>${statutoryLeave} Arbeitstagen</strong> pro Kalenderjahr.</li>
-          <li style="margin-bottom:6px;">Darüber hinaus gewährt der Arbeitgeber einen vertraglichen Zusatzurlaub von <strong>${extraLeave} Arbeitstagen</strong>. Somit beträgt der Gesamturlaubsanspruch insgesamt <strong>${totalLeave} Arbeitstage</strong> Urlaub pro Kalenderjahr.</li>
-          <li style="margin-bottom:6px;">Bei Eintritt oder Ausscheiden im Laufe eines Kalenderjahres wird der Urlaub anteilig gewährt (Zwölftelungsprinzip, unter Beachtung der gesetzlichen Mindestregelungen).</li>
-          <li style="margin-bottom:6px;">Der vertragliche Zusatzurlaub verfällt am 31. März des Folgejahres, auch wenn er wegen Arbeitsunfähigkeit nicht genommen werden konnte. Bei Beendigung des Arbeitsverhältnisses ist ein Anspruch auf Urlaubsabgeltung hinsichtlich des Zusatzurlaubs ausgeschlossen.</li>
+        <h3 style="font-size:10pt;font-weight:700;margin:12px 0 4px 0;">§ 6 Urlaub</h3>
+        <ol style="margin:0 0 8px 0;padding-left:18px;text-align:justify;">
+          <li style="margin-bottom:4px;">Der Arbeitnehmer hat bei einer 5-Tage-Woche Anspruch auf einen gesetzlichen Mindesturlaub von <strong>${statutoryLeave} Arbeitstagen</strong> pro Kalenderjahr.</li>
+          <li style="margin-bottom:4px;">Darüber hinaus gewährt der Arbeitgeber einen vertraglichen Zusatzurlaub von <strong>${extraLeave} Arbeitstagen</strong>. Somit beträgt der Gesamturlaubsanspruch insgesamt <strong>${totalLeave} Arbeitstage</strong> Urlaub pro Kalenderjahr.</li>
+          <li style="margin-bottom:4px;">Bei Eintritt oder Ausscheiden im Laufe eines Kalenderjahres wird der Urlaub anteilig gewährt (Zwölftelungsprinzip, unter Beachtung der gesetzlichen Mindestregelungen).</li>
+          <li style="margin-bottom:4px;">Der vertragliche Zusatzurlaub verfällt am 31. März des Folgejahres, auch wenn er wegen Arbeitsunfähigkeit nicht genommen werden konnte. Bei Beendigung des Arbeitsverhältnisses ist ein Anspruch auf Urlaubsabgeltung hinsichtlich des Zusatzurlaubs ausgeschlossen.</li>
         </ol>
 
-        <h3 style="font-size:11.5pt;font-weight:700;margin:16px 0 6px 0;">§ 7 Arbeitsverhinderung und Krankheit</h3>
-        <ol style="margin:0 0 12px 0;padding-left:20px;text-align:justify;">
-          <li style="margin-bottom:6px;">Der Arbeitnehmer ist verpflichtet, dem Arbeitgeber jede Arbeitsverhinderung und ihre voraussichtliche Dauer <strong>unverzüglich</strong> (vor Arbeitsbeginn am ersten Tag der Verhinderung) telefonisch oder per E-Mail anzuzeigen.</li>
-          <li style="margin-bottom:6px;">Dauert eine Arbeitsunfähigkeit länger als drei Kalendertage, hat der Arbeitnehmer spätestens am darauffolgenden Arbeitstag (dem vierten Tag) eine ärztliche Bescheinigung über das Bestehen der Arbeitsunfähigkeit sowie deren voraussichtliche Dauer vorzulegen bzw. das Vorliegen zur elektronischen Abrufung (eAU) sicherzustellen.</li>
-          <li style="margin-bottom:6px;">Der Arbeitgeber ist berechtigt, die Vorlage der ärztlichen Bescheinigung / Meldung bereits ab dem <strong>ersten Tag</strong> der Erkrankung zu verlangen.</li>
+        <h3 style="font-size:10pt;font-weight:700;margin:12px 0 4px 0;">§ 7 Arbeitsverhinderung und Krankheit</h3>
+        <ol style="margin:0 0 8px 0;padding-left:18px;text-align:justify;">
+          <li style="margin-bottom:4px;">Der Arbeitnehmer ist verpflichtet, dem Arbeitgeber jede Arbeitsverhinderung und ihre voraussichtliche Dauer <strong>unverzüglich</strong> (vor Arbeitsbeginn am ersten Tag der Verhinderung) telefonisch oder per E-Mail anzuzeigen.</li>
+          <li style="margin-bottom:4px;">Dauert eine Arbeitsunfähigkeit länger als drei Kalendertage, hat der Arbeitnehmer spätestens am darauffolgenden Arbeitstag (dem vierten Tag) eine ärztliche Bescheinigung über das Bestehen der Arbeitsunfähigkeit sowie deren voraussichtliche Dauer vorzulegen bzw. das Vorliegen zur elektronischen Abrufung (eAU) sicherzustellen.</li>
+          <li style="margin-bottom:4px;">Der Arbeitgeber ist berechtigt, die Vorlage der ärztlichen Bescheinigung / Meldung bereits ab dem <strong>ersten Tag</strong> der Erkrankung zu verlangen.</li>
         </ol>
 
-        <h3 style="font-size:11.5pt;font-weight:700;margin:16px 0 6px 0;">§ 8 Nebentätigkeit</h3>
-        <p style="margin:0 0 12px 0;text-align:justify;">
+        <h3 style="font-size:10pt;font-weight:700;margin:12px 0 4px 0;">§ 8 Nebentätigkeit</h3>
+        <p style="margin:0 0 8px 0;text-align:justify;">
           Jede entgeltliche Nebentätigkeit sowie jede unentgeltliche Nebentätigkeit, die die Arbeitsleistung des Arbeitnehmers oder die Interessen des Arbeitgebers beeinträchtigen könnte, bedarf der vorherigen schriftlichen Zustimmung des Arbeitgebers. Der Arbeitnehmer verpflichtet sich, Änderungen einer genehmigten Nebentätigkeit unverzüglich anzuzeigen.
         </p>
 
-        <h3 style="font-size:11.5pt;font-weight:700;margin:16px 0 6px 0;">§ 9 Verschwiegenheitspflicht</h3>
-        <p style="margin:0 0 12px 0;text-align:justify;">
+        <h3 style="font-size:10pt;font-weight:700;margin:12px 0 4px 0;">§ 9 Verschwiegenheitspflicht</h3>
+        <p style="margin:0 0 8px 0;text-align:justify;">
           Der Arbeitnehmer verpflichtet sich, über alle Betriebs- und Geschäftsgeheimnisse sowie alle sonstigen vertraulichen Angelegenheiten des Arbeitgebers und dessen Kunden (insbesondere Preislisten, Kalkulationen, Projektdaten, Kundendaten), die ihm im Rahmen seiner Tätigkeit bekannt werden, sowohl während der Dauer des Arbeitsverhältnisses als auch nach dessen Beendigung strengstes Stillschweigen zu bewahren. Ergänzend gilt die als <strong>Anlage 1</strong> beigefügte gesonderte Vertraulichkeitsvereinbarung.
         </p>
 
-        <h3 style="font-size:11.5pt;font-weight:700;margin:16px 0 6px 0;">§ 10 Vertragsstrafe</h3>
-        <p style="margin:0 0 12px 0;text-align:justify;">
+        <h3 style="font-size:10pt;font-weight:700;margin:12px 0 4px 0;">§ 10 Vertragsstrafe</h3>
+        <p style="margin:0 0 8px 0;text-align:justify;">
           Tritt der Arbeitnehmer das Arbeitsverhältnis schuldhaft nicht an oder löst er das Arbeitsverhältnis vertragswidrig ohne Einhaltung der maßgeblichen Kündigungsfrist und ohne wichtigen Grund auf, so hat er an den Arbeitgeber eine Vertragsstrafe in Höhe eines halben Bruttomonatsgehalts zu zahlen. Während der Probezeit reduziert sich die Vertragsstrafe auf die Höhe der Vergütung, die der Arbeitnehmer während der zweiwöchigen Kündigungsfrist verdient hätte. Die Geltendmachung eines weitergehenden Schadens bleibt unberührt.
         </p>
 
-        <h3 style="font-size:11.5pt;font-weight:700;margin:16px 0 6px 0;">§ 11 Schlussbestimmungen</h3>
-        <ol style="margin:0 0 18px 0;padding-left:20px;text-align:justify;">
-          <li style="margin-bottom:6px;">Mündliche Nebenabreden bestehen nicht. Änderungen oder Ergänzungen dieses Vertrages bedürfen zu ihrer Wirksamkeit der Text- oder Schriftform. Dies gilt auch für die Änderung dieser Klausel selbst, sofern es sich nicht um individuelle Vertragsabreden (§ 305b BGB) handelt.</li>
-          <li style="margin-bottom:6px;">Sollten einzelne Bestimmungen dieses Vertrages ganz oder teilweise unwirksam sein oder werden, so wird hierdurch die Gültigkeit der übrigen Bestimmungen nicht berührt.</li>
+        <h3 style="font-size:10pt;font-weight:700;margin:12px 0 4px 0;">§ 11 Schlussbestimmungen</h3>
+        <ol style="margin:0 0 12px 0;padding-left:18px;text-align:justify;">
+          <li style="margin-bottom:4px;">Mündliche Nebenabreden bestehen nicht. Änderungen oder Ergänzungen dieses Vertrages bedürfen zu ihrer Wirksamkeit der Text- oder Schriftform. Dies gilt auch für die Änderung dieser Klausel selbst, sofern es sich nicht um individuelle Vertragsabreden (§ 305b BGB) handelt.</li>
+          <li style="margin-bottom:4px;">Sollten einzelne Bestimmungen dieses Vertrages ganz oder teilweise unwirksam sein oder werden, so wird hierdurch die Gültigkeit der übrigen Bestimmungen nicht berührt.</li>
         </ol>
 
-        <p style="margin:24px 0 36px 0;">Karben, den <strong>${signedDate}</strong></p>
+        <p style="margin:16px 0 24px 0;">Karben, den <strong>${signedDate}</strong></p>
 
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:36px;">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:24px;">
           <div>
-            <div style="border-bottom:1px solid #111827;height:36px;margin-bottom:8px;"></div>
+            <div style="border-bottom:1px solid #111827;height:30px;margin-bottom:6px;"></div>
             <div><strong>Arbeitgeber</strong></div>
             <div>Brünel Deutschland UG (haftungsbeschränkt)</div>
             <div>Sam Rastegar Moghadam</div>
           </div>
           <div>
-            <div style="border-bottom:1px solid #111827;height:36px;margin-bottom:8px;"></div>
+            <div style="border-bottom:1px solid #111827;height:30px;margin-bottom:6px;"></div>
             <div><strong>Arbeitnehmer</strong></div>
             <div>(${partySignatureLabel})</div>
           </div>
         </div>
         ${renderPageFooter('Arbeitsvertrag — Brünel Deutschland UG')}
 
-        <div class="page-break" style="margin:36px 0;border-top:2px dashed #cbd5e1;padding-top:28px;"></div>
+        <div class="page-break" style="margin:28px 0;border-top:2px dashed #cbd5e1;padding-top:22px;"></div>
 
         ${renderPageHeader()}
-        <h2 style="font-size:15pt;font-weight:800;margin:0 0 16px 0;color:#111827;">Anlage 1 zum Arbeitsvertrag – Vertraulichkeitsvereinbarung</h2>
-        <p style="margin:0 0 8px 0;">Zwischen</p>
-        <p style="margin:0 0 4px 0;"><strong>Brünel Deutschland UG (haftungsbeschränkt)</strong></p>
-        <p style="margin:0 0 4px 0;">Ramonville Str. 28, 61184 Karben</p>
-        <p style="margin:0 0 4px 0;">vertreten durch den Geschäftsführer Herrn Sam Rastegar Moghadam</p>
-        <p style="margin:0 0 12px 0;color:#374151;">– nachfolgend „Arbeitgeber“ genannt –</p>
-        <p style="margin:0 0 8px 0;">und</p>
-        <p style="margin:0 0 4px 0;">${partyLineAccusative}</p>
-        <p style="margin:0 0 4px 0;">wohnhaft in: <strong>${fullAddress}</strong></p>
-        <p style="margin:0 0 16px 0;color:#374151;">– nachfolgend „Arbeitnehmer“ genannt –</p>
+        <h2 style="font-size:10pt;font-weight:800;margin:0 0 12px 0;color:#111827;">Anlage 1 zum Arbeitsvertrag – Vertraulichkeitsvereinbarung</h2>
+        <p style="margin:0 0 6px 0;">Zwischen</p>
+        <p style="margin:0 0 3px 0;"><strong>Brünel Deutschland UG (haftungsbeschränkt)</strong></p>
+        <p style="margin:0 0 3px 0;">Ramonville Str. 28, 61184 Karben</p>
+        <p style="margin:0 0 3px 0;">vertreten durch den Geschäftsführer Herrn Sam Rastegar Moghadam</p>
+        <p style="margin:0 0 10px 0;color:#374151;">– nachfolgend „Arbeitgeber“ genannt –</p>
+        <p style="margin:0 0 6px 0;">und</p>
+        <p style="margin:0 0 3px 0;">${partyLineAccusative}</p>
+        <p style="margin:0 0 3px 0;">wohnhaft in: <strong>${fullAddress}</strong></p>
+        <p style="margin:0 0 12px 0;color:#374151;">– nachfolgend „Arbeitnehmer“ genannt –</p>
 
-        <h3 style="font-size:11pt;font-weight:700;margin:14px 0 6px 0;">§ 1 Gegenstand der Vereinbarung</h3>
-        <p style="margin:0 0 10px 0;text-align:justify;">
+        <h3 style="font-size:10pt;font-weight:700;margin:10px 0 4px 0;">§ 1 Gegenstand der Vereinbarung</h3>
+        <p style="margin:0 0 8px 0;text-align:justify;">
           Der Arbeitnehmer erhält im Rahmen seiner Tätigkeit als <strong>${roleTitle}</strong> Einblick in vertrauliche Informationen, Geschäfts- und Betriebsgeheimnisse des Arbeitgebers sowie der mit ihm verbundenen Unternehmen, Kunden, Auftraggeber und Nachunternehmer (Subunternehmer). Diese Vereinbarung regelt den Schutz dieser sensiblen Daten.
         </p>
 
-        <h3 style="font-size:11pt;font-weight:700;margin:14px 0 6px 0;">§ 2 Vertrauliche Informationen</h3>
-        <p style="margin:0 0 8px 0;text-align:justify;">
+        <h3 style="font-size:10pt;font-weight:700;margin:10px 0 4px 0;">§ 2 Vertrauliche Informationen</h3>
+        <p style="margin:0 0 6px 0;text-align:justify;">
           „Vertrauliche Informationen“ im Sinne dieser Vereinbarung sind alle kaufmännischen, technischen, finanziellen und organisatorischen Informationen, unabhängig davon, ob sie schriftlich, elektronisch, mündlich oder in anderer Form zugänglich gemacht wurden. Dazu gehören insbesondere, aber nicht ausschließlich:
         </p>
-        <ol style="margin:0 0 10px 0;padding-left:20px;text-align:justify;">
+        <ol style="margin:0 0 8px 0;padding-left:18px;text-align:justify;">
           <li>Kunden-, Lieferanten- und Subunternehmerdatenbanken sowie Kontaktlisten.</li>
           <li>Preiskalkulationen, Angebote, Verträge, Stundensätze und Margen.</li>
           <li>Projektpläne, Baupläne, Netzpläne (z. B. Glasfaser-/IT-Infrastruktur), Dokumentationen und Passwörter/Zugangsdaten.</li>
@@ -303,40 +303,40 @@ export function generateContractHtml(code, emp, cond) {
           <li>Personenbezogene Daten von Mitarbeitern, Kunden oder Dritten (Datenschutz/DSGVO).</li>
         </ol>
 
-        <h3 style="font-size:11pt;font-weight:700;margin:14px 0 6px 0;">§ 3 Vertraulichkeitspflicht</h3>
-        <ol style="margin:0 0 10px 0;padding-left:20px;text-align:justify;">
-          <li style="margin-bottom:5px;">Der Arbeitnehmer verpflichtet sich, über alle ihm bekannt gewordenen vertraulichen Informationen strengstes Stillschweigen zu bewahren.</li>
-          <li style="margin-bottom:5px;">Es ist dem Arbeitnehmer untersagt, vertrauliche Informationen ohne vorherige Zustimmung des Arbeitgebers an unbefugte Dritte weiterzugeben, zu veröffentlichen oder für eigene, außerdienstliche Zwecke bzw. für Dritte zu verwerten.</li>
-          <li style="margin-bottom:5px;">Der Arbeitnehmer wird alle erforderlichen Maßnahmen treffen, um zu verhindern, dass Dritte unbefugt Kenntnis von vertraulichen Informationen erlangen (z. B. durch Sperren von Bildschirmen, sicheres Aufbewahren von Unterlagen, Geheimhaltung von Passwörtern).</li>
-          <li style="margin-bottom:5px;">Geschäftliche Dokumente, Dateien oder E-Mails dürfen nicht auf private Speichermedien kopiert oder an private E-Mail-Adressen weitergeleitet werden.</li>
+        <h3 style="font-size:10pt;font-weight:700;margin:10px 0 4px 0;">§ 3 Vertraulichkeitspflicht</h3>
+        <ol style="margin:0 0 8px 0;padding-left:18px;text-align:justify;">
+          <li style="margin-bottom:4px;">Der Arbeitnehmer verpflichtet sich, über alle ihm bekannt gewordenen vertraulichen Informationen strengstes Stillschweigen zu bewahren.</li>
+          <li style="margin-bottom:4px;">Es ist dem Arbeitnehmer untersagt, vertrauliche Informationen ohne vorherige Zustimmung des Arbeitgebers an unbefugte Dritte weiterzugeben, zu veröffentlichen oder für eigene, außerdienstliche Zwecke bzw. für Dritte zu verwerten.</li>
+          <li style="margin-bottom:4px;">Der Arbeitnehmer wird alle erforderlichen Maßnahmen treffen, um zu verhindern, dass Dritte unbefugt Kenntnis von vertraulichen Informationen erlangen (z. B. durch Sperren von Bildschirmen, sicheres Aufbewahren von Unterlagen, Geheimhaltung von Passwörtern).</li>
+          <li style="margin-bottom:4px;">Geschäftliche Dokumente, Dateien oder E-Mails dürfen nicht auf private Speichermedien kopiert oder an private E-Mail-Adressen weitergeleitet werden.</li>
         </ol>
 
-        <h3 style="font-size:11pt;font-weight:700;margin:14px 0 6px 0;">§ 4 Rückgabe und Vernichtung von Unterlagen</h3>
-        <p style="margin:0 0 10px 0;text-align:justify;">
+        <h3 style="font-size:10pt;font-weight:700;margin:10px 0 4px 0;">§ 4 Rückgabe und Vernichtung von Unterlagen</h3>
+        <p style="margin:0 0 8px 0;text-align:justify;">
           Auf jederzeitiges Verlangen des Arbeitgebers, spätestens jedoch bei Beendigung des Arbeitsverhältnisses (oder ab dem Zeitpunkt einer Freistellung), hat der Arbeitnehmer sämtliche ihm überlassenen geschäftlichen Unterlagen, Datenträger, Geräte (z.B. Laptop, Smartphone), Schlüssel sowie alle Kopien und Aufzeichnungen unaufgefordert und vollständig an den Arbeitgeber zurückzugeben. Ein Zurückbehaltungsrecht ist ausgeschlossen.
         </p>
 
-        <h3 style="font-size:11pt;font-weight:700;margin:14px 0 6px 0;">§ 5 Vertragsstrafe und Schadensersatz</h3>
-        <p style="margin:0 0 10px 0;text-align:justify;">
+        <h3 style="font-size:10pt;font-weight:700;margin:10px 0 4px 0;">§ 5 Vertragsstrafe und Schadensersatz</h3>
+        <p style="margin:0 0 8px 0;text-align:justify;">
           Bei einem schuldhaften Verstoß gegen die Verpflichtungen aus dieser Vereinbarung ist der Arbeitnehmer dem Arbeitgeber zum Ersatz des daraus entstehenden Schadens verpflichtet. Zudem weist der Arbeitgeber darauf hin, dass der Verrat von Geschäfts- und Betriebsgeheimnissen nach dem Gesetz zum Schutz von Geschäftsgeheimnissen (GeschGehG) auch strafrechtliche Konsequenzen nach sich ziehen kann.
         </p>
 
-        <h3 style="font-size:11pt;font-weight:700;margin:14px 0 6px 0;">§ 6 Geltungsdauer und Schlussbestimmungen</h3>
-        <p style="margin:0 0 16px 0;text-align:justify;">
+        <h3 style="font-size:10pt;font-weight:700;margin:10px 0 4px 0;">§ 6 Geltungsdauer und Schlussbestimmungen</h3>
+        <p style="margin:0 0 12px 0;text-align:justify;">
           Die Verpflichtung zur Geheimhaltung gilt während der gesamten Dauer des Arbeitsverhältnisses und besteht auch nach Beendigung des Arbeitsverhältnisses zeitlich unbegrenzt fort, solange die Informationen nicht öffentlich bekannt geworden sind.
         </p>
 
-        <p style="margin:20px 0 32px 0;">Karben, den <strong>${signedDate}</strong></p>
+        <p style="margin:16px 0 24px 0;">Karben, den <strong>${signedDate}</strong></p>
 
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:32px;">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:24px;">
           <div>
-            <div style="border-bottom:1px solid #111827;height:36px;margin-bottom:8px;"></div>
+            <div style="border-bottom:1px solid #111827;height:30px;margin-bottom:6px;"></div>
             <div><strong>Arbeitgeber</strong></div>
             <div>Brünel Deutschland UG (haftungsbeschränkt)</div>
             <div>Sam Rastegar Moghadam</div>
           </div>
           <div>
-            <div style="border-bottom:1px solid #111827;height:36px;margin-bottom:8px;"></div>
+            <div style="border-bottom:1px solid #111827;height:30px;margin-bottom:6px;"></div>
             <div><strong>Arbeitnehmer</strong></div>
             <div>(${partySignatureLabel})</div>
           </div>
@@ -359,22 +359,22 @@ export function generateContractHtml(code, emp, cond) {
     const extraAcc = cond.vehicle_extra_accessories || 'Spleißkoffer / Standard-Bordwerkzeug';
 
     return `
-      <div class="brn-contract-sheet">
+      <div class="brn-contract-sheet" style="font-size:8pt;line-height:1.45;color:#111827;">
         ${renderPageHeader()}
-        <h1 style="font-size:16.5pt;font-weight:800;margin:0 0 16px 0;color:#111827;">Kfz-Übergabeprotokoll und Nutzungsvereinbarung</h1>
-        <p style="margin:0 0 8px 0;">Zwischen</p>
-        <p style="margin:0 0 4px 0;"><strong>Brünel Deutschland UG (haftungsbeschränkt)</strong></p>
-        <p style="margin:0 0 4px 0;">Ramonville Str. 28, 61184 Karben</p>
-        <p style="margin:0 0 4px 0;">vertreten durch den Geschäftsführer Herrn Sam Rastegar Moghadam</p>
-        <p style="margin:0 0 12px 0;color:#374151;">– nachfolgend „Arbeitgeber“ genannt –</p>
-        <p style="margin:0 0 8px 0;">und</p>
-        <p style="margin:0 0 4px 0;">${partyLineAccusative}</p>
-        <p style="margin:0 0 4px 0;">wohnhaft in: <strong>${fullAddress}</strong></p>
-        <p style="margin:0 0 16px 0;color:#374151;">– nachfolgend „Mitarbeiter / Nutzer“ genannt –</p>
+        <h1 style="font-size:10pt;font-weight:800;margin:0 0 12px 0;color:#111827;">Kfz-Übergabeprotokoll und Nutzungsvereinbarung</h1>
+        <p style="margin:0 0 6px 0;">Zwischen</p>
+        <p style="margin:0 0 3px 0;"><strong>Brünel Deutschland UG (haftungsbeschränkt)</strong></p>
+        <p style="margin:0 0 3px 0;">Ramonville Str. 28, 61184 Karben</p>
+        <p style="margin:0 0 3px 0;">vertreten durch den Geschäftsführer Herrn Sam Rastegar Moghadam</p>
+        <p style="margin:0 0 10px 0;color:#374151;">– nachfolgend „Arbeitgeber“ genannt –</p>
+        <p style="margin:0 0 6px 0;">und</p>
+        <p style="margin:0 0 3px 0;">${partyLineAccusative}</p>
+        <p style="margin:0 0 3px 0;">wohnhaft in: <strong>${fullAddress}</strong></p>
+        <p style="margin:0 0 12px 0;color:#374151;">– nachfolgend „Mitarbeiter / Nutzer“ genannt –</p>
 
-        <h3 style="font-size:11.5pt;font-weight:700;margin:16px 0 8px 0;">§ 1 Fahrzeugdaten</h3>
-        <p style="margin:0 0 8px 0;">Dem Mitarbeiter wird zur Ausübung seiner beruflichen Tätigkeit folgendes Firmenfahrzeug übergeben:</p>
-        <ul style="margin:0 0 14px 0;padding-left:20px;line-height:1.75;">
+        <h3 style="font-size:10pt;font-weight:700;margin:12px 0 6px 0;">§ 1 Fahrzeugdaten</h3>
+        <p style="margin:0 0 6px 0;">Dem Mitarbeiter wird zur Ausübung seiner beruflichen Tätigkeit folgendes Firmenfahrzeug übergeben:</p>
+        <ul style="margin:0 0 10px 0;padding-left:18px;line-height:1.55;">
           <li><strong>Fahrzeugmarke / Modell:</strong> ${vehModel}</li>
           <li><strong>Amtliches Kennzeichen:</strong> ${vehPlate}</li>
           <li><strong>Fahrgestellnummer (FIN):</strong> ${vehVin}</li>
@@ -382,17 +382,17 @@ export function generateContractHtml(code, emp, cond) {
           <li><strong>Nächste HU/TÜV:</strong> ${vehTuv}</li>
         </ul>
 
-        <h3 style="font-size:11.5pt;font-weight:700;margin:16px 0 8px 0;">§ 2 Zustand bei Übergabe</h3>
-        <p style="margin:0 0 6px 0;">Das Fahrzeug befindet sich bei Übergabe in einem:</p>
-        <p style="margin:0 0 4px 0;">[${condOk ? 'X' : ' '}] einwandfreien, unbeschädigten und gereinigten Zustand.</p>
-        <p style="margin:0 0 8px 0;">[${!condOk ? 'X' : ' '}] folgenden Zustand (vorhandene Mängel/Kratzer/Schäden bitte genau auflisten):</p>
-        <p style="margin:0 0 14px 0;padding:8px 12px;border:1px solid #cbd5e1;border-radius:6px;background:#f8fafc;">
+        <h3 style="font-size:10pt;font-weight:700;margin:12px 0 6px 0;">§ 2 Zustand bei Übergabe</h3>
+        <p style="margin:0 0 4px 0;">Das Fahrzeug befindet sich bei Übergabe in einem:</p>
+        <p style="margin:0 0 3px 0;">[${condOk ? 'X' : ' '}] einwandfreien, unbeschädigten und gereinigten Zustand.</p>
+        <p style="margin:0 0 6px 0;">[${!condOk ? 'X' : ' '}] folgenden Zustand (vorhandene Mängel/Kratzer/Schäden bitte genau auflisten):</p>
+        <p style="margin:0 0 10px 0;padding:6px 10px;border:1px solid #cbd5e1;border-radius:6px;background:#f8fafc;">
           <strong>Vorhandene Mängel/Schäden:</strong> ${defectsText}
         </p>
 
-        <h3 style="font-size:11.5pt;font-weight:700;margin:16px 0 8px 0;">§ 3 Übergebenes Zubehör und Unterlagen</h3>
-        <p style="margin:0 0 6px 0;">Mit dem Fahrzeug wurden folgende Gegenstände vollständig übergeben:</p>
-        <ul style="margin:0 0 14px 0;padding-left:20px;line-height:1.75;">
+        <h3 style="font-size:10pt;font-weight:700;margin:12px 0 6px 0;">§ 3 Übergebenes Zubehör und Unterlagen</h3>
+        <p style="margin:0 0 4px 0;">Mit dem Fahrzeug wurden folgende Gegenstände vollständig übergeben:</p>
+        <ul style="margin:0 0 10px 0;padding-left:18px;line-height:1.55;">
           <li>[X] Fahrzeugschlüssel (Anzahl: <strong>${keysCount}</strong>)</li>
           <li>[X] Zulassungsbescheinigung Teil I (Fahrzeugschein im Original / Kopie)</li>
           <li>[X] Tankkarte / Ladekarte (Anbieter: <strong>${fuelCard}</strong>)</li>
@@ -400,43 +400,43 @@ export function generateContractHtml(code, emp, cond) {
           <li>[X] Sonstiges: <strong>${extraAcc}</strong></li>
         </ul>
 
-        <h3 style="font-size:11.5pt;font-weight:700;margin:16px 0 8px 0;">§ 4 Nutzungsbedingungen und Führerschein</h3>
-        <ol style="margin:0 0 14px 0;padding-left:20px;text-align:justify;">
-          <li style="margin-bottom:6px;">Das Fahrzeug darf <strong>ausschließlich zu dienstlichen Zwecken</strong> (Fahrten zu Baustellen, Kunden, Materialbeschaffung) genutzt werden. Eine private Nutzung ist ohne ausdrückliche, gesonderte schriftliche Genehmigung des Arbeitgebers <strong>untersagt</strong>.</li>
-          <li style="margin-bottom:6px;">Das Fahrzeug darf nur vom Mitarbeiter selbst oder anderen autorisierten Mitarbeitern des Arbeitgebers geführt werden. Die Überlassung an Dritte (z. B. Familienangehörige, Freunde) ist strengstens verboten.</li>
-          <li style="margin-bottom:6px;">Der Mitarbeiter versichert, im Besitz einer gültigen Fahrerlaubnis zu sein. Einen drohenden oder erfolgten Entzug der Fahrerlaubnis oder ein Fahrverbot hat der Mitarbeiter dem Arbeitgeber <strong>sofort und unaufgefordert</strong> mitzuteilen. Ohne gültigen Führerschein darf das Fahrzeug unter keinen Umständen bewegt werden.</li>
-          <li style="margin-bottom:6px;">Im Fahrzeug gilt ein absolutes <strong>Rauch-, Alkohol- und Drogenverbot</strong>.</li>
+        <h3 style="font-size:10pt;font-weight:700;margin:12px 0 6px 0;">§ 4 Nutzungsbedingungen und Führerschein</h3>
+        <ol style="margin:0 0 10px 0;padding-left:18px;text-align:justify;">
+          <li style="margin-bottom:4px;">Das Fahrzeug darf <strong>ausschließlich zu dienstlichen Zwecken</strong> (Fahrten zu Baustellen, Kunden, Materialbeschaffung) genutzt werden. Eine private Nutzung ist ohne ausdrückliche, gesonderte schriftliche Genehmigung des Arbeitgebers <strong>untersagt</strong>.</li>
+          <li style="margin-bottom:4px;">Das Fahrzeug darf nur vom Mitarbeiter selbst oder anderen autorisierten Mitarbeitern des Arbeitgebers geführt werden. Die Überlassung an Dritte (z. B. Familienangehörige, Freunde) ist strengstens verboten.</li>
+          <li style="margin-bottom:4px;">Der Mitarbeiter versichert, im Besitz einer gültigen Fahrerlaubnis zu sein. Einen drohenden oder erfolgten Entzug der Fahrerlaubnis oder ein Fahrverbot hat der Mitarbeiter dem Arbeitgeber <strong>sofort und unaufgefordert</strong> mitzuteilen. Ohne gültigen Führerschein darf das Fahrzeug unter keinen Umständen bewegt werden.</li>
+          <li style="margin-bottom:4px;">Im Fahrzeug gilt ein absolutes <strong>Rauch-, Alkohol- und Drogenverbot</strong>.</li>
         </ol>
 
-        <h3 style="font-size:11.5pt;font-weight:700;margin:16px 0 8px 0;">§ 5 Strafzettel, Bußgelder und Ordnungswidrigkeiten</h3>
-        <p style="margin:0 0 14px 0;text-align:justify;">
+        <h3 style="font-size:10pt;font-weight:700;margin:12px 0 6px 0;">§ 5 Strafzettel, Bußgelder und Ordnungswidrigkeiten</h3>
+        <p style="margin:0 0 10px 0;text-align:justify;">
           Der Mitarbeiter ist für die Einhaltung sämtlicher Straßenverkehrs- und Parkvorschriften selbst verantwortlich. Alle während der Nutzungsdauer anfallenden Verwarnungsgelder, Bußgelder, Abschleppkosten oder Strafen wegen Verkehrsordnungswidrigkeiten (z.B. Geschwindigkeitsüberschreitung, Falschparken) trägt der Mitarbeiter in voller Höhe selbst. Verauslagt der Arbeitgeber solche Beträge, ist er berechtigt, diese mit der nächsten Gehaltsabrechnung des Mitarbeiters zu verrechnen.
         </p>
 
-        <h3 style="font-size:11.5pt;font-weight:700;margin:16px 0 8px 0;">§ 6 Verhalten bei Unfällen und Schäden</h3>
-        <ol style="margin:0 0 14px 0;padding-left:20px;text-align:justify;">
-          <li style="margin-bottom:6px;">Bei jedem Unfall, Diebstahl oder sonstigen Schaden am Fahrzeug ist <strong>unverzüglich die Polizei</strong> hinzuzuziehen und der Arbeitgeber (Geschäftsführung) sofort telefonisch zu informieren.</li>
-          <li style="margin-bottom:6px;">Der Mitarbeiter darf am Unfallort kein Schuldanerkenntnis abgeben.</li>
-          <li style="margin-bottom:6px;">Für Schäden am Fahrzeug haftet der Mitarbeiter nach den gesetzlichen Grundsätzen über den innerbetrieblichen Schadensausgleich (volle Haftung bei Vorsatz und grober Fahrlässigkeit, anteilige Haftung bei mittlerer Fahrlässigkeit).</li>
+        <h3 style="font-size:10pt;font-weight:700;margin:12px 0 6px 0;">§ 6 Verhalten bei Unfällen und Schäden</h3>
+        <ol style="margin:0 0 10px 0;padding-left:18px;text-align:justify;">
+          <li style="margin-bottom:4px;">Bei jedem Unfall, Diebstahl oder sonstigen Schaden am Fahrzeug ist <strong>unverzüglich die Polizei</strong> hinzuzuziehen und der Arbeitgeber (Geschäftsführung) sofort telefonisch zu informieren.</li>
+          <li style="margin-bottom:4px;">Der Mitarbeiter darf am Unfallort kein Schuldanerkenntnis abgeben.</li>
+          <li style="margin-bottom:4px;">Für Schäden am Fahrzeug haftet der Mitarbeiter nach den gesetzlichen Grundsätzen über den innerbetrieblichen Schadensausgleich (volle Haftung bei Vorsatz und grober Fahrlässigkeit, anteilige Haftung bei mittlerer Fahrlässigkeit).</li>
         </ol>
 
-        <h3 style="font-size:11.5pt;font-weight:700;margin:16px 0 8px 0;">§ 7 Pflege, Wartung und Rückgabe</h3>
-        <ol style="margin:0 0 18px 0;padding-left:20px;text-align:justify;">
-          <li style="margin-bottom:6px;">Der Mitarbeiter ist verpflichtet, das Fahrzeug pfleglich zu behandeln, sauber zu halten und regelmäßig den Reifendruck, Ölstand sowie die Verkehrssicherheit zu kontrollieren.</li>
-          <li style="margin-bottom:6px;">Der Arbeitgeber ist jederzeit berechtigt, das Fahrzeug (insbesondere bei Ende des Projekts, längerer Krankheit, Freistellung oder Beendigung des Arbeitsverhältnisses) herauszuverlangen. Ein Zurückbehaltungsrecht des Mitarbeiters am Fahrzeug ist ausgeschlossen.</li>
+        <h3 style="font-size:10pt;font-weight:700;margin:12px 0 6px 0;">§ 7 Pflege, Wartung und Rückgabe</h3>
+        <ol style="margin:0 0 12px 0;padding-left:18px;text-align:justify;">
+          <li style="margin-bottom:4px;">Der Mitarbeiter ist verpflichtet, das Fahrzeug pfleglich zu behandeln, sauber zu halten und regelmäßig den Reifendruck, Ölstand sowie die Verkehrssicherheit zu kontrollieren.</li>
+          <li style="margin-bottom:4px;">Der Arbeitgeber ist jederzeit berechtigt, das Fahrzeug (insbesondere bei Ende des Projekts, längerer Krankheit, Freistellung oder Beendigung des Arbeitsverhältnisses) herauszuverlangen. Ein Zurückbehaltungsrecht des Mitarbeiters am Fahrzeug ist ausgeschlossen.</li>
         </ol>
 
-        <p style="margin:22px 0 34px 0;">Karben, den <strong>${signedDate}</strong> (Datum der Übergabe)</p>
+        <p style="margin:16px 0 24px 0;">Karben, den <strong>${signedDate}</strong> (Datum der Übergabe)</p>
 
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:34px;">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:24px;">
           <div>
-            <div style="border-bottom:1px solid #111827;height:36px;margin-bottom:8px;"></div>
+            <div style="border-bottom:1px solid #111827;height:30px;margin-bottom:6px;"></div>
             <div><strong>Arbeitgeber (Übergebender)</strong></div>
             <div>Brünel Deutschland UG (haftungsbeschränkt)</div>
             <div>Sam Rastegar Moghadam</div>
           </div>
           <div>
-            <div style="border-bottom:1px solid #111827;height:36px;margin-bottom:8px;"></div>
+            <div style="border-bottom:1px solid #111827;height:30px;margin-bottom:6px;"></div>
             <div><strong>Mitarbeiter (Empfänger)</strong></div>
             <div>(${partySignatureLabel})</div>
           </div>
@@ -448,61 +448,61 @@ export function generateContractHtml(code, emp, cond) {
 
   if (code === 'PRAKTIKUM') {
     return `
-      <div class="brn-contract-sheet">
+      <div class="brn-contract-sheet" style="font-size:8pt;line-height:1.45;color:#111827;">
         ${renderPageHeader()}
-        <h1 style="font-size:16.5pt;font-weight:800;margin:0 0 16px 0;color:#111827;">Vertrag über ein unbezahltes Orientierungspraktikum (Einfühlungsverhältnis)</h1>
-        <p style="margin:0 0 8px 0;">Zwischen</p>
-        <p style="margin:0 0 4px 0;"><strong>Brünel Deutschland UG (haftungsbeschränkt)</strong></p>
-        <p style="margin:0 0 4px 0;">Ramonville Str. 28, 61184 Karben</p>
-        <p style="margin:0 0 4px 0;">vertreten durch den Geschäftsführer Herrn Sam Rastegar Moghadam</p>
-        <p style="margin:0 0 12px 0;color:#374151;">– nachfolgend „Unternehmen“ genannt –</p>
-        <p style="margin:0 0 8px 0;">und</p>
-        <p style="margin:0 0 4px 0;">${partyLineAccusative}</p>
-        <p style="margin:0 0 4px 0;">wohnhaft in: <strong>${fullAddress}</strong></p>
-        <p style="margin:0 0 16px 0;color:#374151;">– nachfolgend „Praktikant“ genannt –</p>
-        <p style="margin:0 0 16px 0;">wird folgende Vereinbarung geschlossen:</p>
+        <h1 style="font-size:10pt;font-weight:800;margin:0 0 12px 0;color:#111827;">Vertrag über ein unbezahltes Orientierungspraktikum (Einfühlungsverhältnis)</h1>
+        <p style="margin:0 0 6px 0;">Zwischen</p>
+        <p style="margin:0 0 3px 0;"><strong>Brünel Deutschland UG (haftungsbeschränkt)</strong></p>
+        <p style="margin:0 0 3px 0;">Ramonville Str. 28, 61184 Karben</p>
+        <p style="margin:0 0 3px 0;">vertreten durch den Geschäftsführer Herrn Sam Rastegar Moghadam</p>
+        <p style="margin:0 0 10px 0;color:#374151;">– nachfolgend „Unternehmen“ genannt –</p>
+        <p style="margin:0 0 6px 0;">und</p>
+        <p style="margin:0 0 3px 0;">${partyLineAccusative}</p>
+        <p style="margin:0 0 3px 0;">wohnhaft in: <strong>${fullAddress}</strong></p>
+        <p style="margin:0 0 12px 0;color:#374151;">– nachfolgend „Praktikant“ genannt –</p>
+        <p style="margin:0 0 12px 0;">wird folgende Vereinbarung geschlossen:</p>
 
-        <h3 style="font-size:11.5pt;font-weight:700;margin:16px 0 8px 0;">§ 1 Zweck und Dauer des Orientierungspraktikums</h3>
-        <ol style="margin:0 0 14px 0;padding-left:20px;text-align:justify;">
-          <li style="margin-bottom:6px;">Der Praktikant absolviert in der Zeit vom <strong>${praktikumStart}</strong> bis zum <strong>${praktikumEnd}</strong> ein Orientierungspraktikum (sog. Einfühlungsverhältnis) im Unternehmen.</li>
-          <li style="margin-bottom:6px;">Zweck dieses Praktikums ist das unverbindliche, gegenseitige Kennenlernen sowie die berufliche Orientierung des Praktikanten im Tätigkeitsfeld des Unternehmens (Hands-on-Training / Mitlaufen im Tagesgeschäft). Es soll geprüft werden, ob die Voraussetzungen für eine spätere Zusammenarbeit (z.B. im Rahmen eines Arbeitsverhältnisses oder einer Zusammenarbeit als selbstständiger Subunternehmer) gegeben sind.</li>
+        <h3 style="font-size:10pt;font-weight:700;margin:12px 0 6px 0;">§ 1 Zweck und Dauer des Orientierungspraktikums</h3>
+        <ol style="margin:0 0 10px 0;padding-left:18px;text-align:justify;">
+          <li style="margin-bottom:4px;">Der Praktikant absolviert in der Zeit vom <strong>${praktikumStart}</strong> bis zum <strong>${praktikumEnd}</strong> ein Orientierungspraktikum (sog. Einfühlungsverhältnis) im Unternehmen.</li>
+          <li style="margin-bottom:4px;">Zweck dieses Praktikums ist das unverbindliche, gegenseitige Kennenlernen sowie die berufliche Orientierung des Praktikanten im Tätigkeitsfeld des Unternehmens (Hands-on-Training / Mitlaufen im Tagesgeschäft). Es soll geprüft werden, ob die Voraussetzungen für eine spätere Zusammenarbeit (z.B. im Rahmen eines Arbeitsverhältnisses oder einer Zusammenarbeit als selbstständiger Subunternehmer) gegeben sind.</li>
         </ol>
 
-        <h3 style="font-size:11.5pt;font-weight:700;margin:16px 0 8px 0;">§ 2 Kein Arbeitsverhältnis und keine Arbeitspflicht</h3>
-        <ol style="margin:0 0 14px 0;padding-left:20px;text-align:justify;">
-          <li style="margin-bottom:6px;">Durch diese Vereinbarung wird ausdrücklich <strong>kein Arbeitsverhältnis</strong> im Sinne des § 611a BGB begründet.</li>
-          <li style="margin-bottom:6px;">Der Praktikant unterliegt keinem arbeitsrechtlichen Direktionsrecht hinsichtlich Zeit, Dauer und Inhalt einer Arbeitsleistung. Er ist nicht zur Erbringung einer wirtschaftlich verwertbaren Arbeitsleistung für das Unternehmen verpflichtet.</li>
-          <li style="margin-bottom:6px;">Der Praktikant begleitet die Mitarbeiter des Unternehmens lediglich zu Lern- und Orientierungszwecken. Er hat jedoch das Hausrecht sowie die Sicherheits- und Unfallverhütungsvorschriften an den jeweiligen Einsatzorten strikt zu beachten.</li>
+        <h3 style="font-size:10pt;font-weight:700;margin:12px 0 6px 0;">§ 2 Kein Arbeitsverhältnis und keine Arbeitspflicht</h3>
+        <ol style="margin:0 0 10px 0;padding-left:18px;text-align:justify;">
+          <li style="margin-bottom:4px;">Durch diese Vereinbarung wird ausdrücklich <strong>kein Arbeitsverhältnis</strong> im Sinne des § 611a BGB begründet.</li>
+          <li style="margin-bottom:4px;">Der Praktikant unterliegt keinem arbeitsrechtlichen Direktionsrecht hinsichtlich Zeit, Dauer und Inhalt einer Arbeitsleistung. Er ist nicht zur Erbringung einer wirtschaftlich verwertbaren Arbeitsleistung für das Unternehmen verpflichtet.</li>
+          <li style="margin-bottom:4px;">Der Praktikant begleitet die Mitarbeiter des Unternehmens lediglich zu Lern- und Orientierungszwecken. Er hat jedoch das Hausrecht sowie die Sicherheits- und Unfallverhütungsvorschriften an den jeweiligen Einsatzorten strikt zu beachten.</li>
         </ol>
 
-        <h3 style="font-size:11.5pt;font-weight:700;margin:16px 0 8px 0;">§ 3 Vergütung und Mindestlohngesetz (MiLoG)</h3>
-        <ol style="margin:0 0 14px 0;padding-left:20px;text-align:justify;">
-          <li style="margin-bottom:6px;">Da im Rahmen dieses Orientierungspraktikums der Ausbildungs-, Kennenlern- und Orientierungszweck im Vordergrund steht und keine wirtschaftlich verwertbare Arbeitsleistung geschuldet wird, erfolgt das Praktikum <strong>unentgeltlich (unbezahlt)</strong>.</li>
-          <li style="margin-bottom:6px;">Gemäß § 22 Abs. 1 Nr. 2 Mindestlohngesetz (MiLoG) ist ein solches Orientierungspraktikum von bis zu drei Monaten Dauer zur beruflichen Orientierung von der Zahlung des gesetzlichen Mindestlohns befreit.</li>
+        <h3 style="font-size:10pt;font-weight:700;margin:12px 0 6px 0;">§ 3 Vergütung und Mindestlohngesetz (MiLoG)</h3>
+        <ol style="margin:0 0 10px 0;padding-left:18px;text-align:justify;">
+          <li style="margin-bottom:4px;">Da im Rahmen dieses Orientierungspraktikums der Ausbildungs-, Kennenlern- und Orientierungszweck im Vordergrund steht und keine wirtschaftlich verwertbare Arbeitsleistung geschuldet wird, erfolgt das Praktikum <strong>unentgeltlich (unbezahlt)</strong>.</li>
+          <li style="margin-bottom:4px;">Gemäß § 22 Abs. 1 Nr. 2 Mindestlohngesetz (MiLoG) ist ein solches Orientierungspraktikum von bis zu drei Monaten Dauer zur beruflichen Orientierung von der Zahlung des gesetzlichen Mindestlohns befreit.</li>
         </ol>
 
-        <h3 style="font-size:11.5pt;font-weight:700;margin:16px 0 8px 0;">§ 4 Haftungsbeschränkung und Verschwiegenheitspflicht</h3>
-        <ol style="margin:0 0 14px 0;padding-left:20px;text-align:justify;">
-          <li style="margin-bottom:6px;">Das Unternehmen haftet für Schäden, die der Praktikant während des Aufenthalts im Betrieb oder auf Baustellen erleidet, nur bei Vorsatz und grober Fahrlässigkeit, soweit nicht gesetzlich zwingend (z. B. über die gesetzliche Unfallversicherung / Berufsgenossenschaft) eine anderweitige Absicherung besteht.</li>
-          <li style="margin-bottom:6px;">Der Praktikant verpflichtet sich, über alle ihm während des Praktikums bekannt werdenden Geschäfts- und Betriebsgeheimnisse, Kundendaten sowie internen Abläufe des Unternehmens auch nach Ende des Praktikums strengstes Stillschweigen zu bewahren.</li>
+        <h3 style="font-size:10pt;font-weight:700;margin:12px 0 6px 0;">§ 4 Haftungsbeschränkung und Verschwiegenheitspflicht</h3>
+        <ol style="margin:0 0 10px 0;padding-left:18px;text-align:justify;">
+          <li style="margin-bottom:4px;">Das Unternehmen haftet für Schäden, die der Praktikant während des Aufenthalts im Betrieb oder auf Baustellen erleidet, nur bei Vorsatz und grober Fahrlässigkeit, soweit nicht gesetzlich zwingend (z. B. über die gesetzliche Unfallversicherung / Berufsgenossenschaft) eine anderweitige Absicherung besteht.</li>
+          <li style="margin-bottom:4px;">Der Praktikant verpflichtet sich, über alle ihm während des Praktikums bekannt werdenden Geschäfts- und Betriebsgeheimnisse, Kundendaten sowie internen Abläufe des Unternehmens auch nach Ende des Praktikums strengstes Stillschweigen zu bewahren.</li>
         </ol>
 
-        <h3 style="font-size:11.5pt;font-weight:700;margin:16px 0 8px 0;">§ 5 Beendigung</h3>
-        <p style="margin:0 0 18px 0;text-align:justify;">
+        <h3 style="font-size:10pt;font-weight:700;margin:12px 0 6px 0;">§ 5 Beendigung</h3>
+        <p style="margin:0 0 12px 0;text-align:justify;">
           Das Orientierungspraktikum endet mit Ablauf des in § 1 genannten Zeitraums automatisch, ohne dass es einer Kündigung bedarf. Zudem kann das Verhältnis während der Laufzeit von beiden Seiten jederzeit und sofort ohne Angabe von Gründen beendet werden. Ein Anspruch auf Übernahme in ein anschließendes Arbeits- oder Auftragsverhältnis besteht nicht.
         </p>
 
-        <p style="margin:22px 0 34px 0;">Karben, den <strong>${signedDate}</strong></p>
+        <p style="margin:16px 0 24px 0;">Karben, den <strong>${signedDate}</strong></p>
 
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:34px;">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:24px;">
           <div>
-            <div style="border-bottom:1px solid #111827;height:36px;margin-bottom:8px;"></div>
+            <div style="border-bottom:1px solid #111827;height:30px;margin-bottom:6px;"></div>
             <div><strong>Unternehmen</strong></div>
             <div>Brünel Deutschland UG (haftungsbeschränkt)</div>
             <div>Sam Rastegar Moghadam</div>
           </div>
           <div>
-            <div style="border-bottom:1px solid #111827;height:36px;margin-bottom:8px;"></div>
+            <div style="border-bottom:1px solid #111827;height:30px;margin-bottom:6px;"></div>
             <div><strong>Praktikant</strong></div>
             <div>(${partySignatureLabel})</div>
           </div>
@@ -520,123 +520,123 @@ export function generateContractHtml(code, emp, cond) {
     const payTermDays = cond.sub_payment_term_days || '30';
 
     return `
-      <div class="brn-contract-sheet">
+      <div class="brn-contract-sheet" style="font-size:8pt;line-height:1.45;color:#111827;">
         ${renderPageHeader()}
-        <h1 style="font-size:17pt;font-weight:800;margin:0 0 16px 0;color:#111827;">Subunternehmervertrag (Werkvertrag)</h1>
-        <p style="margin:0 0 8px 0;">Zwischen</p>
-        <p style="margin:0 0 4px 0;"><strong>Brünel Deutschland UG (haftungsbeschränkt)</strong></p>
-        <p style="margin:0 0 4px 0;">Ramonville Str. 28, 61184 Karben</p>
-        <p style="margin:0 0 4px 0;">vertreten durch den Geschäftsführer Herrn Sam Rastegar Moghadam</p>
-        <p style="margin:0 0 12px 0;color:#374151;">– nachfolgend „Auftraggeber“ genannt –</p>
-        <p style="margin:0 0 8px 0;">und</p>
-        <p style="margin:0 0 4px 0;">${partyLineSubunternehmer}</p>
-        <p style="margin:0 0 4px 0;">Anschrift: <strong>${fullAddress}</strong></p>
-        <p style="margin:0 0 16px 0;color:#374151;">– nachfolgend „Subunternehmer“ oder „Auftragnehmer“ genannt –</p>
-        <p style="margin:0 0 16px 0;">wird folgender Rahmen- bzw. Projektwerkvertrag geschlossen:</p>
+        <h1 style="font-size:10pt;font-weight:800;margin:0 0 12px 0;color:#111827;">Subunternehmervertrag (Werkvertrag)</h1>
+        <p style="margin:0 0 6px 0;">Zwischen</p>
+        <p style="margin:0 0 3px 0;"><strong>Brünel Deutschland UG (haftungsbeschränkt)</strong></p>
+        <p style="margin:0 0 3px 0;">Ramonville Str. 28, 61184 Karben</p>
+        <p style="margin:0 0 3px 0;">vertreten durch den Geschäftsführer Herrn Sam Rastegar Moghadam</p>
+        <p style="margin:0 0 10px 0;color:#374151;">– nachfolgend „Auftraggeber“ genannt –</p>
+        <p style="margin:0 0 6px 0;">und</p>
+        <p style="margin:0 0 3px 0;">${partyLineSubunternehmer}</p>
+        <p style="margin:0 0 3px 0;">Anschrift: <strong>${fullAddress}</strong></p>
+        <p style="margin:0 0 12px 0;color:#374151;">– nachfolgend „Subunternehmer“ oder „Auftragnehmer“ genannt –</p>
+        <p style="margin:0 0 12px 0;">wird folgender Rahmen- bzw. Projektwerkvertrag geschlossen:</p>
 
-        <h3 style="font-size:11.5pt;font-weight:700;margin:16px 0 8px 0;">§ 1 Vertragsgegenstand, Einsatzort und Leistungsumfang</h3>
-        <ol style="margin:0 0 14px 0;padding-left:20px;text-align:justify;">
-          <li style="margin-bottom:6px;">Der Auftraggeber überträgt dem Subunternehmer die eigenverantwortliche Ausführung von Montage- und Installationsarbeiten im Bereich des Inhouse-Glasfaserausbaus (Netz-Ebene 4 / NE4) in Bestandsgebäuden.</li>
-          <li style="margin-bottom:6px;"><strong>Projektstandort:</strong> Das aktuelle Projekt befindet sich in <strong>${subLocation}</strong> sowie in den umliegenden Städten und Gemeinden im Umkreis von bis zu <strong>${subRadius} km</strong>.</li>
-          <li style="margin-bottom:6px;"><strong>Leistungsumfang:</strong> Die Tätigkeit umfasst die fachgerechte Verlegung von Aufputz-Kabelkanälen (PVC/Metall) im Keller und Treppenhaus bis in die einzelnen Wohneinheiten (WE), das Einziehen der Glasfaserkabel sowie das Spleißen und die Montage der Teilnehmeranschlussdosen (TA-Dosen) und des Spleißverteilers (AP/GF-GV).</li>
-          <li style="margin-bottom:6px;"><strong>Wichtiger Hinweis (Verbot baulicher Veränderungen):</strong> Es handelt sich um reine Aufputz-Montagearbeiten. Es dürfen ausdrücklich <strong>keine massiven baulichen Veränderungen</strong> am Gebäude vorgenommen werden, und es erfolgen <strong>keinerlei Arbeiten an elektrischen Anlagen (230V-Stromnetz)</strong>. Die als Anlage beigefügten Ausführungs- und Sicherheitsrichtlinien sind zwingender Bestandteil dieses Vertrages.</li>
+        <h3 style="font-size:10pt;font-weight:700;margin:12px 0 6px 0;">§ 1 Vertragsgegenstand, Einsatzort und Leistungsumfang</h3>
+        <ol style="margin:0 0 10px 0;padding-left:18px;text-align:justify;">
+          <li style="margin-bottom:4px;">Der Auftraggeber überträgt dem Subunternehmer die eigenverantwortliche Ausführung von Montage- und Installationsarbeiten im Bereich des Inhouse-Glasfaserausbaus (Netz-Ebene 4 / NE4) in Bestandsgebäuden.</li>
+          <li style="margin-bottom:4px;"><strong>Projektstandort:</strong> Das aktuelle Projekt befindet sich in <strong>${subLocation}</strong> sowie in den umliegenden Städten und Gemeinden im Umkreis von bis zu <strong>${subRadius} km</strong>.</li>
+          <li style="margin-bottom:4px;"><strong>Leistungsumfang:</strong> Die Tätigkeit umfasst die fachgerechte Verlegung von Aufputz-Kabelkanälen (PVC/Metall) im Keller und Treppenhaus bis in die einzelnen Wohneinheiten (WE), das Einziehen der Glasfaserkabel sowie das Spleißen und die Montage der Teilnehmeranschlussdosen (TA-Dosen) und des Spleißverteilers (AP/GF-GV).</li>
+          <li style="margin-bottom:4px;"><strong>Wichtiger Hinweis (Verbot baulicher Veränderungen):</strong> Es handelt sich um reine Aufputz-Montagearbeiten. Es dürfen ausdrücklich <strong>keine massiven baulichen Veränderungen</strong> am Gebäude vorgenommen werden, und es erfolgen <strong>keinerlei Arbeiten an elektrischen Anlagen (230V-Stromnetz)</strong>. Die als Anlage beigefügten Ausführungs- und Sicherheitsrichtlinien sind zwingender Bestandteil dieses Vertrages.</li>
         </ol>
 
-        <h3 style="font-size:11.5pt;font-weight:700;margin:16px 0 8px 0;">§ 2 Pflichten, Materialnutzung und Fahrtkosten</h3>
-        <ol style="margin:0 0 14px 0;padding-left:20px;text-align:justify;">
-          <li style="margin-bottom:6px;"><strong>Material:</strong> Das für die Installation erforderliche Montagematerial (Glasfaserkabel, Kabelkanäle, TA-Dosen, Spleißboxen) wird vom Auftraggeber kostenlos zur Verfügung gestellt. Der Subunternehmer verpflichtet sich zu einem äußerst sorgsamen und sparsamen Umgang mit dem Material. Materialschwund, der durch unsachgemäße Arbeit oder Verschwendung des Subunternehmers entsteht, sowie der Verlust von überlassenem Material wird dem Subunternehmer in Rechnung gestellt bzw. mit seiner Vergütung verrechnet.</li>
-          <li style="margin-bottom:6px;"><strong>Werkzeug &amp; Fahrzeug:</strong> Der Subunternehmer arbeitet als selbstständiger Unternehmer mit eigenem Werkzeug, eigenen Mess-/Spleißgeräten, eigener persönlicher Schutzausrüstung (PSA) und eigenem Fahrzeug.</li>
-          <li style="margin-bottom:6px;"><strong>Fahrtkosten:</strong> Sämtliche Fahrt- und Anreisekosten innerhalb des Einsatzgebietes (${subLocation} + ${subRadius} km Umkreis) sind mit der vereinbarten Stückvergütung vollständig abgegolten und werden <strong>nicht</strong> gesondert erstattet.</li>
-          <li style="margin-bottom:6px;"><strong>Selbstständigkeit:</strong> Der Subunternehmer handelt in eigenem Namen und auf eigene Rechnung. Er ist für die ordnungsgemäße Anmeldung seines Gewerbes sowie für die Abführung sämtlicher Steuern (Einkommen-/Umsatzsteuer) und Sozialversicherungsbeiträge selbst verantwortlich.</li>
+        <h3 style="font-size:10pt;font-weight:700;margin:12px 0 6px 0;">§ 2 Pflichten, Materialnutzung und Fahrtkosten</h3>
+        <ol style="margin:0 0 10px 0;padding-left:18px;text-align:justify;">
+          <li style="margin-bottom:4px;"><strong>Material:</strong> Das für die Installation erforderliche Montagematerial (Glasfaserkabel, Kabelkanäle, TA-Dosen, Spleißboxen) wird vom Auftraggeber kostenlos zur Verfügung gestellt. Der Subunternehmer verpflichtet sich zu einem äußerst sorgsamen und sparsamen Umgang mit dem Material. Materialschwund, der durch unsachgemäße Arbeit oder Verschwendung des Subunternehmers entsteht, sowie der Verlust von überlassenem Material wird dem Subunternehmer in Rechnung gestellt bzw. mit seiner Vergütung verrechnet.</li>
+          <li style="margin-bottom:4px;"><strong>Werkzeug &amp; Fahrzeug:</strong> Der Subunternehmer arbeitet als selbstständiger Unternehmer mit eigenem Werkzeug, eigenen Mess-/Spleißgeräten, eigener persönlicher Schutzausrüstung (PSA) und eigenem Fahrzeug.</li>
+          <li style="margin-bottom:4px;"><strong>Fahrtkosten:</strong> Sämtliche Fahrt- und Anreisekosten innerhalb des Einsatzgebietes (${subLocation} + ${subRadius} km Umkreis) sind mit der vereinbarten Stückvergütung vollständig abgegolten und werden <strong>nicht</strong> gesondert erstattet.</li>
+          <li style="margin-bottom:4px;"><strong>Selbstständigkeit:</strong> Der Subunternehmer handelt in eigenem Namen und auf eigene Rechnung. Er ist für die ordnungsgemäße Anmeldung seines Gewerbes sowie für die Abführung sämtlicher Steuern (Einkommen-/Umsatzsteuer) und Sozialversicherungsbeiträge selbst verantwortlich.</li>
         </ol>
 
-        <h3 style="font-size:11.5pt;font-weight:700;margin:16px 0 8px 0;">§ 3 Vergütung (Stücklohn) und Abrechnung</h3>
-        <ol style="margin:0 0 14px 0;padding-left:20px;text-align:justify;">
-          <li style="margin-bottom:6px;">Die Vergütung erfolgt leistungsbezogen nach fertiggestellten und erfolgreich abgenommenen Wohneinheiten (WE):
-            <ul style="margin:6px 0;padding-left:20px;">
+        <h3 style="font-size:10pt;font-weight:700;margin:12px 0 6px 0;">§ 3 Vergütung (Stücklohn) und Abrechnung</h3>
+        <ol style="margin:0 0 10px 0;padding-left:18px;text-align:justify;">
+          <li style="margin-bottom:4px;">Die Vergütung erfolgt leistungsbezogen nach fertiggestellten und erfolgreich abgenommenen Wohneinheiten (WE):
+            <ul style="margin:4px 0;padding-left:18px;">
               <li><strong>Variante A (Vollausbau): ${rateA} EUR</strong> (netto) pro fertiggestellter Wohneinheit (WE). Dies beinhaltet: Kompletter Leitungsweg inkl. Kabelkanal, Kabeleinzug, Spleißarbeiten am Hausübergabepunkt (AP) und in der Wohnung (TA-Dose) sowie Mess-/Fotodokumentation.</li>
               <li><strong>Variante B (Teilausbau / Vorrüstung): ${rateB} EUR</strong> (netto) pro Wohneinheit (WE). Dies greift, wenn einzelne Wohnungen trotz Terminankündigung nicht zugänglich sind: Verlegung des Kabelkanals und des Glasfaserkabels bis vor die jeweilige Wohnungstür sowie Vorbereitung/Spleißen im Keller (AP), jedoch ohne Montage und Spleißen der TA-Dose in der Wohnung.</li>
             </ul>
           </li>
-          <li style="margin-bottom:6px;"><strong>Rechnungsstellung:</strong> Der Subunternehmer erstellt alle <strong>14 Tage</strong> eine ordnungsgemäße Rechnung über die im jeweiligen Zeitraum vollständig abgeschlossenen und dokumentierten Gebäude/Wohneinheiten.</li>
-          <li style="margin-bottom:6px;"><strong>Abnahme und Zahlungsziel:</strong> Voraussetzung für die Fälligkeit der Vergütung ist die vollständige und fehlerfreie Einreichung des digitalen Abnahmeprotokolls (inkl. geforderter Fotos und Messwerte) über das vom Auftraggeber vorgegebene Portal/System sowie die erfolgreiche Endabnahme durch den Hauptauftraggeber. Die Auszahlung des Rechnungsbetrages erfolgt innerhalb von <strong>${payTermDays} Tagen</strong> nach Eingang der prüfbaren Rechnung und erfolgter Abnahme.</li>
+          <li style="margin-bottom:4px;"><strong>Rechnungsstellung:</strong> Der Subunternehmer erstellt alle <strong>14 Tage</strong> eine ordnungsgemäße Rechnung über die im jeweiligen Zeitraum vollständig abgeschlossenen und dokumentierten Gebäude/Wohneinheiten.</li>
+          <li style="margin-bottom:4px;"><strong>Abnahme und Zahlungsziel:</strong> Voraussetzung für die Fälligkeit der Vergütung ist die vollständige und fehlerfreie Einreichung des digitalen Abnahmeprotokolls (inkl. geforderter Fotos und Messwerte) über das vom Auftraggeber vorgegebene Portal/System sowie die erfolgreiche Endabnahme durch den Hauptauftraggeber. Die Auszahlung des Rechnungsbetrages erfolgt innerhalb von <strong>${payTermDays} Tagen</strong> nach Eingang der prüfbaren Rechnung und erfolgter Abnahme.</li>
         </ol>
 
-        <h3 style="font-size:11.5pt;font-weight:700;margin:16px 0 8px 0;">§ 4 Haftung, Gewährleistung und Versicherungsnachweis</h3>
-        <ol style="margin:0 0 14px 0;padding-left:20px;text-align:justify;">
-          <li style="margin-bottom:6px;">Der Subunternehmer steht für die mangelfreie und fachgerechte Ausführung seiner Werkleistungen nach den gesetzlichen Vorschriften des BGB ein. Mängel oder fehlerhafte Spleißungen hat er auf eigene Kosten unverzüglich nachzubessern.</li>
-          <li style="margin-bottom:6px;">Der Subunternehmer haftet in vollem Umfang für alle Personen-, Sach- und Vermögensschäden (insbesondere Leitungsschäden beim Bohren oder Schäden am Eigentum der Hausbewohner/Hauseigentümer), die er oder seine Erfüllungsgehilfen im Rahmen der Auftragsausführung verursachen.</li>
-          <li style="margin-bottom:6px;"><strong>Pflichtversicherung:</strong> Der Subunternehmer ist zwingend verpflichtet, vor Beginn der Arbeiten eine gültige <strong>Betriebshaftpflichtversicherung</strong> mit ausreichender Deckungssumme (für Personen-, Sach- und Bearbeitungsschäden, inkl. Tätigkeitsschäden an Leitungen) abzuschließen und dem Auftraggeber unaufgefordert eine Kopie der Versicherungspolice sowie den Nachweis der Beitragszahlung vorzulegen. Ohne diesen Nachweis darf mit den Arbeiten nicht begonnen werden.</li>
+        <h3 style="font-size:10pt;font-weight:700;margin:12px 0 6px 0;">§ 4 Haftung, Gewährleistung und Versicherungsnachweis</h3>
+        <ol style="margin:0 0 10px 0;padding-left:18px;text-align:justify;">
+          <li style="margin-bottom:4px;">Der Subunternehmer steht für die mangelfreie und fachgerechte Ausführung seiner Werkleistungen nach den gesetzlichen Vorschriften des BGB ein. Mängel oder fehlerhafte Spleißungen hat er auf eigene Kosten unverzüglich nachzubessern.</li>
+          <li style="margin-bottom:4px;">Der Subunternehmer haftet in vollem Umfang für alle Personen-, Sach- und Vermögensschäden (insbesondere Leitungsschäden beim Bohren oder Schäden am Eigentum der Hausbewohner/Hauseigentümer), die er oder seine Erfüllungsgehilfen im Rahmen der Auftragsausführung verursachen.</li>
+          <li style="margin-bottom:4px;"><strong>Pflichtversicherung:</strong> Der Subunternehmer ist zwingend verpflichtet, vor Beginn der Arbeiten eine gültige <strong>Betriebshaftpflichtversicherung</strong> mit ausreichender Deckungssumme (für Personen-, Sach- und Bearbeitungsschäden, inkl. Tätigkeitsschäden an Leitungen) abzuschließen und dem Auftraggeber unaufgefordert eine Kopie der Versicherungspolice sowie den Nachweis der Beitragszahlung vorzulegen. Ohne diesen Nachweis darf mit den Arbeiten nicht begonnen werden.</li>
         </ol>
 
-        <h3 style="font-size:11.5pt;font-weight:700;margin:16px 0 8px 0;">§ 5 Laufzeit, Kündigung und Folgeprojekte</h3>
-        <ol style="margin:0 0 14px 0;padding-left:20px;text-align:justify;">
-          <li style="margin-bottom:6px;">Dieser Vertrag tritt mit Unterzeichnung in Kraft und gilt zunächst für das genannte Projekt im Raum ${subLocation}. Bei erfolgreicher und zuverlässiger Zusammenarbeit besteht die Option auf Beauftragung für weitere bundesweite Folgeprojekte.</li>
-          <li style="margin-bottom:6px;">Der Vertrag kann von beiden Vertragsparteien jederzeit ordentlich mit einer Frist von <strong>zwei Wochen</strong> in Text- oder Schriftform gekündigt werden.</li>
-          <li style="margin-bottom:6px;">Das Recht zur außerordentlichen, fristlosen Kündigung aus wichtigem Grund bleibt unberührt. Ein wichtiger Grund für den Auftraggeber liegt insbesondere vor, wenn der Subunternehmer gegen Sicherheitsvorschriften verstößt, keine gültige Betriebshaftpflichtversicherung nachweist, wiederholt mangelhafte Arbeit leistet oder Termine unentschuldigt nicht wahrnimmt.</li>
+        <h3 style="font-size:10pt;font-weight:700;margin:12px 0 6px 0;">§ 5 Laufzeit, Kündigung und Folgeprojekte</h3>
+        <ol style="margin:0 0 10px 0;padding-left:18px;text-align:justify;">
+          <li style="margin-bottom:4px;">Dieser Vertrag tritt mit Unterzeichnung in Kraft und gilt zunächst für das genannte Projekt im Raum ${subLocation}. Bei erfolgreicher und zuverlässiger Zusammenarbeit besteht die Option auf Beauftragung für weitere bundesweite Folgeprojekte.</li>
+          <li style="margin-bottom:4px;">Der Vertrag kann von beiden Vertragsparteien jederzeit ordentlich mit einer Frist von <strong>zwei Wochen</strong> in Text- oder Schriftform gekündigt werden.</li>
+          <li style="margin-bottom:4px;">Das Recht zur außerordentlichen, fristlosen Kündigung aus wichtigem Grund bleibt unberührt. Ein wichtiger Grund für den Auftraggeber liegt insbesondere vor, wenn der Subunternehmer gegen Sicherheitsvorschriften verstößt, keine gültige Betriebshaftpflichtversicherung nachweist, wiederholt mangelhafte Arbeit leistet oder Termine unentschuldigt nicht wahrnimmt.</li>
         </ol>
 
-        <h3 style="font-size:11.5pt;font-weight:700;margin:16px 0 8px 0;">§ 6 Schlussbestimmungen</h3>
-        <p style="margin:0 0 16px 0;text-align:justify;">
+        <h3 style="font-size:10pt;font-weight:700;margin:12px 0 6px 0;">§ 6 Schlussbestimmungen</h3>
+        <p style="margin:0 0 12px 0;text-align:justify;">
           Mündliche Nebenabreden bestehen nicht. Änderungen oder Ergänzungen dieses Vertrages bedürfen der Schriftform. Es gilt das Recht der Bundesrepublik Deutschland. Gerichtsstand ist – soweit gesetzlich zulässig – der Sitz des Auftraggebers.
         </p>
 
-        <p style="margin:20px 0 32px 0;">Karben, den <strong>${signedDate}</strong></p>
+        <p style="margin:16px 0 24px 0;">Karben, den <strong>${signedDate}</strong></p>
 
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:32px;">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:24px;">
           <div>
-            <div style="border-bottom:1px solid #111827;height:36px;margin-bottom:8px;"></div>
+            <div style="border-bottom:1px solid #111827;height:30px;margin-bottom:6px;"></div>
             <div><strong>Auftraggeber</strong></div>
             <div>Brünel Deutschland UG (haftungsbeschränkt)</div>
             <div>Sam Rastegar Moghadam</div>
           </div>
           <div>
-            <div style="border-bottom:1px solid #111827;height:36px;margin-bottom:8px;"></div>
+            <div style="border-bottom:1px solid #111827;height:30px;margin-bottom:6px;"></div>
             <div><strong>Subunternehmer / Auftragnehmer</strong></div>
             <div>(${partySignatureLabel})</div>
           </div>
         </div>
         ${renderPageFooter('Subunternehmervertrag (Werkvertrag) — Brünel Deutschland UG')}
 
-        <div class="page-break" style="margin:36px 0;border-top:2px dashed #cbd5e1;padding-top:28px;"></div>
+        <div class="page-break" style="margin:28px 0;border-top:2px dashed #cbd5e1;padding-top:22px;"></div>
 
         ${renderPageHeader()}
-        <h2 style="font-size:14.5pt;font-weight:800;margin:0 0 6px 0;color:#111827;">Anlage zum Werkvertrag: Ausführungsrichtlinien und Sicherheitshinweise</h2>
-        <p style="margin:0 0 14px 0;font-weight:700;color:#374151;">(Projekt: Inhouse-Glasfaserausbau NE4)</p>
-        <p style="margin:0 0 14px 0;text-align:justify;">
+        <h2 style="font-size:10pt;font-weight:800;margin:0 0 4px 0;color:#111827;">Anlage zum Werkvertrag: Ausführungsrichtlinien und Sicherheitshinweise</h2>
+        <p style="margin:0 0 10px 0;font-weight:700;color:#374151;">(Projekt: Inhouse-Glasfaserausbau NE4)</p>
+        <p style="margin:0 0 10px 0;text-align:justify;">
           Diese Richtlinie ist verbindlicher Bestandteil des geschlossenen Subunternehmervertrages mit der <strong>Brünel Deutschland UG (haftungsbeschränkt)</strong>. Jeder Monteur / Subunternehmer ist verpflichtet, die nachfolgenden Qualitätsvorgaben und Sicherheitsregeln strikt einzuhalten.
         </p>
 
-        <h3 style="font-size:11.5pt;font-weight:800;margin:14px 0 8px 0;color:#0f172a;">TEIL A: Schritt-für-Schritt Ausführungsrichtlinie (NE4-Montage)</h3>
-        <ol style="margin:0 0 14px 0;padding-left:20px;text-align:justify;">
-          <li style="margin-bottom:6px;"><strong>Schritt 1: Begehung, Kundenkontakt &amp; Vorbereitung</strong>
-            <ul style="margin:4px 0;padding-left:18px;">
+        <h3 style="font-size:10pt;font-weight:800;margin:10px 0 6px 0;color:#0f172a;">TEIL A: Schritt-für-Schritt Ausführungsrichtlinie (NE4-Montage)</h3>
+        <ol style="margin:0 0 10px 0;padding-left:18px;text-align:justify;">
+          <li style="margin-bottom:4px;"><strong>Schritt 1: Begehung, Kundenkontakt &amp; Vorbereitung</strong>
+            <ul style="margin:3px 0;padding-left:16px;">
               <li>Höfliches und professionelles Auftreten gegenüber Hausverwaltung, Eigentümern und Mietern ist oberstes Gebot.</li>
               <li>Vor Arbeitsbeginn ist der genaue Leitungsweg gemäß Begehungsprotokoll (Keller → Steigzone/Treppenhaus → Wohnung) zu prüfen.</li>
             </ul>
           </li>
-          <li style="margin-bottom:6px;"><strong>Schritt 2: Montage der Kabelkanäle (Reine Aufputz-Montage)</strong>
-            <ul style="margin:4px 0;padding-left:18px;">
+          <li style="margin-bottom:4px;"><strong>Schritt 2: Montage der Kabelkanäle (Reine Aufputz-Montage)</strong>
+            <ul style="margin:3px 0;padding-left:16px;">
               <li>Die Verlegung erfolgt ausschließlich über Aufputz-Kabelkanäle (im Keller und Treppenhaus gemäß Brandschutzvorgaben meist Metallkanal oder zugelassener PVC-Kanal).</li>
               <li>Kanäle sind exakt waagerecht bzw. senkrecht (mit Wasserwaage!) und bündig an Wänden/Decken zu montieren.</li>
               <li><strong>Achtung:</strong> Es dürfen <strong>keine tragenden Bauteile</strong> beschädigt oder Schlitze in Wände gestemmt werden (keine massiven baulichen Veränderungen!).</li>
             </ul>
           </li>
-          <li style="margin-bottom:6px;"><strong>Schritt 3: Wand- und Deckendurchbrüche (Bohrungen)</strong>
-            <ul style="margin:4px 0;padding-left:18px;">
+          <li style="margin-bottom:4px;"><strong>Schritt 3: Wand- und Deckendurchbrüche (Bohrungen)</strong>
+            <ul style="margin:3px 0;padding-left:16px;">
               <li>Vor <strong>jeder</strong> Bohrung ist die Wand/Decke zwingend mit einem geeigneten <strong>Leitungsdetektor (Ortungsgerät)</strong> auf Strom-, Wasser-, Gas- und Heizungsleitungen zu prüfen!</li>
               <li>Wohnungseinführungen sind so klein und sauber wie möglich zu bohren (in der Regel über der Wohnungseingangstür). Ausbrüche am Putz sind zu vermeiden.</li>
             </ul>
           </li>
-          <li style="margin-bottom:6px;"><strong>Schritt 4: Kabeleinzug, Spleißen &amp; TA-Dosen-Montage</strong>
-            <ul style="margin:4px 0;padding-left:18px;">
+          <li style="margin-bottom:4px;"><strong>Schritt 4: Kabeleinzug, Spleißen &amp; TA-Dosen-Montage</strong>
+            <ul style="margin:3px 0;padding-left:16px;">
               <li>Beim Einziehen der Glasfaserkabel sind die minimal zulässigen <strong>Biegeradien</strong> zwingend einzuhalten (Glasfaser darf niemals geknickt werden!).</li>
               <li>Montage der Teilnehmeranschlussdose (GF-TA) in der Wohnung am abgestimmten Ort (Variante A) bzw. sauberes Ablegen mit Überlänge im Kanal vor der Wohnungstür (Variante B).</li>
               <li>Fachgerechtes Spleißen der Fasern in der TA-Dose und im Spleißverteiler (AP/GF-GV) im Keller unter Einhaltung maximaler Sauberkeit.</li>
             </ul>
           </li>
-          <li style="margin-bottom:6px;"><strong>Schritt 5: Brandschutz, Reinigung &amp; Dokumentation</strong>
-            <ul style="margin:4px 0;padding-left:18px;">
+          <li style="margin-bottom:4px;"><strong>Schritt 5: Brandschutz, Reinigung &amp; Dokumentation</strong>
+            <ul style="margin:3px 0;padding-left:16px;">
               <li>Alle Brandabschnitte (Decken-/Wanddurchbrüche zwischen Keller, Treppenhaus und Wohnungen) müssen nach Kabeleinzug zwingend wieder fachgerecht mit zugelassenem <strong>Brandschutzmaterial (Brandschutzschaum/-mörtel/-kissen)</strong> verschlossen werden.</li>
               <li>Der Arbeitsplatz (Keller, Treppenhaus, Wohnung) ist nach Abschluss der Arbeiten <strong>besenrein</strong> zu hinterlassen. Bohrmehl und Verpackungsmüll sind vollständig zu entsorgen.</li>
               <li>Vollständige Erstellung der Fotodokumentation, Beschriftung (Labeling) aller Komponenten und Übergabe des digitalen Abnahmeprotokolls im Portal.</li>
@@ -644,58 +644,58 @@ export function generateContractHtml(code, emp, cond) {
           </li>
         </ol>
 
-        <h3 style="font-size:11.5pt;font-weight:800;margin:14px 0 8px 0;color:#991b1b;">TEIL B: Verbindliche Sicherheitsunterweisung (Arbeitsschutz)</h3>
-        <ol style="margin:0 0 14px 0;padding-left:20px;text-align:justify;">
-          <li style="margin-bottom:6px;"><strong>Absolutes Verbot von Elektroarbeiten (Lebensgefahr!):</strong> Es werden im Rahmen dieses Auftrags <strong>keinerlei Arbeiten an elektrischen Anlagen (230V / 400V)</strong> durchgeführt. Das Öffnen von Stromverteilerkästen, das Anklemmen von Stromleitungen oder das Verlegen von Glasfaserkabeln innerhalb fremder Starkstromkanäle ist strengstens verboten!</li>
-          <li style="margin-bottom:6px;"><strong>Schutz vor dem Anbohren von Leitungen:</strong> Das Bohren im Bereich von Lichtschaltern, Steckdosen und Unterverteilungen (senkrechte und waagerechte Installationszonen nach DIN 18015) ist lebensgefährlich und untersagt. Die vorherige Prüfung mit einem Mess-/Ortungsgerät ist vor jedem Bohrvorgang Pflicht.</li>
-          <li style="margin-bottom:6px;"><strong>Brandschutz &amp; Fluchtwege:</strong> Treppenhäuser sind Flucht- und Rettungswege! Während der Arbeiten dürfen Treppen und Ausgänge niemals vollständig durch Leitern, Werkzeug oder Material blockiert werden. Im Gebäude herrscht absolutes <strong>Rauchverbot</strong>.</li>
-          <li style="margin-bottom:6px;"><strong>Arbeitssicherheit &amp; Umgang mit Glasfaser:</strong>
-            <ul style="margin:4px 0;padding-left:18px;">
+        <h3 style="font-size:10pt;font-weight:800;margin:10px 0 6px 0;color:#991b1b;">TEIL B: Verbindliche Sicherheitsunterweisung (Arbeitsschutz)</h3>
+        <ol style="margin:0 0 10px 0;padding-left:18px;text-align:justify;">
+          <li style="margin-bottom:4px;"><strong>Absolutes Verbot von Elektroarbeiten (Lebensgefahr!):</strong> Es werden im Rahmen dieses Auftrags <strong>keinerlei Arbeiten an elektrischen Anlagen (230V / 400V)</strong> durchgeführt. Das Öffnen von Stromverteilerkästen, das Anklemmen von Stromleitungen oder das Verlegen von Glasfaserkabeln innerhalb fremder Starkstromkanäle ist strengstens verboten!</li>
+          <li style="margin-bottom:4px;"><strong>Schutz vor dem Anbohren von Leitungen:</strong> Das Bohren im Bereich von Lichtschaltern, Steckdosen und Unterverteilungen (senkrechte und waagerechte Installationszonen nach DIN 18015) ist lebensgefährlich und untersagt. Die vorherige Prüfung mit einem Mess-/Ortungsgerät ist vor jedem Bohrvorgang Pflicht.</li>
+          <li style="margin-bottom:4px;"><strong>Brandschutz &amp; Fluchtwege:</strong> Treppenhäuser sind Flucht- und Rettungswege! Während der Arbeiten dürfen Treppen und Ausgänge niemals vollständig durch Leitern, Werkzeug oder Material blockiert werden. Im Gebäude herrscht absolutes <strong>Rauchverbot</strong>.</li>
+          <li style="margin-bottom:4px;"><strong>Arbeitssicherheit &amp; Umgang mit Glasfaser:</strong>
+            <ul style="margin:3px 0;padding-left:16px;">
               <li>Bei Bohr- und Montagearbeiten ist die erforderliche <strong>Persönliche Schutzausrüstung (PSA)</strong> zu tragen (Sicherheitsschuhe, Schutzbrille beim Über-Kopf-Bohren, Gehörschutz, Staubschutzmaske).</li>
               <li>Es dürfen nur geprüfte und standsichere Leitern/Trittstufen verwendet werden.</li>
               <li><strong>Glasfasersplitter:</strong> Faserreste beim Abisolieren und Brechen (Cleaven) sind extrem scharfkantig und dürfen nicht auf den Boden (insbesondere nicht in Kundenwohnungen!) gelangen. Alle Faserreste müssen sofort in einem verschlossenen Splitterbehälter gesammelt und sicher entsorgt werden.</li>
               <li><strong>Laserstrahlung:</strong> Niemals direkt in offene Faserenden, Patchkabel oder optische Messgeräte (Laserquelle/OTDR) blicken – Gefahr schwerer Augenschäden!</li>
             </ul>
           </li>
-          <li style="margin-bottom:6px;"><strong>Verhalten im Schadensfall:</strong> Sollte trotz aller Vorsicht eine Strom-, Wasser- oder Gasleitung angebohrt werden, sind die Arbeiten <strong>sofort einzustellen</strong>, der Gefahrenbereich abzusichern (ggf. Haupthahn/Sicherung schließen, bei Gas sofort Gebäude räumen und Feuerwehr rufen) und unverzüglich die Projektleitung der Brünel Deutschland UG zu informieren.</li>
+          <li style="margin-bottom:4px;"><strong>Verhalten im Schadensfall:</strong> Sollte trotz aller Vorsicht eine Strom-, Wasser- oder Gasleitung angebohrt werden, sind die Arbeiten <strong>sofort einzustellen</strong>, der Gefahrenbereich abzusichern (ggf. Haupthahn/Sicherung schließen, bei Gas sofort Gebäude räumen und Feuerwehr rufen) und unverzüglich die Projektleitung der Brünel Deutschland UG zu informieren.</li>
         </ol>
 
-        <div style="padding:12px 14px;border:1px solid #cbd5e1;border-radius:8px;background:#f8fafc;margin-bottom:20px;">
+        <div style="padding:8px 12px;border:1px solid #cbd5e1;border-radius:6px;background:#f8fafc;margin-bottom:14px;font-size:8pt;">
           <strong>Bestätigung des Subunternehmers:</strong><br/>
           Ich bestätige hiermit, dass ich die vorstehenden Ausführungsrichtlinien sowie die Sicherheitsvorschriften vollständig gelesen und verstanden habe. Ich verpflichte mich, diese Vorgaben strikt einzuhalten und auch etwaige von mir eingesetzte Mitarbeiter vor Arbeitsbeginn nachweislich entsprechend zu unterweisen.
         </div>
 
-        <p style="margin:18px 0 30px 0;">Karben, den <strong>${signedDate}</strong></p>
+        <p style="margin:14px 0 22px 0;">Karben, den <strong>${signedDate}</strong></p>
         <div style="max-width:340px;">
-          <div style="border-bottom:1px solid #111827;height:36px;margin-bottom:8px;"></div>
+          <div style="border-bottom:1px solid #111827;height:30px;margin-bottom:6px;"></div>
           <div><strong>Unterschrift Subunternehmer / Auftragnehmer</strong></div>
           <div>(${partySignatureLabel})</div>
         </div>
         ${renderPageFooter('Anlage Ausführungsrichtlinien & Sicherheitshinweise — Brünel Deutschland UG')}
 
-        <div class="page-break" style="margin:36px 0;border-top:2px dashed #cbd5e1;padding-top:28px;"></div>
+        <div class="page-break" style="margin:28px 0;border-top:2px dashed #cbd5e1;padding-top:22px;"></div>
 
         ${renderPageHeader()}
-        <h2 style="font-size:14.5pt;font-weight:800;margin:0 0 6px 0;color:#111827;">Allgemeines Sicherheitsblatt &amp; Arbeitsschutzrichtlinie</h2>
-        <p style="margin:0 0 14px 0;font-weight:700;color:#374151;">(Standortübergreifende Sicherheitsvorschriften für Montage- und Glasfaserarbeiten)</p>
-        <p style="margin:0 0 14px 0;text-align:justify;">
+        <h2 style="font-size:10pt;font-weight:800;margin:0 0 4px 0;color:#111827;">Allgemeines Sicherheitsblatt &amp; Arbeitsschutzrichtlinie</h2>
+        <p style="margin:0 0 10px 0;font-weight:700;color:#374151;">(Standortübergreifende Sicherheitsvorschriften für Montage- und Glasfaserarbeiten)</p>
+        <p style="margin:0 0 10px 0;text-align:justify;">
           Sicherheit und Gesundheitsschutz haben bei allen Projekten der <strong>Brünel Deutschland UG (haftungsbeschränkt)</strong> höchste Priorität. Dieses Sicherheitsblatt gilt verbindlich für alle eigenen Mitarbeiter, Praktikanten sowie beauftragten Subunternehmer und deren Personal auf sämtlichen Baustellen und in allen Kundenobjekten.
         </p>
 
-        <h3 style="font-size:11pt;font-weight:700;margin:12px 0 6px 0;">1. Persönliche Schutzausrüstung (PSA)</h3>
-        <p style="margin:0 0 6px 0;">Auf allen Baustellen und in Kundenobjekten ist das Tragen einer angemessenen Arbeitskleidung sowie der erforderlichen Persönlichen Schutzausrüstung zwingend vorgeschrieben:</p>
-        <ul style="margin:0 0 12px 0;padding-left:20px;">
+        <h3 style="font-size:10pt;font-weight:700;margin:10px 0 4px 0;">1. Persönliche Schutzausrüstung (PSA)</h3>
+        <p style="margin:0 0 4px 0;">Auf allen Baustellen und in Kundenobjekten ist das Tragen einer angemessenen Arbeitskleidung sowie der erforderlichen Persönlichen Schutzausrüstung zwingend vorgeschrieben:</p>
+        <ul style="margin:0 0 8px 0;padding-left:18px;">
           <li><strong>Sicherheitsschuhe (mind. Klasse S3):</strong> Pflicht bei allen Montage- und Transportarbeiten.</li>
           <li><strong>Schutzbrille:</strong> Zwingend zu tragen bei allen Bohr-, Stemm- und Über-Kopf-Arbeiten sowie beim Umgang mit Glasfasern (Schutz vor umherfliegenden Faserresten).</li>
           <li><strong>Arbeitshandschuhe &amp; Gehörschutz:</strong> Pflicht beim Einsatz von Schlagbohrmaschinen, Bohrhammern und beim Einziehen von Kabeln.</li>
           <li><strong>Staubschutzmaske (FFP2/FFP3):</strong> Bei stauberzeugenden Bohrarbeiten in Kellern und engen Räumen.</li>
         </ul>
 
-        <h3 style="font-size:11pt;font-weight:700;margin:12px 0 6px 0;">2. Spezifische Gefahren bei Glasfaserarbeiten (LWL)</h3>
-        <ul style="margin:0 0 12px 0;padding-left:20px;">
+        <h3 style="font-size:10pt;font-weight:700;margin:10px 0 4px 0;">2. Spezifische Gefahren bei Glasfaserarbeiten (LWL)</h3>
+        <ul style="margin:0 0 8px 0;padding-left:18px;">
           <li><strong>Unsichtbare Laserstrahlung:</strong> Glasfaserleitungen übertragen Licht im Infrarotbereich, das für das menschliche Auge unsichtbar ist, aber die Netzhaut dauerhaft zerstören kann. <strong>Niemals</strong> mit bloßem Auge, einer Lupe oder einem Mikroskop ohne Laserschutzfilter in offene Faserenden, Stecker oder aktive Ports blicken!</li>
           <li><strong>Glasfasersplitter (Mikrosplitter):</strong> Abgetrennte Glasfaserstücke sind nadelspitz, nahezu unsichtbar und können in die Haut, Augen oder über die Nahrung in den Körper eindringen.
-            <ul style="margin:4px 0;padding-left:18px;">
+            <ul style="margin:3px 0;padding-left:16px;">
               <li>Beim Spleißen ist stets eine dunkle Arbeitsunterlage zu verwenden.</li>
               <li>Alle Faserabfälle müssen <strong>sofort</strong> in einem fest verschließbaren, bruchsicheren <strong>Splitterbehälter</strong> entsorgt werden.</li>
               <li>Am Spleißarbeitsplatz ist das <strong>Essen, Trinken und Rauchen strengstens untersagt!</strong> Nach Abschluss der Spleißarbeiten sind die Hände gründlich zu waschen.</li>
@@ -704,36 +704,36 @@ export function generateContractHtml(code, emp, cond) {
           <li><strong>Reinigungsmittel (Isopropanol):</strong> Leicht entzündlich! Behälter stets geschlossen halten, für ausreichende Belüftung sorgen und von Zündquellen fernhalten.</li>
         </ul>
 
-        <h3 style="font-size:11pt;font-weight:700;margin:12px 0 6px 0;">3. Bohrarbeiten, Elektrik &amp; Gefahrstoffe (Asbest)</h3>
-        <ul style="margin:0 0 12px 0;padding-left:20px;">
+        <h3 style="font-size:10pt;font-weight:700;margin:10px 0 4px 0;">3. Bohrarbeiten, Elektrik &amp; Gefahrstoffe (Asbest)</h3>
+        <ul style="margin:0 0 8px 0;padding-left:18px;">
           <li><strong>Leitungsortung vor jeder Bohrung:</strong> Vor dem Ansetzen des Bohrers muss die Bohrstelle zwingend mit einem funktionsfähigen Leitungsfinder auf Strom-, Gas- und Wasserleitungen überprüft werden.</li>
           <li><strong>Verbot von Elektroarbeiten (230V/400V):</strong> Arbeiten an spannungsführenden Teilen oder das Öffnen von fremden Elektroverteilern sind strikt untersagt. Beschädigte Elektrowerkzeuge oder Kabel mit defekter Isolierung dürfen nicht weiterverwendet werden.</li>
           <li><strong>Staubarme Bearbeitung &amp; Asbestverdacht:</strong> In älteren Bestandsgebäuden (insbesondere Baujahr vor 1993) kann in Putzen, Spachtelmassen, Fliesenklebern oder Brandschutzplatten Asbest enthalten sein. Es darf nur mit <strong>aktiver Bohrstaubabsaugung</strong> gebohrt werden (max. Bohrdurchmesser 14 mm). Bei Verdacht auf asbesthaltige Bauteile (z.B. graue Faserzementplatten) sind die Arbeiten <strong>sofort einzustellen</strong> und die Projektleitung zu informieren!</li>
         </ul>
 
-        <h3 style="font-size:11pt;font-weight:700;margin:12px 0 6px 0;">4. Sicheres Arbeiten auf Leitern (Absturzprävention)</h3>
-        <ul style="margin:0 0 12px 0;padding-left:20px;">
+        <h3 style="font-size:10pt;font-weight:700;margin:10px 0 4px 0;">4. Sicheres Arbeiten auf Leitern (Absturzprävention)</h3>
+        <ul style="margin:0 0 8px 0;padding-left:18px;">
           <li>Es dürfen ausschließlich unbeschädigte, geprüfte Leitern/Tritte (mit gültiger Prüfplakette nach DIN EN 131) verwendet werden.</li>
           <li>Leitern niemals auf unebenen Untergründen, Kisten oder direkt vor unverschlossenen Türen aufstellen (Türen im Treppenhaus ggf. sichern oder Warnschilder aufstellen).</li>
           <li>Auf Stehleitern niemals auf die obersten beiden Stufen/Sprossen treten.</li>
         </ul>
 
-        <h3 style="font-size:11pt;font-weight:700;margin:12px 0 6px 0;">5. Allgemeine Ordnung, Sicherheit &amp; Notfallverhalten</h3>
-        <ul style="margin:0 0 14px 0;padding-left:20px;">
+        <h3 style="font-size:10pt;font-weight:700;margin:10px 0 4px 0;">5. Allgemeine Ordnung, Sicherheit &amp; Notfallverhalten</h3>
+        <ul style="margin:0 0 10px 0;padding-left:18px;">
           <li><strong>Alkohol- und Drogenverbot:</strong> Während der gesamten Arbeitszeit sowie vor Fahrtantritt gilt ein absolutes Null-Promille- und Drogenverbot.</li>
           <li><strong>Fluchtwege freihalten:</strong> Treppenhäuser und Hausflure sind Rettungswege. Werkzeugkoffer, Kabeltrommeln und Leitern sind so abzustellen, dass Bewohner jederzeit ungehindert passieren können und keine Stolperfallen entstehen.</li>
           <li><strong>Erste Hilfe &amp; Unfallmeldung:</strong> Im Montagefahrzeug muss stets ein vollständiger Verbandskasten (DIN 13157/13164) mitgeführt werden. Jeder Arbeitsunfall (auch kleinere Verletzungen) sowie jeder Sachschaden im Gebäude ist <strong>sofort</strong> der Geschäfts-/Projektleitung der Brünel Deutschland UG zu melden.</li>
           <li><strong>Notrufnummern:</strong> Feuerwehr / Rettungsdienst: <strong>112</strong> | Polizei: <strong>110</strong></li>
         </ul>
 
-        <div style="padding:12px 14px;border:1px solid #cbd5e1;border-radius:8px;background:#f8fafc;margin-bottom:20px;">
+        <div style="padding:8px 12px;border:1px solid #cbd5e1;border-radius:6px;background:#f8fafc;margin-bottom:14px;font-size:8pt;">
           <strong>Bestätigung der Kenntnisnahme und Sicherheitsunterweisung:</strong><br/>
           Ich bestätige hiermit durch meine Unterschrift, dass ich das vorstehende Allgemeine Sicherheitsblatt erhalten, gelesen und verstanden habe. Ich verpflichte mich, sämtliche Sicherheits- und Arbeitsschutzvorschriften bei der Ausführung meiner Tätigkeiten strikt zu befolgen.
         </div>
 
-        <p style="margin:18px 0 30px 0;">Karben, den <strong>${signedDate}</strong></p>
+        <p style="margin:14px 0 22px 0;">Karben, den <strong>${signedDate}</strong></p>
         <div style="max-width:340px;">
-          <div style="border-bottom:1px solid #111827;height:36px;margin-bottom:8px;"></div>
+          <div style="border-bottom:1px solid #111827;height:30px;margin-bottom:6px;"></div>
           <div><strong>Unterschrift Mitarbeiter / Subunternehmer</strong></div>
           <div>(${partySignatureLabel})</div>
         </div>
@@ -744,82 +744,82 @@ export function generateContractHtml(code, emp, cond) {
 
   // Default / 5th Mandatory Module: DSGVO-Datenschutzerklärung & Verpflichtung auf das Datengeheimnis
   return `
-    <div class="brn-contract-sheet">
+    <div class="brn-contract-sheet" style="font-size:8pt;line-height:1.45;color:#111827;">
       ${renderPageHeader()}
-      <div style="display:inline-block;padding:3px 10px;border-radius:4px;background:#ecfdf5;border:1px solid #6ee7b7;color:#065f46;font-size:8.5pt;font-weight:800;margin-bottom:8px;">
+      <div style="display:inline-block;padding:2px 8px;border-radius:4px;background:#ecfdf5;border:1px solid #6ee7b7;color:#065f46;font-size:7.5pt;font-weight:800;margin-bottom:6px;">
         VERBINDLICHES PFLICHTMODUL (ANLAGE ZUM VERTRAGSWERK)
       </div>
-      <h1 style="font-size:15.5pt;font-weight:800;margin:0 0 6px 0;color:#111827;">
+      <h1 style="font-size:10pt;font-weight:800;margin:0 0 4px 0;color:#111827;">
         DSGVO-Datenschutzerklärung &amp; Verpflichtung auf das Datengeheimnis
       </h1>
-      <p style="margin:0 0 16px 0;font-weight:700;color:#374151;">
+      <p style="margin:0 0 12px 0;font-weight:700;color:#374151;">
         (gem. Art. 13, 14, 29, 32 Abs. 4 DSGVO sowie §§ 26, 53 Bundesdatenschutzgesetz – BDSG)
       </p>
 
-      <p style="margin:0 0 8px 0;">Zwischen</p>
-      <p style="margin:0 0 4px 0;"><strong>Brünel Deutschland UG (haftungsbeschränkt)</strong></p>
-      <p style="margin:0 0 4px 0;">Ramonville Str. 28, 61184 Karben</p>
-      <p style="margin:0 0 4px 0;">vertreten durch den Geschäftsführer Herrn Sam Rastegar Moghadam</p>
-      <p style="margin:0 0 12px 0;color:#374151;">– nachfolgend „Verantwortlicher / Arbeitgeber“ genannt –</p>
-      <p style="margin:0 0 8px 0;">und</p>
-      <p style="margin:0 0 4px 0;">${partyLineDsgvo}</p>
-      <p style="margin:0 0 4px 0;">wohnhaft / ansässig in: <strong>${fullAddress}</strong></p>
-      <p style="margin:0 0 16px 0;color:#374151;">– nachfolgend „Beschäftigter / Verpflichteter“ genannt –</p>
+      <p style="margin:0 0 6px 0;">Zwischen</p>
+      <p style="margin:0 0 3px 0;"><strong>Brünel Deutschland UG (haftungsbeschränkt)</strong></p>
+      <p style="margin:0 0 3px 0;">Ramonville Str. 28, 61184 Karben</p>
+      <p style="margin:0 0 3px 0;">vertreten durch den Geschäftsführer Herrn Sam Rastegar Moghadam</p>
+      <p style="margin:0 0 10px 0;color:#374151;">– nachfolgend „Verantwortlicher / Arbeitgeber“ genannt –</p>
+      <p style="margin:0 0 6px 0;">und</p>
+      <p style="margin:0 0 3px 0;">${partyLineDsgvo}</p>
+      <p style="margin:0 0 3px 0;">wohnhaft / ansässig in: <strong>${fullAddress}</strong></p>
+      <p style="margin:0 0 12px 0;color:#374151;">– nachfolgend „Beschäftigter / Verpflichteter“ genannt –</p>
 
-      <h3 style="font-size:11pt;font-weight:700;margin:14px 0 6px 0;">§ 1 Zweck und Rechtsgrundlage der Datenverarbeitung (§ 26 BDSG, Art. 6 DSGVO)</h3>
-      <p style="margin:0 0 10px 0;text-align:justify;">
+      <h3 style="font-size:10pt;font-weight:700;margin:10px 0 4px 0;">§ 1 Zweck und Rechtsgrundlage der Datenverarbeitung (§ 26 BDSG, Art. 6 DSGVO)</h3>
+      <p style="margin:0 0 8px 0;text-align:justify;">
         Die Brünel Deutschland UG (haftungsbeschränkt) verarbeitet personenbezogene Daten des Beschäftigten zum Zwecke der Begründung, Durchführung, Steuerung, Abrechnung und Beendigung des Vertragsverhältnisses (Arbeits-, Praktikums- oder Werkvertrag) gemäß Art. 6 Abs. 1 lit. b, c und f DSGVO in Verbindung mit § 26 Abs. 1 BDSG. Hierzu zählt auch die digitale Verwaltung der Personal- und Einsatzakte im unternehmenseigenen ERP- und Mitarbeiterportal (<code>app.bruenel.de</code>).
       </p>
 
-      <h3 style="font-size:11pt;font-weight:700;margin:14px 0 6px 0;">§ 2 Kategorien verarbeiteter Beschäftigten- und Einsatzdaten</h3>
-      <p style="margin:0 0 6px 0;text-align:justify;">Im Rahmen des Vertragsverhältnisses werden insbesondere folgende Datenkategorien verarbeitet:</p>
-      <ol style="margin:0 0 10px 0;padding-left:20px;text-align:justify;">
-        <li style="margin-bottom:4px;"><strong>Stamm- &amp; Identifikationsdaten:</strong> Vor- und Nachname, Geburtsdatum, Staatsangehörigkeit, Anschrift, Telefonnummer, E-Mail-Adresse, Ausweis-/Aufenthaltstiteldaten, Führerscheindaten sowie Notfallkontaktdaten (SOS-Kontakt gem. DGUV).</li>
-        <li style="margin-bottom:4px;"><strong>Lohn-, Steuer- &amp; Sozialversicherungsdaten:</strong> Steuer-Identifikationsnummer (IdNr.), Steuerklasse, Krankenkasse, Sozialversicherungsnummer, Bankverbindung (IBAN/BIC), Bruttogehalt/Stücklohn sowie bei Nachunternehmern Gewerbeanmeldung, USt-IdNr., Freistellungsbescheinigung nach § 48b EStG und BG-BAU-Nachweise.</li>
-        <li style="margin-bottom:4px;"><strong>Arbeitszeit-, Abwesenheits- &amp; Projektdaten:</strong> Digitale Arbeitszeiterfassung (Check-In / Check-Out / Pausen inkl. projektbezogenem Standortnachweis bei Schichtbeginn), Urlaubsanträge, Arbeitsunfähigkeitsmeldungen (eAU), Fahrzeug- und Werkzeugzuweisungen sowie Leistungs- und Abnahmeprotokolle im Glasfaserausbau (NE3/NE4).</li>
+      <h3 style="font-size:10pt;font-weight:700;margin:10px 0 4px 0;">§ 2 Kategorien verarbeiteter Beschäftigten- und Einsatzdaten</h3>
+      <p style="margin:0 0 4px 0;text-align:justify;">Im Rahmen des Vertragsverhältnisses werden insbesondere folgende Datenkategorien verarbeitet:</p>
+      <ol style="margin:0 0 8px 0;padding-left:18px;text-align:justify;">
+        <li style="margin-bottom:3px;"><strong>Stamm- &amp; Identifikationsdaten:</strong> Vor- und Nachname, Geburtsdatum, Staatsangehörigkeit, Anschrift, Telefonnummer, E-Mail-Adresse, Ausweis-/Aufenthaltstiteldaten, Führerscheindaten sowie Notfallkontaktdaten (SOS-Kontakt gem. DGUV).</li>
+        <li style="margin-bottom:3px;"><strong>Lohn-, Steuer- &amp; Sozialversicherungsdaten:</strong> Steuer-Identifikationsnummer (IdNr.), Steuerklasse, Krankenkasse, Sozialversicherungsnummer, Bankverbindung (IBAN/BIC), Bruttogehalt/Stücklohn sowie bei Nachunternehmern Gewerbeanmeldung, USt-IdNr., Freistellungsbescheinigung nach § 48b EStG und BG-BAU-Nachweise.</li>
+        <li style="margin-bottom:3px;"><strong>Arbeitszeit-, Abwesenheits- &amp; Projektdaten:</strong> Digitale Arbeitszeiterfassung (Check-In / Check-Out / Pausen inkl. projektbezogenem Standortnachweis bei Schichtbeginn), Urlaubsanträge, Arbeitsunfähigkeitsmeldungen (eAU), Fahrzeug- und Werkzeugzuweisungen sowie Leistungs- und Abnahmeprotokolle im Glasfaserausbau (NE3/NE4).</li>
       </ol>
 
-      <h3 style="font-size:11pt;font-weight:700;margin:14px 0 6px 0;">§ 3 Verpflichtung auf die Vertraulichkeit und das Datengeheimnis (Art. 29, 32 Abs. 4 DSGVO, § 53 BDSG)</h3>
-      <ol style="margin:0 0 10px 0;padding-left:20px;text-align:justify;">
-        <li style="margin-bottom:5px;">Dem Verpflichteten ist es strengstens untersagt, personenbezogene Daten unbefugt zu erheben, zu verarbeiten, einzusehen, zu verändern, weiterzugeben oder für fremde bzw. private Zwecke zu nutzen.</li>
-        <li style="margin-bottom:5px;"><strong>Besonderer Schutz von Kunden-, Eigentümer- und Bewohnerdaten (Glasfaser-/IT-Projekte):</strong> Im Rahmen der Bautätigkeiten (insb. NE4-Hausbegehungen, Wohnungsmontagen, TA-Dosen-Installation und Spleißdokumentation) erhält der Verpflichtete Zugang zu Namen, Adressen, Haus-IDs, Telefonnummern und Wohnräumen von Hausbewohnern und Auftraggebern.
-          <ul style="margin:4px 0;padding-left:18px;">
+      <h3 style="font-size:10pt;font-weight:700;margin:10px 0 4px 0;">§ 3 Verpflichtung auf die Vertraulichkeit und das Datengeheimnis (Art. 29, 32 Abs. 4 DSGVO, § 53 BDSG)</h3>
+      <ol style="margin:0 0 8px 0;padding-left:18px;text-align:justify;">
+        <li style="margin-bottom:4px;">Dem Verpflichteten ist es strengstens untersagt, personenbezogene Daten unbefugt zu erheben, zu verarbeiten, einzusehen, zu verändern, weiterzugeben oder für fremde bzw. private Zwecke zu nutzen.</li>
+        <li style="margin-bottom:4px;"><strong>Besonderer Schutz von Kunden-, Eigentümer- und Bewohnerdaten (Glasfaser-/IT-Projekte):</strong> Im Rahmen der Bautätigkeiten (insb. NE4-Hausbegehungen, Wohnungsmontagen, TA-Dosen-Installation und Spleißdokumentation) erhält der Verpflichtete Zugang zu Namen, Adressen, Haus-IDs, Telefonnummern und Wohnräumen von Hausbewohnern und Auftraggebern.
+          <ul style="margin:3px 0;padding-left:16px;">
             <li>Fotoaufnahmen zur Abnahmedokumentation dürfen ausschließlich das technische Gewerk (Kabelkanal, AP, Spleißkassette, TA-Dose mit Label) zeigen – niemals Personen, private Dokumente oder persönliche Gegenstände der Bewohner.</li>
             <li>Teilnehmerlisten, Begehungsprotokolle und Objektpläne dürfen nicht an unbefugte Dritte weitergegeben oder privat gespeichert werden.</li>
           </ul>
         </li>
-        <li style="margin-bottom:5px;">Diese Verpflichtung auf das Datengeheimnis besteht ohne zeitliche Begrenzung auch nach Beendigung des Vertragsverhältnisses fort.</li>
+        <li style="margin-bottom:4px;">Diese Verpflichtung auf das Datengeheimnis besteht ohne zeitliche Begrenzung auch nach Beendigung des Vertragsverhältnisses fort.</li>
       </ol>
 
-      <h3 style="font-size:11pt;font-weight:700;margin:14px 0 6px 0;">§ 4 IT-Sicherheit, Nutzung des Mitarbeiterportals &amp; Meldepflicht bei Datenpannen</h3>
-      <ol style="margin:0 0 10px 0;padding-left:20px;text-align:justify;">
-        <li style="margin-bottom:5px;">Persönliche Zugangsdaten (Login, Einmalpasswort/OTP, Passwörter) zum Brünel-System sind streng geheim zu halten und dürfen keinesfalls an Dritte weitergegeben werden.</li>
-        <li style="margin-bottom:5px;">Ein Verlust dienstlicher Endgeräte, Unterlagen oder der Verdacht auf einen Datenschutzverstoß (Datenpanne gem. Art. 33 DSGVO) ist der Geschäftsführung <strong>unverzüglich (binnen maximal 24 Stunden)</strong> zu melden.</li>
+      <h3 style="font-size:10pt;font-weight:700;margin:10px 0 4px 0;">§ 4 IT-Sicherheit, Nutzung des Mitarbeiterportals &amp; Meldepflicht bei Datenpannen</h3>
+      <ol style="margin:0 0 8px 0;padding-left:18px;text-align:justify;">
+        <li style="margin-bottom:4px;">Persönliche Zugangsdaten (Login, Einmalpasswort/OTP, Passwörter) zum Brünel-System sind streng geheim zu halten und dürfen keinesfalls an Dritte weitergegeben werden.</li>
+        <li style="margin-bottom:4px;">Ein Verlust dienstlicher Endgeräte, Unterlagen oder der Verdacht auf einen Datenschutzverstoß (Datenpanne gem. Art. 33 DSGVO) ist der Geschäftsführung <strong>unverzüglich (binnen maximal 24 Stunden)</strong> zu melden.</li>
       </ol>
 
-      <h3 style="font-size:11pt;font-weight:700;margin:14px 0 6px 0;">§ 5 Empfänger, Speicherdauer und Betroffenenrechte (Art. 15–21, 77 DSGVO)</h3>
-      <ol style="margin:0 0 12px 0;padding-left:20px;text-align:justify;">
-        <li style="margin-bottom:5px;">Eine Übermittlung von Beschäftigtendaten erfolgt ausschließlich im gesetzlich vorgeschriebenen Rahmen (Finanzamt/ELStAM, Sozialversicherungsträger, Berufsgenossenschaft, Lohnbuchhaltung, Bankinstitute sowie an Hauptauftraggeber zum Nachweis eingesetzter Fachkräfte).</li>
-        <li style="margin-bottom:5px;">Nach Beendigung des Vertragsverhältnisses werden die Daten nach Ablauf der gesetzlichen steuer- und handelsrechtlichen Aufbewahrungsfristen (in der Regel 6 bis 10 Jahre gem. § 147 AO, § 257 HGB) gelöscht.</li>
-        <li style="margin-bottom:5px;">Der Beschäftigte hat jederzeit das Recht auf Auskunft (Art. 15 DSGVO), Berichtigung (Art. 16 DSGVO), Löschung (Art. 17 DSGVO), Einschränkung der Verarbeitung (Art. 18 DSGVO), Datenübertragbarkeit (Art. 20 DSGVO) sowie ein Beschwerderecht bei der zuständigen Datenschutz-Aufsichtsbehörde (Der Hessische Beauftragte für Datenschutz und Informationsfreiheit – HBDI).</li>
+      <h3 style="font-size:10pt;font-weight:700;margin:10px 0 4px 0;">§ 5 Empfänger, Speicherdauer und Betroffenenrechte (Art. 15–21, 77 DSGVO)</h3>
+      <ol style="margin:0 0 10px 0;padding-left:18px;text-align:justify;">
+        <li style="margin-bottom:4px;">Eine Übermittlung von Beschäftigtendaten erfolgt ausschließlich im gesetzlich vorgeschriebenen Rahmen (Finanzamt/ELStAM, Sozialversicherungsträger, Berufsgenossenschaft, Lohnbuchhaltung, Bankinstitute sowie an Hauptauftraggeber zum Nachweis eingesetzter Fachkräfte).</li>
+        <li style="margin-bottom:4px;">Nach Beendigung des Vertragsverhältnisses werden die Daten nach Ablauf der gesetzlichen steuer- und handelsrechtlichen Aufbewahrungsfristen (in der Regel 6 bis 10 Jahre gem. § 147 AO, § 257 HGB) gelöscht.</li>
+        <li style="margin-bottom:4px;">Der Beschäftigte hat jederzeit das Recht auf Auskunft (Art. 15 DSGVO), Berichtigung (Art. 16 DSGVO), Löschung (Art. 17 DSGVO), Einschränkung der Verarbeitung (Art. 18 DSGVO), Datenübertragbarkeit (Art. 20 DSGVO) sowie ein Beschwerderecht bei der zuständigen Datenschutz-Aufsichtsbehörde (Der Hessische Beauftragte für Datenschutz und Informationsfreiheit – HBDI).</li>
       </ol>
 
-      <div style="padding:12px 14px;border:1px solid #6ee7b7;border-radius:8px;background:#ecfdf5;margin-bottom:20px;font-size:9.8pt;">
+      <div style="padding:8px 12px;border:1px solid #6ee7b7;border-radius:6px;background:#ecfdf5;margin-bottom:14px;font-size:8pt;">
         <strong>Erklärung, Einwilligung &amp; Empfangsbekenntnis:</strong><br/>
         Ich habe die vorstehende DSGVO-Datenschutzerklärung zur Verarbeitung meiner personenbezogenen Daten zur Kenntnis genommen. Gleichzeitig verpflichte ich mich hiermit verbindlich zur Wahrung des Datengeheimnisses und der Vertraulichkeit gemäß Art. 29, 32 Abs. 4 DSGVO und § 53 BDSG. Ich wurde darauf hingewiesen, dass Verstöße gegen datenschutzrechtliche Vorschriften nach Art. 83 DSGVO sowie § 42 BDSG mit Geldbußen oder Freiheits-/Geldstrafe geahndet werden können. Eine Ausfertigung dieser Erklärung wird mir nach Unterzeichnung in meinem persönlichen Dokumentenbereich bereitgestellt.
       </div>
 
-      <p style="margin:18px 0 30px 0;">Karben, den <strong>${signedDate}</strong></p>
+      <p style="margin:14px 0 22px 0;">Karben, den <strong>${signedDate}</strong></p>
 
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:30px;">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:22px;">
         <div>
-          <div style="border-bottom:1px solid #111827;height:36px;margin-bottom:8px;"></div>
+          <div style="border-bottom:1px solid #111827;height:30px;margin-bottom:6px;"></div>
           <div><strong>Verantwortlicher / Arbeitgeber</strong></div>
           <div>Brünel Deutschland UG (haftungsbeschränkt)</div>
           <div>Sam Rastegar Moghadam</div>
         </div>
         <div>
-          <div style="border-bottom:1px solid #111827;height:36px;margin-bottom:8px;"></div>
+          <div style="border-bottom:1px solid #111827;height:30px;margin-bottom:6px;"></div>
           <div><strong>Beschäftigter / Verpflichteter</strong></div>
           <div>(${partySignatureLabel})</div>
         </div>
@@ -845,6 +845,19 @@ function buildSafePdfFilename(rawTitle, employeeName = '') {
   return `${base.slice(0, 110) || 'Vertrag'}.pdf`;
 }
 
+// Normalize contract HTML so both newly-generated and previously-issued contracts render with
+// 1) high-resolution PNG logo (no html2canvas SVG clipping) and
+// 2) 8pt main text + 10pt titles
+function normalizeContractHtmlForPdf(rawHtml) {
+  if (!rawHtml) return '';
+  return String(rawHtml)
+    .replace(
+      /<img[^>]*src=["'][^"']*bruenel-dark\.svg["'][^>]*>/gi,
+      '<img src="/bruenel-logo-dark.png" alt="Brünel" width="106" height="26" style="width:106px;height:26px;object-fit:contain;display:block;" onerror="this.style.display=\'none\'" />'
+    )
+    .replace(/(<h[123]\b[^>]*style=["'][^"']*?)font-size\s*:\s*[^;"']+/gi, '$1font-size:10pt');
+}
+
 // Helper to download a single contract directly as an individual .pdf file (renders every page cleanly with html2canvas + jsPDF)
 export async function downloadSingleContractPdf(title, htmlContent, customFileName = '') {
   if (!htmlContent) return;
@@ -852,12 +865,14 @@ export async function downloadSingleContractPdf(title, htmlContent, customFileNa
     ? (customFileName.toLowerCase().endsWith('.pdf') ? customFileName : `${customFileName}.pdf`)
     : buildSafePdfFilename(title);
 
+  const normalizedHtml = normalizeContractHtmlForPdf(htmlContent);
+
   // Split by explicit .page-break markers so each contract page starts cleanly on a new A4 page
-  const rawSections = String(htmlContent)
+  const rawSections = normalizedHtml
     .split(/<div[^>]*class=["'][^"']*page-break[^"']*["'][^>]*>[\s\S]*?<\/div>/i)
     .map((s) => s.trim())
     .filter(Boolean);
-  const sections = rawSections.length > 0 ? rawSections : [String(htmlContent)];
+  const sections = rawSections.length > 0 ? rawSections : [normalizedHtml];
 
   const stage = document.createElement('div');
   stage.style.cssText = [
@@ -879,31 +894,93 @@ export async function downloadSingleContractPdf(title, htmlContent, customFileNa
     const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait', compress: true });
     const pageWidthMm = 210;
     const pageHeightMm = 297;
+    const topMarginMm = 16;
+    const bottomMarginMm = 16;
+    const printableHeightMm = pageHeightMm - topMarginMm - bottomMarginMm; // 265mm
     const scale = 2;
     const a4WidthPx = 794;
-    const a4HeightPx = Math.floor((a4WidthPx * pageHeightMm) / pageWidthMm); // ~1123px
-    const sliceHeightCanvasPx = a4HeightPx * scale;
+    const printableHeightCssPx = Math.floor((a4WidthPx * printableHeightMm) / pageWidthMm); // ~1002px
     let isFirstPdfPage = true;
 
     for (let i = 0; i < sections.length; i++) {
       stage.innerHTML = '';
       const pageEl = document.createElement('div');
+      pageEl.className = 'brn-pdf-page-render';
       pageEl.style.cssText = [
         'width: 794px',
-        'min-height: 980px',
-        'padding: 48px 56px',
+        'padding: 0 56px',
         'background: #ffffff',
         'color: #111827',
         "font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Arial, sans-serif",
-        'font-size: 10.5pt',
-        'line-height: 1.55',
+        'font-size: 8pt',
+        'line-height: 1.45',
         'box-sizing: border-box',
       ].join(';');
-      pageEl.innerHTML = sections[i];
+      pageEl.innerHTML = `
+        <style>
+          .brn-pdf-page-render,
+          .brn-pdf-page-render .brn-contract-sheet,
+          .brn-pdf-page-render p,
+          .brn-pdf-page-render li,
+          .brn-pdf-page-render ul,
+          .brn-pdf-page-render ol,
+          .brn-pdf-page-render div {
+            font-size: 8pt !important;
+            line-height: 1.45 !important;
+          }
+          .brn-pdf-page-render h1,
+          .brn-pdf-page-render h2,
+          .brn-pdf-page-render h3 {
+            font-size: 10pt !important;
+            line-height: 1.35 !important;
+          }
+          .brn-pdf-page-render .brn-doc-footer,
+          .brn-pdf-page-render .brn-doc-footer span {
+            font-size: 7.5pt !important;
+          }
+          .brn-pdf-page-render .brn-doc-header img {
+            width: 106px !important;
+            height: 26px !important;
+            max-width: 106px !important;
+            object-fit: contain !important;
+            display: block !important;
+          }
+        </style>
+        ${sections[i]}
+      `;
       stage.appendChild(pageEl);
 
-      // Wait for browser layout before rasterizing
+      // Ensure any images (like /bruenel-logo-dark.png) inside pageEl are loaded before html2canvas rasterizes
+      const imgs = Array.from(pageEl.querySelectorAll('img'));
+      await Promise.all(
+        imgs.map(
+          (img) =>
+            img.complete
+              ? Promise.resolve()
+              : new Promise((resolve) => {
+                  img.onload = resolve;
+                  img.onerror = resolve;
+                })
+        )
+      );
+
+      // Wait for browser layout before measuring & rasterizing
       await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+      // Measure atomic block bounding boxes in CSS px so page breaks never slice through text lines
+      const pageRect = pageEl.getBoundingClientRect();
+      const atomicEls = Array.from(
+        pageEl.querySelectorAll('h1, h2, h3, p, li, .brn-doc-header, .brn-doc-footer')
+      );
+      const blockBoxes = atomicEls
+        .map((el) => {
+          const r = el.getBoundingClientRect();
+          return {
+            top: Math.max(0, r.top - pageRect.top),
+            bottom: Math.max(0, r.bottom - pageRect.top),
+          };
+        })
+        .filter((b) => b.bottom > b.top);
 
       const canvas = await html2canvas(pageEl, {
         scale,
@@ -925,41 +1002,55 @@ export async function downloadSingleContractPdf(title, htmlContent, customFileNa
         },
       });
 
-      if (canvas.height <= sliceHeightCanvasPx * 1.06) {
+      const totalCssHeight = canvas.height / scale;
+      let cursorCssY = 0;
+
+      while (cursorCssY < totalCssHeight - 1) {
+        let endCssY = Math.min(totalCssHeight, cursorCssY + printableHeightCssPx);
+
+        // If there is more content after endCssY, adjust endCssY upward to avoid cutting any block/line
+        if (endCssY < totalCssHeight) {
+          let safeCutY = endCssY;
+          for (const box of blockBoxes) {
+            if (box.top < endCssY && box.bottom > endCssY && box.top > cursorCssY + 120) {
+              safeCutY = Math.min(safeCutY, Math.floor(box.top) - 2);
+            }
+          }
+          if (safeCutY > cursorCssY + 120) {
+            endCssY = safeCutY;
+          }
+        }
+
+        const startCanvasY = Math.round(cursorCssY * scale);
+        const endCanvasY = Math.min(canvas.height, Math.round(endCssY * scale));
+        const sliceCanvasPx = Math.max(1, endCanvasY - startCanvasY);
+
+        const sliceCanvas = document.createElement('canvas');
+        sliceCanvas.width = canvas.width;
+        sliceCanvas.height = sliceCanvasPx;
+        const ctx = sliceCanvas.getContext('2d');
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, sliceCanvas.width, sliceCanvas.height);
+        ctx.drawImage(
+          canvas,
+          0,
+          startCanvasY,
+          canvas.width,
+          sliceCanvasPx,
+          0,
+          0,
+          canvas.width,
+          sliceCanvasPx
+        );
+
         if (!isFirstPdfPage) pdf.addPage();
         isFirstPdfPage = false;
-        const renderedHeightMm = Math.min(pageHeightMm, (canvas.height * pageWidthMm) / canvas.width);
-        const imgData = canvas.toDataURL('image/jpeg', 0.96);
-        pdf.addImage(imgData, 'JPEG', 0, 0, pageWidthMm, renderedHeightMm, undefined, 'FAST');
-      } else {
-        // Section spans more than 1 A4 page: slice vertically into A4 pages
-        let offsetY = 0;
-        while (offsetY < canvas.height) {
-          const currentSlicePx = Math.min(sliceHeightCanvasPx, canvas.height - offsetY);
-          const sliceCanvas = document.createElement('canvas');
-          sliceCanvas.width = canvas.width;
-          sliceCanvas.height = currentSlicePx;
-          const ctx = sliceCanvas.getContext('2d');
-          ctx.fillStyle = '#ffffff';
-          ctx.fillRect(0, 0, sliceCanvas.width, sliceCanvas.height);
-          ctx.drawImage(
-            canvas,
-            0,
-            offsetY,
-            canvas.width,
-            currentSlicePx,
-            0,
-            0,
-            canvas.width,
-            currentSlicePx
-          );
-          if (!isFirstPdfPage) pdf.addPage();
-          isFirstPdfPage = false;
-          const sliceHeightMm = (currentSlicePx * pageWidthMm) / canvas.width;
-          const sliceImg = sliceCanvas.toDataURL('image/jpeg', 0.96);
-          pdf.addImage(sliceImg, 'JPEG', 0, 0, pageWidthMm, sliceHeightMm, undefined, 'FAST');
-          offsetY += currentSlicePx;
-        }
+
+        const sliceHeightMm = (sliceCanvasPx * pageWidthMm) / canvas.width;
+        const sliceImg = sliceCanvas.toDataURL('image/jpeg', 0.96);
+        pdf.addImage(sliceImg, 'JPEG', 0, topMarginMm, pageWidthMm, sliceHeightMm, undefined, 'FAST');
+
+        cursorCssY = endCssY;
       }
     }
 
@@ -998,6 +1089,7 @@ export function openContractPrintPdfWindow(title, htmlArray) {
     return;
   }
   const combinedHtml = htmlArray
+    .map((h) => normalizeContractHtmlForPdf(h))
     .map((h, idx) => (idx > 0 ? `<div class="page-break" style="page-break-before:always;margin-top:32px;"></div>${h}` : h))
     .join('\n');
 
@@ -1007,16 +1099,34 @@ export function openContractPrintPdfWindow(title, htmlArray) {
   <meta charset="utf-8" />
   <title>${title}</title>
   <style>
-    @page { size: A4; margin: 18mm 18mm 18mm 18mm; }
+    @page { size: A4; margin: 16mm 16mm 16mm 16mm; }
     * { box-sizing: border-box; }
     body {
       font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Arial, sans-serif;
       color: #111827;
-      line-height: 1.55;
-      font-size: 10.5pt;
+      line-height: 1.45;
+      font-size: 8pt;
       margin: 0;
       padding: 24px;
       background: #f1f5f9;
+    }
+    .paper-container, .paper-container p, .paper-container li, .paper-container ul, .paper-container ol, .paper-container div {
+      font-size: 8pt !important;
+      line-height: 1.45 !important;
+    }
+    .paper-container h1, .paper-container h2, .paper-container h3 {
+      font-size: 10pt !important;
+      line-height: 1.35 !important;
+    }
+    .paper-container .brn-doc-footer, .paper-container .brn-doc-footer span {
+      font-size: 7.5pt !important;
+    }
+    .paper-container .brn-doc-header img {
+      width: 106px !important;
+      height: 26px !important;
+      max-width: 106px !important;
+      object-fit: contain !important;
+      display: block !important;
     }
     .print-toolbar {
       max-width: 210mm;
@@ -1044,7 +1154,7 @@ export function openContractPrintPdfWindow(title, htmlArray) {
       max-width: 210mm;
       margin: 0 auto;
       background: #ffffff;
-      padding: 20mm;
+      padding: 18mm;
       box-shadow: 0 8px 30px rgba(15,23,42,0.12);
       border-radius: 4px;
     }
@@ -2910,8 +3020,8 @@ export const HRContractGeneratorView = ({
                       borderRadius: 4,
                       boxShadow: '0 8px 25px rgba(15,23,42,0.12)',
                       fontFamily: "'Segoe UI', Arial, sans-serif",
-                      fontSize: '10.5pt',
-                      lineHeight: 1.55,
+                      fontSize: '8pt',
+                      lineHeight: 1.45,
                       color: '#111827',
                       outline: 'none',
                     }}
@@ -2977,10 +3087,10 @@ export const HRContractGeneratorView = ({
                   padding: '20mm',
                   borderRadius: 4,
                   fontFamily: "'Segoe UI', Arial, sans-serif",
-                  fontSize: '10.5pt',
-                  lineHeight: 1.55,
+                  fontSize: '8pt',
+                  lineHeight: 1.45,
                 }}
-                dangerouslySetInnerHTML={{ __html: editingIssuedContract.html_content }}
+                dangerouslySetInnerHTML={{ __html: normalizeContractHtmlForPdf(editingIssuedContract.html_content) }}
               />
             </div>
           </div>
