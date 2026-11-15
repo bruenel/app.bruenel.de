@@ -187,10 +187,12 @@ async def upload_stream_target(
     storage_key: str,
     token: str,
     request: Request,
+    chunk_index: Optional[int] = None,
+    total_chunks: Optional[int] = None,
     db: Session = Depends(database.get_db),
 ):
     """
-    Local S3-compatible PUT stream receiver for pre-signed uploads (supports large video files without multipart overhead).
+    Local S3-compatible PUT stream receiver for pre-signed uploads (supports large files & chunked serverless uploads).
     Saves file to disk and persists resilient base64 backup in the database for serverless (Vercel) environments.
     """
     if not verify_presigned_token(storage_key, token):
@@ -199,20 +201,49 @@ async def upload_stream_target(
     full_path = get_local_file_path(storage_key)
     total_bytes = 0
     buffer = bytearray()
-    with open(full_path, "wb") as f:
-        async for chunk in request.stream():
-            f.write(chunk)
-            buffer.extend(chunk)
-            total_bytes += len(chunk)
+    async for chunk in request.stream():
+        buffer.extend(chunk)
+        total_bytes += len(chunk)
 
     doc = db.query(models.DocumentRecord).filter(models.DocumentRecord.storage_key == storage_key).first()
+
+    # Chunked upload mode (bypasses Vercel's 4.5 MB serverless request payload limit)
+    if total_chunks is not None and chunk_index is not None and total_chunks > 1 and doc:
+        meta = dict(doc.metadata_json or {})
+        chunks_map = dict(meta.get("_chunks") or {})
+        chunks_map[str(chunk_index)] = base64.b64encode(bytes(buffer)).decode("ascii")
+        meta["_chunks"] = chunks_map
+
+        if len(chunks_map) >= total_chunks and all(str(k) in chunks_map for k in range(total_chunks)):
+            full_b64 = "".join(chunks_map[str(k)] for k in range(total_chunks))
+            meta.pop("_chunks", None)
+            meta["base64_data"] = full_b64
+            try:
+                raw_all = base64.b64decode(full_b64)
+                doc.file_size = len(raw_all)
+                with open(full_path, "wb") as f:
+                    f.write(raw_all)
+            except Exception:
+                pass
+            doc.status = "Uploaded"
+            doc.metadata_json = meta
+            db.commit()
+            return {"status": "Uploaded", "storage_key": storage_key, "bytes_written": doc.file_size}
+
+        doc.metadata_json = meta
+        db.commit()
+        return {"status": "Chunk_Received", "chunk_index": chunk_index, "total_chunks": total_chunks}
+
+    with open(full_path, "wb") as f:
+        f.write(buffer)
+
     if doc:
         doc.status = "Uploaded"
         doc.file_size = total_bytes
         # Store in metadata_json as resilient backup for serverless environments (Vercel)
         meta = dict(doc.metadata_json or {})
         if total_bytes <= 30 * 1024 * 1024:
-            meta["base64_data"] = base64.b64encode(buffer).decode("ascii")
+            meta["base64_data"] = base64.b64encode(bytes(buffer)).decode("ascii")
         doc.metadata_json = meta
         db.commit()
 

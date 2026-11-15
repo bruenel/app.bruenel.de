@@ -85,9 +85,9 @@ export const resolveMediaUrl = (url) => {
 export const uploadMediaFile = async ({ file, referenceType = 'ObjectMedia', referenceId = null, employeeId = null, title = null, metadata = {}, onProgress = null }) => {
   if (!file) throw new Error('No file selected');
 
-  // For PDFs/images/documents up to 15 MB, send base64_data inline in /presign for an atomic single-request upload on serverless
+  // For PDFs/images/documents up to 2.5 MB (~3.3 MB base64, safely under Vercel's 4.5 MB limit), send base64_data inline in /presign
   let inlineBase64 = null;
-  if ((file.size || 0) <= 15 * 1024 * 1024) {
+  if ((file.size || 0) <= 2.5 * 1024 * 1024) {
     try {
       inlineBase64 = await new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -128,7 +128,41 @@ export const uploadMediaFile = async ({ file, referenceType = 'ObjectMedia', ref
     ? presign.upload_url
     : `${API_URL}${presign.upload_url}`;
 
-  // Step 2: Stream file directly via PUT (with progress tracking via XMLHttpRequest)
+  // Step 2: Stream file in <=1.8 MB chunks (divisible by 3 for lossless base64 assembly) so large scans/PDFs bypass Vercel's 4.5 MB limit
+  const CHUNK_SIZE = 1800000;
+  if ((file.size || 0) > CHUNK_SIZE && targetUrl.includes('/api/v1/media/upload-stream/')) {
+    const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+    for (let i = 0; i < totalChunks; i++) {
+      const start = i * CHUNK_SIZE;
+      const end = Math.min(file.size, start + CHUNK_SIZE);
+      const chunkBlob = file.slice(start, end);
+      const sep = targetUrl.includes('?') ? '&' : '?';
+      const chunkUrl = `${targetUrl}${sep}chunk_index=${i}&total_chunks=${totalChunks}`;
+      await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open(presign.method || 'PUT', chunkUrl, true);
+        xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+        if (onProgress) {
+          xhr.upload.onprogress = (evt) => {
+            if (evt.lengthComputable) {
+              const overall = Math.round(((start + evt.loaded) / file.size) * 100);
+              onProgress(Math.min(100, overall));
+            }
+          };
+        }
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) resolve();
+          else reject(new Error(`Upload failed with status ${xhr.status}`));
+        };
+        xhr.onerror = () => reject(new Error('Network error during file upload'));
+        xhr.send(chunkBlob);
+      });
+    }
+    if (onProgress) onProgress(100);
+    return presign;
+  }
+
+  // Fallback single-PUT for external S3 or small streams
   await new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open(presign.method || 'PUT', targetUrl, true);
