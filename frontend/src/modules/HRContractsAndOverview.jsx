@@ -262,7 +262,7 @@ export function generateContractHtml(code, emp, cond) {
             <div style="border-bottom:1px solid #111827;height:30px;margin-bottom:6px;"></div>
             <div><strong>Arbeitgeber</strong></div>
             <div>Brünel Deutschland UG (haftungsbeschränkt)</div>
-            <div>Sam Rastegar Moghadam</div>
+            <div>Sam Rastegar</div>
           </div>
           <div>
             <div style="border-bottom:1px solid #111827;height:30px;margin-bottom:6px;"></div>
@@ -333,7 +333,7 @@ export function generateContractHtml(code, emp, cond) {
             <div style="border-bottom:1px solid #111827;height:30px;margin-bottom:6px;"></div>
             <div><strong>Arbeitgeber</strong></div>
             <div>Brünel Deutschland UG (haftungsbeschränkt)</div>
-            <div>Sam Rastegar Moghadam</div>
+            <div>Sam Rastegar</div>
           </div>
           <div>
             <div style="border-bottom:1px solid #111827;height:30px;margin-bottom:6px;"></div>
@@ -433,7 +433,7 @@ export function generateContractHtml(code, emp, cond) {
             <div style="border-bottom:1px solid #111827;height:30px;margin-bottom:6px;"></div>
             <div><strong>Arbeitgeber (Übergebender)</strong></div>
             <div>Brünel Deutschland UG (haftungsbeschränkt)</div>
-            <div>Sam Rastegar Moghadam</div>
+            <div>Sam Rastegar</div>
           </div>
           <div>
             <div style="border-bottom:1px solid #111827;height:30px;margin-bottom:6px;"></div>
@@ -499,7 +499,7 @@ export function generateContractHtml(code, emp, cond) {
             <div style="border-bottom:1px solid #111827;height:30px;margin-bottom:6px;"></div>
             <div><strong>Unternehmen</strong></div>
             <div>Brünel Deutschland UG (haftungsbeschränkt)</div>
-            <div>Sam Rastegar Moghadam</div>
+            <div>Sam Rastegar</div>
           </div>
           <div>
             <div style="border-bottom:1px solid #111827;height:30px;margin-bottom:6px;"></div>
@@ -588,7 +588,7 @@ export function generateContractHtml(code, emp, cond) {
             <div style="border-bottom:1px solid #111827;height:30px;margin-bottom:6px;"></div>
             <div><strong>Auftraggeber</strong></div>
             <div>Brünel Deutschland UG (haftungsbeschränkt)</div>
-            <div>Sam Rastegar Moghadam</div>
+            <div>Sam Rastegar</div>
           </div>
           <div>
             <div style="border-bottom:1px solid #111827;height:30px;margin-bottom:6px;"></div>
@@ -816,7 +816,7 @@ export function generateContractHtml(code, emp, cond) {
           <div style="border-bottom:1px solid #111827;height:30px;margin-bottom:6px;"></div>
           <div><strong>Verantwortlicher / Arbeitgeber</strong></div>
           <div>Brünel Deutschland UG (haftungsbeschränkt)</div>
-          <div>Sam Rastegar Moghadam</div>
+          <div>Sam Rastegar</div>
         </div>
         <div>
           <div style="border-bottom:1px solid #111827;height:30px;margin-bottom:6px;"></div>
@@ -848,6 +848,7 @@ function buildSafePdfFilename(rawTitle, employeeName = '') {
 // Normalize contract HTML so both newly-generated and previously-issued contracts render with
 // 1) high-resolution PNG logo (no html2canvas SVG clipping) and
 // 2) 8pt main text + 10pt titles
+// 3) Remove Moghadam under the signature area
 function normalizeContractHtmlForPdf(rawHtml) {
   if (!rawHtml) return '';
   return String(rawHtml)
@@ -855,7 +856,54 @@ function normalizeContractHtmlForPdf(rawHtml) {
       /<img[^>]*src=["'][^"']*bruenel-dark\.svg["'][^>]*>/gi,
       '<img src="/bruenel-logo-dark.png" alt="Brünel" width="106" height="26" style="width:106px;height:26px;object-fit:contain;display:block;" onerror="this.style.display=\'none\'" />'
     )
-    .replace(/(<h[123]\b[^>]*style=["'][^"']*?)font-size\s*:\s*[^;"']+/gi, '$1font-size:10pt');
+    .replace(/(<h[123]\b[^>]*style=["'][^"']*?)font-size\s*:\s*[^;"']+/gi, '$1font-size:10pt')
+    .replace(/<div>\s*Sam Rastegar Moghadam\s*<\/div>/gi, '<div>Sam Rastegar</div>');
+}
+
+// Helper to rasterize an HTML snippet into an image for PDF header/footer placement
+async function renderBannerToPdfImage(stage, innerHtml, a4WidthPx, scale, pageWidthMm) {
+  stage.innerHTML = '';
+  const el = document.createElement('div');
+  el.style.cssText = [
+    `width: ${a4WidthPx}px`,
+    'padding: 0 56px',
+    'background: #ffffff',
+    'color: #111827',
+    "font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Arial, sans-serif",
+    'box-sizing: border-box',
+  ].join(';');
+  el.innerHTML = innerHtml;
+  stage.appendChild(el);
+
+  const imgs = Array.from(el.querySelectorAll('img'));
+  await Promise.all(
+    imgs.map((img) =>
+      img.complete
+        ? Promise.resolve()
+        : new Promise((resolve) => {
+            img.onload = resolve;
+            img.onerror = resolve;
+          })
+    )
+  );
+  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+  const canvas = await html2canvas(el, {
+    scale,
+    useCORS: true,
+    logging: false,
+    backgroundColor: '#ffffff',
+    width: a4WidthPx,
+    windowWidth: a4WidthPx,
+    scrollX: 0,
+    scrollY: 0,
+    x: 0,
+    y: 0,
+  });
+  return {
+    imgData: canvas.toDataURL('image/png'),
+    heightMm: (canvas.height * pageWidthMm) / canvas.width,
+  };
 }
 
 // Helper to download a single contract directly as an individual .pdf file (renders every page cleanly with html2canvas + jsPDF)
@@ -867,7 +915,7 @@ export async function downloadSingleContractPdf(title, htmlContent, customFileNa
 
   const normalizedHtml = normalizeContractHtmlForPdf(htmlContent);
 
-  // Split by explicit .page-break markers so each contract page starts cleanly on a new A4 page
+  // Split by explicit .page-break markers so each contract section starts on a new A4 page
   const rawSections = normalizedHtml
     .split(/<div[^>]*class=["'][^"']*page-break[^"']*["'][^>]*>[\s\S]*?<\/div>/i)
     .map((s) => s.trim())
@@ -894,13 +942,30 @@ export async function downloadSingleContractPdf(title, htmlContent, customFileNa
     const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait', compress: true });
     const pageWidthMm = 210;
     const pageHeightMm = 297;
-    const topMarginMm = 16;
-    const bottomMarginMm = 16;
-    const printableHeightMm = pageHeightMm - topMarginMm - bottomMarginMm; // 265mm
+    const topMarginMm = 12;
+    const bottomMarginMm = 12;
+    const headerGapMm = 4;
+    const footerGapMm = 4;
     const scale = 2;
     const a4WidthPx = 794;
-    const printableHeightCssPx = Math.floor((a4WidthPx * printableHeightMm) / pageWidthMm); // ~1002px
-    let isFirstPdfPage = true;
+
+    // Render repeating top-right Brünel logo header once
+    const headerBanner = await renderBannerToPdfImage(
+      stage,
+      `<div style="display:flex;justify-content:flex-end;align-items:center;padding:2px 0 6px 0;">
+        <img src="/bruenel-logo-dark.png" alt="Brünel" width="106" height="26" style="width:106px;height:26px;object-fit:contain;display:block;" />
+      </div>`,
+      a4WidthPx,
+      scale,
+      pageWidthMm
+    );
+
+    const contentStartMm = topMarginMm + headerBanner.heightMm + headerGapMm;
+    const footerReservedMm = 10; // ~8mm footer + gap
+    const printableHeightMm = pageHeightMm - contentStartMm - bottomMarginMm - footerReservedMm - footerGapMm;
+    const printableHeightCssPx = Math.floor((a4WidthPx * printableHeightMm) / pageWidthMm);
+
+    const pagesToRender = [];
 
     for (let i = 0; i < sections.length; i++) {
       stage.innerHTML = '';
@@ -934,43 +999,37 @@ export async function downloadSingleContractPdf(title, htmlContent, customFileNa
             font-size: 10pt !important;
             line-height: 1.35 !important;
           }
-          .brn-pdf-page-render .brn-doc-footer,
-          .brn-pdf-page-render .brn-doc-footer span {
-            font-size: 7.5pt !important;
-          }
-          .brn-pdf-page-render .brn-doc-header img {
-            width: 106px !important;
-            height: 26px !important;
-            max-width: 106px !important;
-            object-fit: contain !important;
-            display: block !important;
+          .brn-pdf-page-render .brn-doc-header,
+          .brn-pdf-page-render .brn-doc-footer {
+            display: none !important;
           }
         </style>
         ${sections[i]}
       `;
       stage.appendChild(pageEl);
 
-      // Ensure any images (like /bruenel-logo-dark.png) inside pageEl are loaded before html2canvas rasterizes
+      const footerSpan = pageEl.querySelector('.brn-doc-footer span:first-child');
+      const sectionFooterLabel = (footerSpan?.textContent || '').trim() || `${title || 'Vertrag'} — Brünel Deutschland UG`;
+
       const imgs = Array.from(pageEl.querySelectorAll('img'));
       await Promise.all(
-        imgs.map(
-          (img) =>
-            img.complete
-              ? Promise.resolve()
-              : new Promise((resolve) => {
-                  img.onload = resolve;
-                  img.onerror = resolve;
-                })
+        imgs.map((img) =>
+          img.complete
+            ? Promise.resolve()
+            : new Promise((resolve) => {
+                img.onload = resolve;
+                img.onerror = resolve;
+              })
         )
       );
 
       // Wait for browser layout before measuring & rasterizing
       await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 
-      // Measure atomic block bounding boxes in CSS px so page breaks never slice through text lines
+      // Measure atomic block bounding boxes in CSS px so page breaks never slice through text lines or signature blocks
       const pageRect = pageEl.getBoundingClientRect();
       const atomicEls = Array.from(
-        pageEl.querySelectorAll('h1, h2, h3, p, li, .brn-doc-header, .brn-doc-footer')
+        pageEl.querySelectorAll('h1, h2, h3, p, li, div[style*="grid-template-columns"]')
       );
       const blockBoxes = atomicEls
         .map((el) => {
@@ -1008,7 +1067,6 @@ export async function downloadSingleContractPdf(title, htmlContent, customFileNa
       while (cursorCssY < totalCssHeight - 1) {
         let endCssY = Math.min(totalCssHeight, cursorCssY + printableHeightCssPx);
 
-        // If there is more content after endCssY, adjust endCssY upward to avoid cutting any block/line
         if (endCssY < totalCssHeight) {
           let safeCutY = endCssY;
           for (const box of blockBoxes) {
@@ -1043,15 +1101,43 @@ export async function downloadSingleContractPdf(title, htmlContent, customFileNa
           sliceCanvasPx
         );
 
-        if (!isFirstPdfPage) pdf.addPage();
-        isFirstPdfPage = false;
-
-        const sliceHeightMm = (sliceCanvasPx * pageWidthMm) / canvas.width;
-        const sliceImg = sliceCanvas.toDataURL('image/jpeg', 0.96);
-        pdf.addImage(sliceImg, 'JPEG', 0, topMarginMm, pageWidthMm, sliceHeightMm, undefined, 'FAST');
+        pagesToRender.push({
+          sliceImg: sliceCanvas.toDataURL('image/jpeg', 0.96),
+          sliceHeightMm: (sliceCanvasPx * pageWidthMm) / canvas.width,
+          footerLabel: sectionFooterLabel,
+        });
 
         cursorCssY = endCssY;
       }
+    }
+
+    const totalPages = pagesToRender.length;
+    for (let pIdx = 0; pIdx < totalPages; pIdx++) {
+      if (pIdx > 0) pdf.addPage();
+      const pageData = pagesToRender[pIdx];
+
+      // 1) Top-right Brünel logo on every page
+      pdf.addImage(headerBanner.imgData, 'PNG', 0, topMarginMm, pageWidthMm, headerBanner.heightMm, undefined, 'FAST');
+
+      // 2) Body content slice
+      pdf.addImage(pageData.sliceImg, 'JPEG', 0, contentStartMm, pageWidthMm, pageData.sliceHeightMm, undefined, 'FAST');
+
+      // 3) Pinned footer at the bottom of every page
+      const footerBanner = await renderBannerToPdfImage(
+        stage,
+        `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0 2px 0;border-top:1px solid #e2e8f0;font-size:7.5pt;color:#64748b;">
+          <span>${pageData.footerLabel}</span>
+          <span style="display:flex;align-items:center;gap:14px;">
+            <span>Seite ${pIdx + 1} von ${totalPages}</span>
+            <span style="font-weight:700;color:#475569;">bruenel.de</span>
+          </span>
+        </div>`,
+        a4WidthPx,
+        scale,
+        pageWidthMm
+      );
+      const footerY = pageHeightMm - bottomMarginMm - footerBanner.heightMm;
+      pdf.addImage(footerBanner.imgData, 'PNG', 0, footerY, pageWidthMm, footerBanner.heightMm, undefined, 'FAST');
     }
 
     pdf.save(filename);
