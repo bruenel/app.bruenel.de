@@ -1331,27 +1331,19 @@ export const HRContractGeneratorView = ({
           signed_document_id: up.document_id,
         }),
       });
-      loadContractsAndFleet();
+      await loadContractsAndFleet();
       if (effectiveReload) effectiveReload();
-      if (signedRes?.onboarding_email) {
-        const ob = signedRes.onboarding_email;
-        if (ob.sent_via_smtp) {
-          setOnboardingEmailModal(null);
-          setEmailSentPopup({
-            employeeName: ob.employee_name,
-            toEmail: ob.to_email || ob.private_email,
-            username: ob.username,
-            otp: ob.otp,
-            portalUrl: ob.portal_url || 'https://www.bruenel.de/de#login',
-            note: ob.smtp_note,
-          });
-        } else {
-          setOnboardingEmailModal({
-            ...ob,
-            employee_id: contractObj.employee_id,
-            contract_title: contractObj.title,
-          });
-        }
+      // Do NOT send the email automatically on each contract upload!
+      // Once ALL contracts for this employee are signed & uploaded, open the preview modal
+      // so the user can click "Willkommens-E-Mail jetzt senden" once at the end.
+      if (signedRes?.all_contracts_signed && !signedRes?.onboarding_email_already_sent && contractObj.employee_id) {
+        await handleTriggerOnboardingEmail(
+          contractObj.employee_id,
+          false,
+          `${signedRes.signed_contracts_count || 1} Verträge unterschrieben`,
+          undefined,
+          false
+        );
       }
     } catch (err) {
       alert(`Fehler beim Hochladen des unterschriebenen Vertrags: ${err.message}`);
@@ -1953,17 +1945,101 @@ export const HRContractGeneratorView = ({
                         >
                           <Plus size={12} /> Vertrag generieren
                         </button>
-                        <button
-                          type="button"
-                          className="btn-secondary btn-sm"
-                          style={{ fontSize: 11, padding: '4px 9px', color: '#047857', borderColor: '#6ee7b7', background: '#ecfdf5', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4 }}
-                          onClick={() => handleTriggerOnboardingEmail(grp.employee_id, false)}
-                          disabled={sendingOnboardingEmpId === grp.employee_id}
-                          title="Willkommens-E-Mail mit Benutzername, Einmal-Passwort (OTP) und App-Anleitung senden oder ansehen"
-                        >
-                          <Mail size={12} />
-                          {sendingOnboardingEmpId === grp.employee_id ? 'Sende...' : 'Willkommens-E-Mail & App-Login'}
-                        </button>
+                        {grp.contracts.length > 0 && pendCount > 0 && (
+                          <button
+                            type="button"
+                            className="btn-secondary btn-sm"
+                            disabled
+                            style={{
+                              fontSize: 11,
+                              padding: '4px 9px',
+                              color: '#94a3b8',
+                              borderColor: '#cbd5e1',
+                              background: '#f8fafc',
+                              fontWeight: 700,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 4,
+                              cursor: 'not-allowed',
+                            }}
+                            title="Die Willkommens-E-Mail wird erst freigeschaltet, wenn alle Verträge dieses Mitarbeiters unterschrieben und hochgeladen sind."
+                          >
+                            <Lock size={11} />
+                            Willkommens-E-Mail (Noch {pendCount} Vertrag{pendCount > 1 ? 'e' : ''} offen)
+                          </button>
+                        )}
+                        {grp.contracts.length > 0 && pendCount === 0 && signCount > 0 && (
+                          <>
+                            {attr.onboarding_email_sent && (
+                              <span
+                                style={{
+                                  padding: '3px 9px',
+                                  borderRadius: 999,
+                                  background: '#d1fae5',
+                                  color: '#065f46',
+                                  fontSize: 11,
+                                  fontWeight: 800,
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                }}
+                              >
+                                <Check size={12} /> E-Mail gesendet
+                              </span>
+                            )}
+                            <button
+                              type="button"
+                              className="btn-primary btn-sm"
+                              style={{
+                                fontSize: 11.5,
+                                padding: '5px 11px',
+                                color: '#ffffff',
+                                borderColor: '#047857',
+                                background: '#059669',
+                                fontWeight: 800,
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 5,
+                              }}
+                              onClick={() => {
+                                if (
+                                  attr.onboarding_email_sent &&
+                                  !window.confirm(
+                                    `Die Willkommens-E-Mail wurde bereits an ${attr.private_email || grp.employee_name} gesendet. Möchten Sie sie noch einmal senden?`
+                                  )
+                                ) {
+                                  return;
+                                }
+                                handleTriggerOnboardingEmail(
+                                  grp.employee_id,
+                                  false,
+                                  `${signCount} Verträge unterschrieben`,
+                                  undefined,
+                                  true
+                                );
+                              }}
+                              disabled={sendingOnboardingEmpId === grp.employee_id}
+                              title="Alle Verträge sind unterschrieben — Willkommens-E-Mail jetzt einmalig an die private E-Mail des Mitarbeiters senden"
+                            >
+                              <Send size={12} />
+                              {sendingOnboardingEmpId === grp.employee_id
+                                ? 'Wird gesendet...'
+                                : attr.onboarding_email_sent
+                                ? 'Willkommens-E-Mail erneut senden'
+                                : 'Willkommens-E-Mail jetzt senden'}
+                            </button>
+                            <button
+                              type="button"
+                              className="btn-secondary btn-sm"
+                              style={{ fontSize: 11, padding: '4px 8px', color: '#047857', borderColor: '#6ee7b7', background: '#ecfdf5', fontWeight: 700 }}
+                              onClick={() => handleTriggerOnboardingEmail(grp.employee_id, false, `${signCount} Verträge unterschrieben`, undefined, false)}
+                              disabled={sendingOnboardingEmpId === grp.employee_id}
+                              title="Vorschau der Willkommens-E-Mail und Zugangsdaten öffnen"
+                            >
+                              <Mail size={12} /> Vorschau
+                            </button>
+                          </>
+                        )}
                         {grp.empObj && effectiveOpenEmpModal && (
                           <button type="button" className="btn-secondary btn-sm" style={{ fontSize: 11, padding: '4px 8px' }} onClick={() => effectiveOpenEmpModal(grp.empObj)}>
                             Personalakte öffnen
@@ -2915,10 +2991,10 @@ export const HRContractGeneratorView = ({
                       )
                     }
                     disabled={sendingOnboardingEmpId === onboardingEmailModal.employee_id}
-                    style={{ background: '#059669', borderColor: '#047857', color: '#ffffff', fontWeight: 800 }}
-                    title="Private E-Mail speichern und Willkommens-E-Mail an diese private Adresse senden"
+                    style={{ background: '#059669', borderColor: '#047857', color: '#ffffff', fontWeight: 800, padding: '7px 14px', fontSize: 12.5 }}
+                    title="Private E-Mail speichern und Willkommens-E-Mail jetzt einmalig an diese private Adresse senden"
                   >
-                    <Send size={13} /> {sendingOnboardingEmpId === onboardingEmailModal.employee_id ? 'Wird gesendet...' : 'An private E-Mail senden'}
+                    <Send size={13} /> {sendingOnboardingEmpId === onboardingEmailModal.employee_id ? 'Wird gesendet...' : 'Willkommens-E-Mail jetzt senden'}
                   </button>
                 )}
                 {onboardingEmailModal.employee_id && (

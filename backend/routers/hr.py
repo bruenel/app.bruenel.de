@@ -2366,6 +2366,7 @@ def issue_hr_contracts(
             "probezeit_end_date": attrs.get("probezeit_end_date"),
         })
     attrs["hr_contracts"] = existing_summary
+    attrs["onboarding_email_sent"] = False
     emp.attributes = attrs
 
     db.commit()
@@ -2532,7 +2533,7 @@ def _build_and_send_onboarding_welcome_email(
         else:
             u.employee_id = emp.id
             u.can_access_portal = True
-            if regenerate_otp or not attrs.get("last_generated_otp"):
+            if regenerate_otp or getattr(u, "must_change_password", False) or not attrs.get("onboarding_email_sent"):
                 u.hashed_password = get_password_hash(otp_plain)
                 u.must_change_password = True
 
@@ -2561,7 +2562,14 @@ def _build_and_send_onboarding_welcome_email(
     else:
         start_date_de = start_date_str
 
-    subject = f"Herzlich willkommen bei der Brünel Deutschland UG, {display_title_name} – Ihr Mitarbeiter-Portal & App-Zugang"
+    def _ascii_header_text(val: str) -> str:
+        s = val or ""
+        for k, v in [("ä", "ae"), ("ö", "oe"), ("ü", "ue"), ("Ä", "Ae"), ("Ö", "Oe"), ("Ü", "Ue"), ("ß", "ss"), ("–", "-"), ("—", "-")]:
+            s = s.replace(k, v)
+        return s.encode("ascii", errors="ignore").decode("ascii").strip()
+
+    ascii_title_name = _ascii_header_text(display_title_name)
+    subject = f"Willkommen bei der Bruenel Deutschland UG - Ihr Mitarbeiter-Portal Zugang ({ascii_title_name})"
 
     plain_text = (
         f"{greeting_line}\n\n"
@@ -2746,19 +2754,22 @@ def _build_and_send_onboarding_welcome_email(
     from_addr = "hr@bruenel.de"
 
     if recipient_email and not preview_only:
-        from email.utils import formataddr, formatdate, make_msgid
-        from email.header import Header
+        from email.message import EmailMessage
+        from email.policy import SMTP
+        from email.utils import formatdate, make_msgid
 
         smtp_user = None
         smtp_pass = None
         smtp_host = os.environ.get("SMTP_HOST", "smtp.strato.de")
         smtp_port = int(os.environ.get("SMTP_PORT", "465"))
+        imap_host = "imap.strato.de"
 
         if sender_user and getattr(sender_user, "email_password", None) and "@" in (sender_user.email or ""):
             smtp_user = sender_user.email.strip()
             smtp_pass = sender_user.email_password
             smtp_host = sender_user.smtp_host or smtp_host
             smtp_port = int(sender_user.smtp_port or smtp_port)
+            imap_host = getattr(sender_user, "imap_host", None) or imap_host
         else:
             configured_admin = (
                 db.query(models.User)
@@ -2774,6 +2785,7 @@ def _build_and_send_onboarding_welcome_email(
                 smtp_pass = configured_admin.email_password
                 smtp_host = configured_admin.smtp_host or smtp_host
                 smtp_port = int(configured_admin.smtp_port or smtp_port)
+                imap_host = getattr(configured_admin, "imap_host", None) or imap_host
             elif os.environ.get("SMTP_USER") and os.environ.get("SMTP_PASSWORD"):
                 smtp_user = os.environ.get("SMTP_USER").strip()
                 smtp_pass = os.environ.get("SMTP_PASSWORD")
@@ -2782,35 +2794,63 @@ def _build_and_send_onboarding_welcome_email(
             valid_from_email = smtp_user if "@" in smtp_user else f"{smtp_user}@bruenel.de"
             from_addr = valid_from_email
             try:
-                msg = MIMEMultipart("alternative")
-                msg["Subject"] = Header(subject, "utf-8")
-                # RFC 5322 compliant From header: ASCII display name + unencoded <addr-spec>
-                msg["From"] = formataddr(("Bruenel Deutschland UG", valid_from_email))
+                msg = EmailMessage(policy=SMTP)
+                msg["Subject"] = subject
+                msg["From"] = f"Bruenel Deutschland UG <{valid_from_email}>"
                 msg["To"] = recipient_email
+                if valid_from_email.lower() != recipient_email.lower():
+                    msg["Cc"] = valid_from_email
                 msg["Reply-To"] = valid_from_email
                 msg["Date"] = formatdate(localtime=True)
                 msg["Message-ID"] = make_msgid(domain="bruenel.de")
-                msg.attach(MIMEText(plain_text, "plain", "utf-8"))
-                msg.attach(MIMEText(html_body, "html", "utf-8"))
+                msg.set_content(plain_text, charset="utf-8")
+                msg.add_alternative(html_body, subtype="html", charset="utf-8")
 
-                with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=12) as server:
+                raw_bytes = msg.as_bytes(policy=SMTP)
+                recipients = [recipient_email]
+                if valid_from_email.lower() != recipient_email.lower():
+                    recipients.append(valid_from_email)
+
+                with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=15) as server:
                     server.login(smtp_user, smtp_pass)
-                    server.sendmail(valid_from_email, [recipient_email], msg.as_string())
+                    server.sendmail(valid_from_email, recipients, raw_bytes)
+
+                # Also save a copy into the sender's IMAP Sent Items folder so it appears in their mail client
+                try:
+                    import imaplib
+                    import time
+                    with imaplib.IMAP4_SSL(imap_host, 993) as imap_conn:
+                        imap_conn.login(smtp_user, smtp_pass)
+                        for sent_folder in ('"Sent Items"', "Sent", "INBOX.Sent"):
+                            st, _ = imap_conn.select(sent_folder)
+                            if st == "OK":
+                                imap_conn.append(
+                                    sent_folder,
+                                    "\\Seen",
+                                    imaplib.Time2Internaldate(time.time()),
+                                    raw_bytes,
+                                )
+                                break
+                except Exception:
+                    pass
+
                 sent_via_smtp = True
-                smtp_note = f"Willkommens-E-Mail erfolgreich an die private E-Mail ({recipient_email}) gesendet. (Portal-Login: {login_key})"
+                smtp_note = f"Willkommens-E-Mail erfolgreich an die private E-Mail ({recipient_email}) sowie als Kopie an {valid_from_email} gesendet. (Portal-Login: {login_key})"
             except Exception as smtp_err:
                 sent_via_smtp = False
                 smtp_note = f"SMTP-Versandhinweis ({recipient_email}): {str(smtp_err)}."
         else:
             smtp_note = f"E-Mail-Vorlage für die private E-Mail ({recipient_email}) erstellt. (Portal-Login: {login_key} — es wird keine E-Mail an @bruenel.de gesendet)."
     elif recipient_email and preview_only:
-        smtp_note = f"Vorschau der Willkommens-E-Mail für {recipient_email}. Klicken Sie auf „An private E-Mail senden“, um die E-Mail jetzt zu versenden."
+        smtp_note = f"Vorschau der Willkommens-E-Mail für {recipient_email}. Klicken Sie auf „Willkommens-E-Mail jetzt senden“, um die E-Mail einmalig zu versenden."
     else:
         smtp_note = f"Bitte hinterlegen Sie eine private E-Mail-Adresse des Mitarbeiters für den Onboarding-Versand. (Die @bruenel.de-Kennung '{login_key}' dient ausschließlich als Portal-Benutzername)."
 
     now_iso = datetime.utcnow().isoformat()
     attrs["onboarding_email_prepared_at"] = now_iso
-    attrs["onboarding_email_sent"] = sent_via_smtp
+    if sent_via_smtp:
+        attrs["onboarding_email_sent"] = True
+        attrs["onboarding_email_sent_at"] = now_iso
     attrs["onboarding_email_to"] = recipient_email
     emp.attributes = attrs
 
@@ -2832,6 +2872,34 @@ def _build_and_send_onboarding_welcome_email(
     }
 
 
+def _count_employee_hr_contracts(db: Session, emp_id: str):
+    """Returns (pending_count, signed_count, total_count) of HR contracts for an employee."""
+    docs = (
+        db.query(models.DocumentRecord)
+        .filter(
+            (models.DocumentRecord.employee_id == emp_id)
+            | (models.DocumentRecord.reference_id == emp_id)
+        )
+        .all()
+    )
+    pending_count = 0
+    signed_count = 0
+    for d in docs:
+        m = d.metadata_json or {}
+        if m.get("is_hr_contract") or d.reference_type in (
+            "Arbeitsvertrag / Werkvertrag",
+            "DSGVO & Datenschutz",
+            "Orientierungspraktikum",
+            "Kfz-Übergabeprotokoll",
+            "Subunternehmervertrag",
+        ):
+            if d.status == "Signed" or m.get("contract_status") == "Signed":
+                signed_count += 1
+            else:
+                pending_count += 1
+    return pending_count, signed_count, pending_count + signed_count
+
+
 @router.post("/employees/{emp_id}/send-onboarding-email")
 def send_employee_onboarding_email(
     emp_id: str,
@@ -2840,8 +2908,9 @@ def send_employee_onboarding_email(
     current_user: models.User = Depends(get_current_user),
 ):
     """
-    Generates or resends the German Onboarding Welcome Email with username, One-Time Password (OTP),
+    Generates or sends the German Onboarding Welcome Email with username, One-Time Password (OTP),
     portal login link, and iPhone/Android Homescreen App installation instructions.
+    Enforces that all issued HR contracts for this employee are signed & uploaded before sending.
     """
     tier = get_effective_tier(current_user)
     if tier not in (1, 2, 3):
@@ -2854,6 +2923,18 @@ def send_employee_onboarding_email(
     body = payload or {}
     regenerate_otp = bool(body.get("regenerate_otp", False))
     preview_only = bool(body.get("preview_only", False))
+
+    pending_count, signed_count, total_count = _count_employee_hr_contracts(db, emp.id)
+    if not preview_only and not body.get("force_send", False):
+        if total_count == 0 or pending_count > 0:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Die Willkommens-E-Mail kann erst gesendet werden, wenn alle Verträge des Mitarbeiters "
+                    f"unterschrieben und hochgeladen sind (aktuell: {signed_count} unterschrieben, {pending_count} noch offen)."
+                ),
+            )
+
     result = _build_and_send_onboarding_welcome_email(
         db=db,
         emp=emp,
@@ -2863,6 +2944,9 @@ def send_employee_onboarding_email(
         override_private_email=body.get("private_email"),
         preview_only=preview_only,
     )
+    result["pending_contracts_count"] = pending_count
+    result["signed_contracts_count"] = signed_count
+    result["all_contracts_signed"] = pending_count == 0 and signed_count > 0
     db.commit()
     log_audit(
         db,
@@ -2871,7 +2955,7 @@ def send_employee_onboarding_email(
         emp.id,
         current_user.email,
         None,
-        {"to_email": result["to_email"], "sent_via_smtp": result["sent_via_smtp"]},
+        {"to_email": result["to_email"], "sent_via_smtp": result["sent_via_smtp"], "preview_only": preview_only},
     )
     return result
 
@@ -2887,7 +2971,8 @@ def upload_signed_hr_contract(
     Marks an issued contract as Completed / Signed after HR uploads the signed PDF/scan.
     Immediately flips visibility from 'admin_only' (Pending) to 'employee_visible' (Signed)
     so the employee can view & download the signed contract in their Employee Portal Documents section.
-    Also automatically triggers the German Onboarding Welcome Email with username, OTP, and mobile app instructions!
+    Does NOT automatically send the onboarding email on each upload — the onboarding email is unlocked
+    once ALL contracts of the employee are signed & uploaded, and sent once when HR clicks 'Send Email Now'.
     """
     tier = get_effective_tier(current_user)
     if tier not in (1, 2, 3):
@@ -2925,10 +3010,15 @@ def upload_signed_hr_contract(
     meta["signed_at"] = now_iso
     meta["signed_by"] = current_user.email
     doc.metadata_json = meta
+    db.flush()
 
-    onboarding_email_data = None
     emp_id = doc.employee_id or doc.reference_id
     emp = db.query(models.Employee).filter(models.Employee.id == emp_id).first() if emp_id else None
+    pending_count, signed_count, total_count = (
+        _count_employee_hr_contracts(db, emp_id) if emp_id else (0, 1, 1)
+    )
+    all_contracts_signed = pending_count == 0 and signed_count > 0
+
     if emp:
         attrs = dict(emp.attributes or {})
         attrs["contract_signed_date"] = now_iso[:10]
@@ -2943,23 +3033,19 @@ def upload_signed_hr_contract(
                 item["employee_visible"] = True
                 item["signed_at"] = now_iso
         attrs["hr_contracts"] = hr_list
+        attrs["all_contracts_signed"] = all_contracts_signed
         emp.attributes = attrs
-
-        # Automatically generate & send the Welcome Onboarding Email upon contract completion!
-        onboarding_email_data = _build_and_send_onboarding_welcome_email(
-            db=db,
-            emp=emp,
-            sender_user=current_user,
-            regenerate_otp=False,
-            contract_title=doc.title,
-        )
 
     db.commit()
     db.refresh(doc)
     emp_map = {e.id: e for e in db.query(models.Employee).all()}
     log_audit(db, "hr_contracts", "UPLOAD_SIGNED", doc.id, current_user.email, {"status": "Pending_Signature"}, {"status": "Signed", "employee_visible": True})
     serialized = _serialize_contract_doc(doc, emp_map)
-    serialized["onboarding_email"] = onboarding_email_data
+    serialized["all_contracts_signed"] = all_contracts_signed
+    serialized["pending_contracts_count"] = pending_count
+    serialized["signed_contracts_count"] = signed_count
+    serialized["total_contracts_count"] = total_count
+    serialized["onboarding_email_already_sent"] = bool((emp.attributes or {}).get("onboarding_email_sent")) if emp else False
     return serialized
 
 
