@@ -1840,7 +1840,6 @@ export const HRContractGeneratorView = ({
           title={anyEmployeeExpanded ? 'Alle Mitarbeiter einklappen' : 'Alle Mitarbeiter aufklappen'}
           style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12 }}
         >
-          {anyEmployeeExpanded ? <Minus size={13} /> : <Plus size={13} />}
           {anyEmployeeExpanded ? 'Alle zuklappen' : 'Alle aufklappen'}
         </button>
         <button
@@ -1897,7 +1896,8 @@ export const HRContractGeneratorView = ({
                   style={{
                     padding: '7px 10px',
                     background: isOpen ? '#f8fafc' : '#ffffff',
-                    borderBottom: isOpen ? '1px solid #e2e8f0' : 'none',
+                    borderBottom: isOpen ? '1px solid #e2e8f0' : '1px solid transparent',
+                    transition: 'background 0.2s ease, border-color 0.2s ease',
                     display: 'flex',
                     justifyContent: 'space-between',
                     alignItems: 'center',
@@ -1908,23 +1908,6 @@ export const HRContractGeneratorView = ({
                   }}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    <span
-                      style={{
-                        width: 20,
-                        height: 20,
-                        borderRadius: 5,
-                        border: '1px solid #cbd5e1',
-                        background: '#fff',
-                        color: '#0f172a',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        flexShrink: 0,
-                      }}
-                      title={isOpen ? 'Zuklappen' : 'Aufklappen'}
-                    >
-                      {isOpen ? <Minus size={12} /> : <Plus size={12} />}
-                    </span>
                     <span style={{ padding: '1px 6px', borderRadius: 4, background: '#0f172a', color: '#fff', fontFamily: 'monospace', fontSize: 10.5, fontWeight: 700 }}>
                       {grp.employee_number}
                     </span>
@@ -2039,9 +2022,17 @@ export const HRContractGeneratorView = ({
                   </div>
                 </div>
 
-                {/* Collapsible Employee Contracts Body */}
-                {isOpen && (
-                  grp.contracts.length === 0 ? (
+                {/* Animated Collapsible Employee Contracts Body */}
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateRows: isOpen ? '1fr' : '0fr',
+                    opacity: isOpen ? 1 : 0,
+                    transition: 'grid-template-rows 0.24s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.2s ease',
+                  }}
+                >
+                  <div style={{ overflow: 'hidden', minHeight: 0 }}>
+                    {grp.contracts.length === 0 ? (
                     <div style={{ padding: '8px 12px', fontSize: 12, color: '#64748b', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fcfcfd' }}>
                       <span>Noch keine Verträge für {grp.employee_name} generiert.</span>
                       <button
@@ -2188,8 +2179,9 @@ export const HRContractGeneratorView = ({
                         </tbody>
                       </table>
                     </div>
-                  )
-                )}
+                    )}
+                  </div>
+                </div>
               </div>
             );
           })}

@@ -113,6 +113,7 @@ def serialize_employee(
     db: Optional[Session] = None,
     include_sensitive: bool = True,
     include_pending_contracts: bool = True,
+    include_employee_number: bool = True,
 ) -> dict:
     attrs = dict(emp.attributes or {})
     docs = []
@@ -181,7 +182,7 @@ def serialize_employee(
 
     return {
         "id": emp.id,
-        "employee_number": emp.employee_number,
+        "employee_number": emp.employee_number if include_employee_number else None,
         "first_name": emp.first_name,
         "last_name": emp.last_name,
         "full_name": f"{emp.first_name} {emp.last_name}",
@@ -221,6 +222,7 @@ def list_employees(
             db=db,
             include_sensitive=include_sens,
             include_pending_contracts=is_hr_mgmt,
+            include_employee_number=is_hr_mgmt,
         )
         results.append(item)
     return results
@@ -356,6 +358,21 @@ def update_employee(
                 status_code=400,
                 detail=f"Die E-Mail '{clean_email}' wird bereits von einem anderen Mitarbeiter verwendet ({existing_other.first_name} {existing_other.last_name}).",
             )
+
+    if "employee_number" in payload and payload["employee_number"] is not None:
+        clean_emp_num = str(payload["employee_number"]).strip()
+        if clean_emp_num:
+            existing_num = (
+                db.query(models.Employee)
+                .filter(models.Employee.employee_number == clean_emp_num, models.Employee.id != emp_id)
+                .first()
+            )
+            if existing_num:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Die Personalnummer '{clean_emp_num}' wird bereits von einem anderen Mitarbeiter verwendet ({existing_num.first_name} {existing_num.last_name}).",
+                )
+            emp.employee_number = clean_emp_num
 
     old_vals = serialize_employee(emp, db=None, include_sensitive=True)
     for field in [

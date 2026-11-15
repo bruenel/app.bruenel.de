@@ -1277,6 +1277,7 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
         await fetchWithToken(`/api/v1/hr/employees/${editingEmpId}`, {
           method: 'PUT',
           body: JSON.stringify({
+            employee_number: (newEmp.employee_number || '').trim() || undefined,
             first_name: newEmp.first_name,
             last_name: newEmp.last_name,
             email: newEmp.email,
@@ -1305,6 +1306,7 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
           await fetchWithToken(`/api/v1/hr/employees/${existingEmp.id}`, {
             method: 'PUT',
             body: JSON.stringify({
+              employee_number: (newEmp.employee_number || '').trim() || undefined,
               first_name: newEmp.first_name,
               last_name: newEmp.last_name,
               email: newEmp.email,
@@ -1326,6 +1328,7 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
           const created = await fetchWithToken('/api/v1/hr/employees', {
             method: 'POST',
             body: JSON.stringify({
+              employee_number: (newEmp.employee_number || '').trim() || undefined,
               first_name: newEmp.first_name,
               last_name: newEmp.last_name,
               email: newEmp.email,
@@ -1802,7 +1805,7 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
               </button>
               {editingEmpId && (
                 <span style={{ padding: '3px 9px', borderRadius: 6, background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', fontFamily: 'monospace', fontSize: 11.5, fontWeight: 800 }}>
-                  {employees.find((x) => x.id === editingEmpId)?.employee_number || 'EMP'}
+                  {newEmp.employee_number || employees.find((x) => x.id === editingEmpId)?.employee_number || 'EMP'}
                 </span>
               )}
               <button
@@ -1958,7 +1961,16 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                       </div>
                     )}
 
-                    <div style={{ display: 'grid', gridTemplateColumns: '0.6fr 1fr 1fr 0.9fr', gap: '12px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '0.7fr 0.6fr 1fr 1fr 0.9fr', gap: '12px' }}>
+                      <div>
+                        <label>Personalnummer (Intern)</label>
+                        <input
+                          value={newEmp.employee_number || ''}
+                          onChange={e => setNewEmp({ ...newEmp, employee_number: e.target.value })}
+                          placeholder="z.B. BRN-1001"
+                          style={{ fontFamily: 'monospace', fontWeight: 700 }}
+                        />
+                      </div>
                       <div>
                         <label>Anrede (Herr / Frau / Firma) *</label>
                         <select
