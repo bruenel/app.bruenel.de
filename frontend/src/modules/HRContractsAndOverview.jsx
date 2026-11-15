@@ -843,50 +843,24 @@ function normalizeContractHtmlForPdf(rawHtml) {
     .replace(/<div>\s*Sam Rastegar Moghadam\s*<\/div>/gi, '<div>Sam Rastegar</div>');
 }
 
-// Helper to rasterize an HTML snippet into an image for PDF header/footer placement
-async function renderBannerToPdfImage(stage, innerHtml, a4WidthPx, scale, pageWidthMm) {
-  stage.innerHTML = '';
-  const el = document.createElement('div');
-  el.style.cssText = [
-    `width: ${a4WidthPx}px`,
-    'padding: 0 56px',
-    'background: #ffffff',
-    'color: #111827',
-    "font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Arial, sans-serif",
-    'box-sizing: border-box',
-  ].join(';');
-  el.innerHTML = innerHtml;
-  stage.appendChild(el);
-
-  const imgs = Array.from(el.querySelectorAll('img'));
-  await Promise.all(
-    imgs.map((img) =>
-      img.complete
-        ? Promise.resolve()
-        : new Promise((resolve) => {
-            img.onload = resolve;
-            img.onerror = resolve;
-          })
-    )
-  );
-  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-
-  const canvas = await html2canvas(el, {
-    scale,
-    useCORS: true,
-    logging: false,
-    backgroundColor: '#ffffff',
-    width: a4WidthPx,
-    windowWidth: a4WidthPx,
-    scrollX: 0,
-    scrollY: 0,
-    x: 0,
-    y: 0,
-  });
-  return {
-    imgData: canvas.toDataURL('image/png'),
-    heightMm: (canvas.height * pageWidthMm) / canvas.width,
-  };
+// Cached PNG logo data URL so header rendering in jsPDF is instant (0 DOM clones)
+let _cachedLogoDataUrl = null;
+async function getLogoDataUrl() {
+  if (_cachedLogoDataUrl) return _cachedLogoDataUrl;
+  try {
+    const resp = await fetch('/bruenel-logo-dark.png');
+    if (!resp.ok) return null;
+    const blob = await resp.blob();
+    _cachedLogoDataUrl = await new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result || null);
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(blob);
+    });
+    return _cachedLogoDataUrl;
+  } catch {
+    return null;
+  }
 }
 
 // Helper to download a single contract directly as an individual .pdf file (renders every page cleanly with html2canvas + jsPDF)
@@ -922,30 +896,20 @@ export async function downloadSingleContractPdf(title, htmlContent, customFileNa
   document.body.appendChild(stage);
 
   try {
+    const logoDataUrl = await getLogoDataUrl();
     const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait', compress: true });
     const pageWidthMm = 210;
     const pageHeightMm = 297;
-    const topMarginMm = 12;
-    const bottomMarginMm = 12;
-    const headerGapMm = 4;
-    const footerGapMm = 4;
+    const sideMarginMm = 14.8; // matches 56px padding on 794px width
+    const topMarginMm = 11;
+    const logoWidthMm = 28;
+    const logoHeightMm = 6.87; // exact 106:26 aspect ratio
+    const contentStartMm = topMarginMm + logoHeightMm + 4; // ~21.9mm
+    const bottomMarginMm = 11;
+    const footerReservedMm = 10;
+    const printableHeightMm = pageHeightMm - contentStartMm - bottomMarginMm - footerReservedMm; // ~254mm
     const scale = 2;
     const a4WidthPx = 794;
-
-    // Render repeating top-right Brünel logo header once
-    const headerBanner = await renderBannerToPdfImage(
-      stage,
-      `<div style="display:flex;justify-content:flex-end;align-items:center;padding:2px 0 6px 0;">
-        <img src="/bruenel-logo-dark.png" alt="Brünel" width="106" height="26" style="width:106px;height:26px;object-fit:contain;display:block;" />
-      </div>`,
-      a4WidthPx,
-      scale,
-      pageWidthMm
-    );
-
-    const contentStartMm = topMarginMm + headerBanner.heightMm + headerGapMm;
-    const footerReservedMm = 10; // ~8mm footer + gap
-    const printableHeightMm = pageHeightMm - contentStartMm - bottomMarginMm - footerReservedMm - footerGapMm;
     const printableHeightCssPx = Math.floor((a4WidthPx * printableHeightMm) / pageWidthMm);
 
     const pagesToRender = [];
@@ -992,19 +956,8 @@ export async function downloadSingleContractPdf(title, htmlContent, customFileNa
       stage.appendChild(pageEl);
 
       const footerSpan = pageEl.querySelector('.brn-doc-footer span:first-child');
-      const sectionFooterLabel = (footerSpan?.textContent || '').trim() || `${title || 'Vertrag'} — Brünel Deutschland UG`;
-
-      const imgs = Array.from(pageEl.querySelectorAll('img'));
-      await Promise.all(
-        imgs.map((img) =>
-          img.complete
-            ? Promise.resolve()
-            : new Promise((resolve) => {
-                img.onload = resolve;
-                img.onerror = resolve;
-              })
-        )
-      );
+      const sectionFooterLabel = ((footerSpan?.textContent || '').trim() || `${title || 'Vertrag'} - Brünel Deutschland UG`)
+        .replace(/—/g, '-');
 
       // Wait for browser layout before measuring & rasterizing
       await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
@@ -1035,6 +988,8 @@ export async function downloadSingleContractPdf(title, htmlContent, customFileNa
         scrollY: 0,
         x: 0,
         y: 0,
+        // Critical: skip cloning the React #root DOM so PDF export is 10x-20x faster and never freezes the UI
+        ignoreElements: (el) => Boolean(el && el.id === 'root'),
         onclone: (_clonedDoc, clonedEl) => {
           if (clonedEl) {
             clonedEl.style.opacity = '1';
@@ -1061,6 +1016,10 @@ export async function downloadSingleContractPdf(title, htmlContent, customFileNa
             endCssY = safeCutY;
           }
         }
+        // Guarantee forward progress
+        if (endCssY <= cursorCssY + 10) {
+          endCssY = Math.min(totalCssHeight, cursorCssY + printableHeightCssPx);
+        }
 
         const startCanvasY = Math.round(cursorCssY * scale);
         const endCanvasY = Math.min(canvas.height, Math.round(endCssY * scale));
@@ -1085,7 +1044,7 @@ export async function downloadSingleContractPdf(title, htmlContent, customFileNa
         );
 
         pagesToRender.push({
-          sliceImg: sliceCanvas.toDataURL('image/jpeg', 0.96),
+          sliceImg: sliceCanvas.toDataURL('image/jpeg', 0.94),
           sliceHeightMm: (sliceCanvasPx * pageWidthMm) / canvas.width,
           footerLabel: sectionFooterLabel,
         });
@@ -1099,28 +1058,36 @@ export async function downloadSingleContractPdf(title, htmlContent, customFileNa
       if (pIdx > 0) pdf.addPage();
       const pageData = pagesToRender[pIdx];
 
-      // 1) Top-right Brünel logo on every page
-      pdf.addImage(headerBanner.imgData, 'PNG', 0, topMarginMm, pageWidthMm, headerBanner.heightMm, undefined, 'FAST');
+      // 1) Top-right Brünel logo on every page (instant vector/image placement)
+      if (logoDataUrl) {
+        pdf.addImage(
+          logoDataUrl,
+          'PNG',
+          pageWidthMm - sideMarginMm - logoWidthMm,
+          topMarginMm,
+          logoWidthMm,
+          logoHeightMm,
+          undefined,
+          'FAST'
+        );
+      }
 
       // 2) Body content slice
       pdf.addImage(pageData.sliceImg, 'JPEG', 0, contentStartMm, pageWidthMm, pageData.sliceHeightMm, undefined, 'FAST');
 
-      // 3) Pinned footer at the bottom of every page
-      const footerBanner = await renderBannerToPdfImage(
-        stage,
-        `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0 2px 0;border-top:1px solid #e2e8f0;font-size:7.5pt;color:#64748b;">
-          <span>${pageData.footerLabel}</span>
-          <span style="display:flex;align-items:center;gap:14px;">
-            <span>Seite ${pIdx + 1} von ${totalPages}</span>
-            <span style="font-weight:700;color:#475569;">bruenel.de</span>
-          </span>
-        </div>`,
-        a4WidthPx,
-        scale,
-        pageWidthMm
-      );
-      const footerY = pageHeightMm - bottomMarginMm - footerBanner.heightMm;
-      pdf.addImage(footerBanner.imgData, 'PNG', 0, footerY, pageWidthMm, footerBanner.heightMm, undefined, 'FAST');
+      // 3) Pinned vector footer at the bottom of every page (0ms, crisp text)
+      const footerLineY = pageHeightMm - bottomMarginMm - 5.5;
+      pdf.setDrawColor(226, 232, 240);
+      pdf.setLineWidth(0.25);
+      pdf.line(sideMarginMm, footerLineY, pageWidthMm - sideMarginMm, footerLineY);
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(7.5);
+      pdf.setTextColor(100, 116, 139);
+      pdf.text(pageData.footerLabel, sideMarginMm, footerLineY + 4);
+      pdf.text(`Seite ${pIdx + 1} von ${totalPages}`, pageWidthMm - sideMarginMm - 20, footerLineY + 4, { align: 'right' });
+      pdf.setFont('helvetica', 'bold');
+      pdf.setTextColor(71, 85, 105);
+      pdf.text('bruenel.de', pageWidthMm - sideMarginMm, footerLineY + 4, { align: 'right' });
     }
 
     pdf.save(filename);
@@ -1285,6 +1252,7 @@ export const HRContractGeneratorView = ({
   const [contractsList, setContractsList] = useState([]);
   const [loadingContracts, setLoadingContracts] = useState(false);
   const [issuing, setIssuing] = useState(false);
+  const [exportingPdf, setExportingPdf] = useState(false);
   const [issueSuccessBanner, setIssueSuccessBanner] = useState(null);
   const [uploadingSignedId, setUploadingSignedId] = useState(null);
   const [contractFilterEmpId, setContractFilterEmpId] = useState('ALL');
@@ -2891,39 +2859,54 @@ export const HRContractGeneratorView = ({
                     <button
                       type="button"
                       className="btn-secondary btn-sm"
-                      onClick={() => {
-                        const currentHtml = editorRef.current ? editorRef.current.innerHTML : draftHtmlMap[activePreviewCode];
-                        const mod = CONTRACT_CATALOG.find((c) => c.code === activePreviewCode);
-                        downloadSingleContractPdf(
-                          `${mod?.title || 'Vertrag'} — ${conditions.first_name} ${conditions.last_name}`,
-                          currentHtml
-                        );
+                      disabled={exportingPdf}
+                      onClick={async () => {
+                        setExportingPdf(true);
+                        try {
+                          const currentHtml =
+                            (editorRef.current ? editorRef.current.innerHTML : null) ||
+                            draftHtmlMap[activePreviewCode] ||
+                            generateContractHtml(activePreviewCode, selectedEmp, conditions);
+                          const mod = CONTRACT_CATALOG.find((c) => c.code === activePreviewCode);
+                          await downloadSingleContractPdf(
+                            `${mod?.title || 'Vertrag'} — ${conditions.first_name} ${conditions.last_name}`,
+                            currentHtml
+                          );
+                        } finally {
+                          setExportingPdf(false);
+                        }
                       }}
                     >
-                      <Download size={14} /> Aktuellen Vertrag als PDF speichern
+                      <Download size={14} /> {exportingPdf ? 'PDF wird erstellt...' : 'Aktuellen Vertrag als PDF speichern'}
                     </button>
                     <button
                       type="button"
                       className="btn-secondary btn-sm"
+                      disabled={exportingPdf}
                       style={{ borderColor: '#0f172a', color: '#0f172a', fontWeight: 700 }}
-                      onClick={() => {
-                        const currentMap = { ...draftHtmlMap };
-                        if (editorRef.current && activePreviewCode) {
-                          currentMap[activePreviewCode] = editorRef.current.innerHTML;
+                      onClick={async () => {
+                        setExportingPdf(true);
+                        try {
+                          const currentMap = { ...draftHtmlMap };
+                          if (editorRef.current && activePreviewCode) {
+                            currentMap[activePreviewCode] = editorRef.current.innerHTML;
+                          }
+                          const ordered = CONTRACT_CATALOG.filter((c) => selectedCodes.includes(c.code) || c.mandatory);
+                          const empFullName = `${conditions.first_name || ''} ${conditions.last_name || ''}`.trim();
+                          await downloadContractsAsSeparatePdfs(
+                            ordered.map((c) => ({
+                              contract_code: c.code,
+                              title: `${c.title}_${empFullName}`,
+                              html_content: currentMap[c.code] || generateContractHtml(c.code, selectedEmp, conditions),
+                            })),
+                            empFullName
+                          );
+                        } finally {
+                          setExportingPdf(false);
                         }
-                        const ordered = CONTRACT_CATALOG.filter((c) => selectedCodes.includes(c.code) || c.mandatory);
-                        const empFullName = `${conditions.first_name || ''} ${conditions.last_name || ''}`.trim();
-                        downloadContractsAsSeparatePdfs(
-                          ordered.map((c) => ({
-                            contract_code: c.code,
-                            title: `${c.title}_${empFullName}`,
-                            html_content: currentMap[c.code] || generateContractHtml(c.code, selectedEmp, conditions),
-                          })),
-                          empFullName
-                        );
                       }}
                     >
-                      <Download size={14} /> Alle {selectedCodes.length} Verträge als separate PDF-Dateien speichern
+                      <Download size={14} /> {exportingPdf ? 'PDFs werden erstellt...' : `Alle ${selectedCodes.length} Verträge als separate PDF-Dateien speichern`}
                     </button>
                     <button
                       type="button"
