@@ -8,6 +8,7 @@ import {
 import { fetchWithToken, uploadMediaFile, resolveMediaUrl, formatDate, formatEuro } from '../core/api';
 import { DateInput } from '../components/DateTimeInputs';
 import { downloadCsv } from '../components/ui';
+import html2pdf from 'html2pdf.js';
 
 // ==============================================================================
 // 5 OFFICIAL BRÜNEL DEUTSCHLAND UG CONTRACT MODULES
@@ -827,7 +828,79 @@ export function generateContractHtml(code, emp, cond) {
   `;
 }
 
-// Helper to open clean A4 Print / Save as PDF window
+// Helper to build a clean safe PDF filename per contract
+function buildSafePdfFilename(rawTitle, employeeName = '') {
+  const base = `${rawTitle || 'Vertrag'}${employeeName ? `_${employeeName}` : ''}`
+    .replace(/ä/g, 'ae')
+    .replace(/ö/g, 'oe')
+    .replace(/ü/g, 'ue')
+    .replace(/Ä/g, 'Ae')
+    .replace(/Ö/g, 'Oe')
+    .replace(/Ü/g, 'Ue')
+    .replace(/ß/g, 'ss')
+    .replace(/[^a-zA-Z0-9_-]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_|_$/g, '');
+  return `${base.slice(0, 110) || 'Vertrag'}.pdf`;
+}
+
+// Helper to download a single contract directly as an individual .pdf file
+export async function downloadSingleContractPdf(title, htmlContent, customFileName = '') {
+  if (!htmlContent) return;
+  const filename = customFileName
+    ? (customFileName.toLowerCase().endsWith('.pdf') ? customFileName : `${customFileName}.pdf`)
+    : buildSafePdfFilename(title);
+
+  const wrapper = document.createElement('div');
+  wrapper.style.position = 'fixed';
+  wrapper.style.left = '-99999px';
+  wrapper.style.top = '0';
+  wrapper.style.width = '180mm';
+  wrapper.style.background = '#ffffff';
+  wrapper.style.color = '#111827';
+  wrapper.style.fontFamily = "'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Arial, sans-serif";
+  wrapper.style.fontSize = '10.5pt';
+  wrapper.style.lineHeight = '1.55';
+  wrapper.innerHTML = htmlContent;
+  document.body.appendChild(wrapper);
+
+  try {
+    const opt = {
+      margin: [14, 15, 14, 15],
+      filename,
+      image: { type: 'jpeg', quality: 0.98 },
+      html2canvas: { scale: 2, useCORS: true, logging: false },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+      pagebreak: { mode: ['css', 'legacy'], before: '.page-break' },
+    };
+    await html2pdf().set(opt).from(wrapper).save();
+  } catch (err) {
+    console.error('PDF export error, falling back to print dialog:', err);
+    openContractPrintPdfWindow(title, [htmlContent]);
+  } finally {
+    if (wrapper.parentNode) {
+      wrapper.parentNode.removeChild(wrapper);
+    }
+  }
+}
+
+// Helper to download multiple contracts as SEPARATE individual .pdf files (never merged into a single PDF)
+export async function downloadContractsAsSeparatePdfs(contractsList = [], employeeName = '') {
+  if (!Array.isArray(contractsList) || contractsList.length === 0) return;
+  for (let i = 0; i < contractsList.length; i++) {
+    const item = contractsList[i];
+    const title = item.title || item.contract_type || item.contract_code || `Vertrag_${i + 1}`;
+    const html = item.html_content || item.html || '';
+    if (!html) continue;
+    const fileName = buildSafePdfFilename(title, employeeName && !title.includes(employeeName) ? employeeName : '');
+    await downloadSingleContractPdf(title, html, fileName);
+    if (i < contractsList.length - 1) {
+      await new Promise((resolve) => setTimeout(resolve, 350));
+    }
+  }
+}
+
+// Helper to open clean A4 Print / Save as PDF window for a single document
 export function openContractPrintPdfWindow(title, htmlArray) {
   const win = window.open('', '_blank', 'width=980,height=900');
   if (!win) {
@@ -950,6 +1023,7 @@ export const HRContractGeneratorView = ({
   const [contractSearch, setContractSearch] = useState('');
   const [editingIssuedContract, setEditingIssuedContract] = useState(null);
   const [onboardingEmailModal, setOnboardingEmailModal] = useState(null);
+  const [emailSentPopup, setEmailSentPopup] = useState(null);
   const [sendingOnboardingEmpId, setSendingOnboardingEmpId] = useState(null);
   const [copiedOnboardingText, setCopiedOnboardingText] = useState(false);
   const [showGeneratorModal, setShowGeneratorModal] = useState(Boolean(effectivePreselectedId));
@@ -1211,13 +1285,19 @@ export const HRContractGeneratorView = ({
           contracts: contractsPayload,
         }),
       });
+      const empDisplayName = `${conditions.first_name || selectedEmp.first_name} ${conditions.last_name || selectedEmp.last_name}`.trim();
+      const issuedContracts = res.contracts || [];
       setIssueSuccessBanner({
-        employeeName: `${conditions.first_name || selectedEmp.first_name} ${conditions.last_name || selectedEmp.last_name}`,
-        count: (res.contracts || []).length,
-        contracts: res.contracts || [],
+        employeeName: empDisplayName,
+        count: issuedContracts.length,
+        contracts: issuedContracts,
       });
       loadContractsAndFleet();
       if (effectiveReload) effectiveReload();
+      // Automatically export each issued contract as its own separate PDF file
+      if (issuedContracts.length > 0) {
+        downloadContractsAsSeparatePdfs(issuedContracts, empDisplayName);
+      }
     } catch (err) {
       alert(`Fehler beim Ausstellen der Verträge: ${err.message}`);
     } finally {
@@ -1254,11 +1334,24 @@ export const HRContractGeneratorView = ({
       loadContractsAndFleet();
       if (effectiveReload) effectiveReload();
       if (signedRes?.onboarding_email) {
-        setOnboardingEmailModal({
-          ...signedRes.onboarding_email,
-          employee_id: contractObj.employee_id,
-          contract_title: contractObj.title,
-        });
+        const ob = signedRes.onboarding_email;
+        if (ob.sent_via_smtp) {
+          setOnboardingEmailModal(null);
+          setEmailSentPopup({
+            employeeName: ob.employee_name,
+            toEmail: ob.to_email || ob.private_email,
+            username: ob.username,
+            otp: ob.otp,
+            portalUrl: ob.portal_url || 'https://www.bruenel.de/de#login',
+            note: ob.smtp_note,
+          });
+        } else {
+          setOnboardingEmailModal({
+            ...ob,
+            employee_id: contractObj.employee_id,
+            contract_title: contractObj.title,
+          });
+        }
       }
     } catch (err) {
       alert(`Fehler beim Hochladen des unterschriebenen Vertrags: ${err.message}`);
@@ -1267,7 +1360,13 @@ export const HRContractGeneratorView = ({
     }
   };
 
-  const handleTriggerOnboardingEmail = async (empId, regenerateOtp = false, contractTitle = '', overridePrivateEmail = undefined) => {
+  const handleTriggerOnboardingEmail = async (
+    empId,
+    regenerateOtp = false,
+    contractTitle = '',
+    overridePrivateEmail = undefined,
+    closeModalOnSend = false
+  ) => {
     if (!empId) return;
     setSendingOnboardingEmpId(empId);
     try {
@@ -1276,15 +1375,37 @@ export const HRContractGeneratorView = ({
         body: JSON.stringify({
           regenerate_otp: regenerateOtp,
           contract_title: contractTitle,
+          preview_only: !closeModalOnSend,
           ...(overridePrivateEmail !== undefined ? { private_email: overridePrivateEmail } : {}),
         }),
       });
-      setOnboardingEmailModal({
-        ...res,
-        employee_id: empId,
-        contract_title: contractTitle,
-      });
       if (effectiveReload) effectiveReload();
+      if (closeModalOnSend) {
+        if (res.sent_via_smtp) {
+          setOnboardingEmailModal(null);
+          setEmailSentPopup({
+            employeeName: res.employee_name,
+            toEmail: res.to_email || res.private_email,
+            username: res.username,
+            otp: res.otp,
+            portalUrl: res.portal_url || 'https://www.bruenel.de/de#login',
+            note: res.smtp_note,
+          });
+        } else {
+          alert(res.smtp_note || 'E-Mail konnte nicht gesendet werden. Bitte prüfen Sie die private E-Mail-Adresse.');
+          setOnboardingEmailModal({
+            ...res,
+            employee_id: empId,
+            contract_title: contractTitle,
+          });
+        }
+      } else {
+        setOnboardingEmailModal({
+          ...res,
+          employee_id: empId,
+          contract_title: contractTitle,
+        });
+      }
     } catch (err) {
       alert(`Fehler beim Erstellen/Senden der Willkommens-E-Mail: ${err.message}`);
     } finally {
@@ -1463,18 +1584,29 @@ export const HRContractGeneratorView = ({
               • Die Verträge sind im Mitarbeiterprofil als <strong>„Ausstehend (Pending Signature)“</strong> hinterlegt und für den Mitarbeiter im Portal <strong>noch gesperrt (nicht sichtbar)</strong>, bis Sie unten das unterschriebene PDF hochladen.
             </div>
           </div>
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            {(issueSuccessBanner.contracts || []).map((c, idx) => (
+              <button
+                key={c.id || idx}
+                type="button"
+                className="btn-secondary btn-sm"
+                style={{ borderColor: '#059669', color: '#065f46', background: '#ffffff', fontWeight: 700, fontSize: 11.5 }}
+                onClick={() => downloadSingleContractPdf(c.title, c.html_content)}
+              >
+                <Download size={12} /> PDF {idx + 1}: {c.contract_code || 'Vertrag'}
+              </button>
+            ))}
             <button
               type="button"
               className="btn-primary btn-sm"
               onClick={() =>
-                openContractPrintPdfWindow(
-                  `Vertragspaket — ${issueSuccessBanner.employeeName}`,
-                  issueSuccessBanner.contracts.map((c) => c.html_content)
+                downloadContractsAsSeparatePdfs(
+                  issueSuccessBanner.contracts,
+                  issueSuccessBanner.employeeName
                 )
               }
             >
-              <Printer size={14} /> Alle {issueSuccessBanner.count} Verträge als PDF speichern
+              <Download size={14} /> Alle {issueSuccessBanner.count} Verträge als separate PDF-Dateien speichern
             </button>
             <button type="button" className="btn-secondary btn-sm" onClick={() => setIssueSuccessBanner(null)}>
               <X size={14} />
@@ -1664,9 +1796,9 @@ export const HRContractGeneratorView = ({
                                   type="button"
                                   className="btn-secondary btn-sm"
                                   style={{ padding: '5px 9px', fontSize: 11.5 }}
-                                  onClick={() => openContractPrintPdfWindow(c.title, [c.html_content])}
+                                  onClick={() => downloadSingleContractPdf(c.title, c.html_content)}
                                 >
-                                  <Printer size={12} /> Als PDF
+                                  <Download size={12} /> Als PDF
                                 </button>
                               </>
                             )}
@@ -1827,10 +1959,10 @@ export const HRContractGeneratorView = ({
                           style={{ fontSize: 11, padding: '4px 9px', color: '#047857', borderColor: '#6ee7b7', background: '#ecfdf5', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4 }}
                           onClick={() => handleTriggerOnboardingEmail(grp.employee_id, false)}
                           disabled={sendingOnboardingEmpId === grp.employee_id}
-                          title="Willkommens-E-Mail mit Benutzername, Einmal-Passwort (OTP) und iPhone/Android App-Anleitung senden oder ansehen"
+                          title="Willkommens-E-Mail mit Benutzername, Einmal-Passwort (OTP) und App-Anleitung senden oder ansehen"
                         >
                           <Mail size={12} />
-                          {sendingOnboardingEmpId === grp.employee_id ? 'Sende...' : '🎉 Willkommens-E-Mail & App-Login'}
+                          {sendingOnboardingEmpId === grp.employee_id ? 'Sende...' : 'Willkommens-E-Mail & App-Login'}
                         </button>
                         {grp.empObj && effectiveOpenEmpModal && (
                           <button type="button" className="btn-secondary btn-sm" style={{ fontSize: 11, padding: '4px 8px' }} onClick={() => effectiveOpenEmpModal(grp.empObj)}>
@@ -1930,10 +2062,10 @@ export const HRContractGeneratorView = ({
                                           type="button"
                                           className="btn-secondary btn-sm"
                                           style={{ padding: '5px 9px', fontSize: 11.5 }}
-                                          onClick={() => openContractPrintPdfWindow(c.title, [c.html_content])}
-                                          title="Als A4 PDF speichern oder drucken"
+                                          onClick={() => downloadSingleContractPdf(c.title, c.html_content)}
+                                          title="Als separate A4 PDF-Datei herunterladen"
                                         >
-                                          <Printer size={12} /> Als PDF
+                                          <Download size={12} /> Als PDF
                                         </button>
                                       </>
                                     )}
@@ -2093,18 +2225,29 @@ export const HRContractGeneratorView = ({
                       Die Verträge wurden in der Liste hinterlegt (Status: <strong>Ausstehend</strong>). Sie können die PDFs jetzt drucken/speichern oder dieses Fenster schließen.
                     </div>
                   </div>
-                  <div style={{ display: 'flex', gap: 8 }}>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                    {(issueSuccessBanner.contracts || []).map((c, idx) => (
+                      <button
+                        key={c.id || idx}
+                        type="button"
+                        className="btn-secondary btn-sm"
+                        style={{ borderColor: '#059669', color: '#065f46', background: '#ffffff', fontWeight: 700, fontSize: 11.5 }}
+                        onClick={() => downloadSingleContractPdf(c.title, c.html_content)}
+                      >
+                        <Download size={12} /> PDF {idx + 1}: {c.contract_code || 'Vertrag'}
+                      </button>
+                    ))}
                     <button
                       type="button"
                       className="btn-primary btn-sm"
                       onClick={() =>
-                        openContractPrintPdfWindow(
-                          `Vertragspaket — ${issueSuccessBanner.employeeName}`,
-                          issueSuccessBanner.contracts.map((c) => c.html_content)
+                        downloadContractsAsSeparatePdfs(
+                          issueSuccessBanner.contracts,
+                          issueSuccessBanner.employeeName
                         )
                       }
                     >
-                      <Printer size={14} /> Alle {issueSuccessBanner.count} Verträge als PDF speichern
+                      <Download size={14} /> Alle {issueSuccessBanner.count} Verträge als separate PDF-Dateien speichern
                     </button>
                     <button type="button" className="btn-secondary btn-sm" onClick={() => setShowGeneratorModal(false)}>
                       Fertig &amp; Zurück zur Liste
@@ -2494,13 +2637,13 @@ export const HRContractGeneratorView = ({
                       onClick={() => {
                         const currentHtml = editorRef.current ? editorRef.current.innerHTML : draftHtmlMap[activePreviewCode];
                         const mod = CONTRACT_CATALOG.find((c) => c.code === activePreviewCode);
-                        openContractPrintPdfWindow(
+                        downloadSingleContractPdf(
                           `${mod?.title || 'Vertrag'} — ${conditions.first_name} ${conditions.last_name}`,
-                          [currentHtml]
+                          currentHtml
                         );
                       }}
                     >
-                      <Printer size={14} /> Aktuellen Vertrag als PDF speichern
+                      <Download size={14} /> Aktuellen Vertrag als PDF speichern
                     </button>
                     <button
                       type="button"
@@ -2512,13 +2655,18 @@ export const HRContractGeneratorView = ({
                           currentMap[activePreviewCode] = editorRef.current.innerHTML;
                         }
                         const ordered = CONTRACT_CATALOG.filter((c) => selectedCodes.includes(c.code) || c.mandatory);
-                        openContractPrintPdfWindow(
-                          `Vertragspaket (${ordered.length} Dokumente) — ${conditions.first_name} ${conditions.last_name}`,
-                          ordered.map((c) => currentMap[c.code] || generateContractHtml(c.code, selectedEmp, conditions))
+                        const empFullName = `${conditions.first_name || ''} ${conditions.last_name || ''}`.trim();
+                        downloadContractsAsSeparatePdfs(
+                          ordered.map((c) => ({
+                            contract_code: c.code,
+                            title: `${c.title}_${empFullName}`,
+                            html_content: currentMap[c.code] || generateContractHtml(c.code, selectedEmp, conditions),
+                          })),
+                          empFullName
                         );
                       }}
                     >
-                      <Download size={14} /> Alle {selectedCodes.length} Verträge als PDF speichern
+                      <Download size={14} /> Alle {selectedCodes.length} Verträge als separate PDF-Dateien speichern
                     </button>
                     <button
                       type="button"
@@ -2636,9 +2784,9 @@ export const HRContractGeneratorView = ({
                 <button
                   type="button"
                   className="btn-secondary btn-sm"
-                  onClick={() => openContractPrintPdfWindow(editingIssuedContract.title, [editingIssuedContract.html_content])}
+                  onClick={() => downloadSingleContractPdf(editingIssuedContract.title, editingIssuedContract.html_content)}
                 >
-                  <Printer size={13} /> Als PDF speichern
+                  <Download size={13} /> Als PDF speichern
                 </button>
                 <button type="button" className="btn-primary btn-sm" onClick={handleSaveEditedIssuedContract}>
                   <Check size={13} /> Änderungen speichern
@@ -2712,7 +2860,7 @@ export const HRContractGeneratorView = ({
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span style={{ padding: '3px 9px', borderRadius: 999, background: '#10b981', color: '#fff', fontSize: 11, fontWeight: 800 }}>
-                    🎉 VERTRAG ABGESCHLOSSEN &amp; ONBOARDING AKTIV
+                    VERTRAG ABGESCHLOSSEN &amp; ONBOARDING AKTIV
                   </span>
                   <strong style={{ fontSize: 15 }}>
                     Willkommens-E-Mail &amp; App-Zugangsdaten für {onboardingEmailModal.employee_name}
@@ -2731,7 +2879,7 @@ export const HRContractGeneratorView = ({
             <div style={{ padding: '12px 20px', background: '#fff7ed', borderBottom: '1px solid #fed7aa', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
               <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 12.5, alignItems: 'center' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span style={{ color: '#047857', fontWeight: 800 }}>📧 Private E-Mail (Empfänger):</span>
+                  <span style={{ color: '#047857', fontWeight: 800 }}>Private E-Mail (Empfänger):</span>
                   <input
                     type="email"
                     value={onboardingEmailModal.to_email || ''}
@@ -2741,7 +2889,7 @@ export const HRContractGeneratorView = ({
                   />
                 </div>
                 <div>
-                  <span style={{ color: '#9a3412', fontWeight: 700 }}>🔑 Portal-Benutzername (Kein E-Mail-Versand):</span>{' '}
+                  <span style={{ color: '#9a3412', fontWeight: 700 }}>Portal-Benutzername (Kein E-Mail-Versand):</span>{' '}
                   <strong style={{ fontFamily: 'monospace', color: '#0f172a' }}>{onboardingEmailModal.username || '—'}</strong>
                 </div>
                 <div>
@@ -2756,20 +2904,21 @@ export const HRContractGeneratorView = ({
                 {onboardingEmailModal.employee_id && (
                   <button
                     type="button"
-                    className="btn-secondary btn-sm"
+                    className="btn-primary btn-sm"
                     onClick={() =>
                       handleTriggerOnboardingEmail(
                         onboardingEmailModal.employee_id,
                         false,
                         onboardingEmailModal.contract_title,
-                        onboardingEmailModal.to_email
+                        onboardingEmailModal.to_email,
+                        true
                       )
                     }
                     disabled={sendingOnboardingEmpId === onboardingEmailModal.employee_id}
-                    style={{ borderColor: '#059669', color: '#047857', background: '#ecfdf5', fontWeight: 700 }}
+                    style={{ background: '#059669', borderColor: '#047857', color: '#ffffff', fontWeight: 800 }}
                     title="Private E-Mail speichern und Willkommens-E-Mail an diese private Adresse senden"
                   >
-                    <Send size={13} /> An private E-Mail senden
+                    <Send size={13} /> {sendingOnboardingEmpId === onboardingEmailModal.employee_id ? 'Wird gesendet...' : 'An private E-Mail senden'}
                   </button>
                 )}
                 {onboardingEmailModal.employee_id && (
@@ -2781,13 +2930,14 @@ export const HRContractGeneratorView = ({
                         onboardingEmailModal.employee_id,
                         true,
                         onboardingEmailModal.contract_title,
-                        onboardingEmailModal.to_email
+                        onboardingEmailModal.to_email,
+                        true
                       )
                     }
                     disabled={sendingOnboardingEmpId === onboardingEmailModal.employee_id}
                     title="Neues Einmal-Passwort (OTP) generieren und Willkommens-E-Mail erneut senden"
                   >
-                    <RefreshCw size={13} /> Neues OTP
+                    <RefreshCw size={13} /> Neues OTP &amp; Senden
                   </button>
                 )}
                 <button
@@ -2799,13 +2949,13 @@ export const HRContractGeneratorView = ({
                     setTimeout(() => setCopiedOnboardingText(false), 2500);
                   }}
                 >
-                  <Copy size={13} /> {copiedOnboardingText ? '✓ Kopiert!' : 'Text kopieren'}
+                  <Copy size={13} /> {copiedOnboardingText ? 'Kopiert' : 'Text kopieren'}
                 </button>
                 {onboardingEmailModal.to_email && !onboardingEmailModal.to_email.toLowerCase().endsWith('@bruenel.de') && (
                   <a
                     href={`mailto:${encodeURIComponent(onboardingEmailModal.to_email)}?subject=${encodeURIComponent(onboardingEmailModal.subject || '')}&body=${encodeURIComponent(onboardingEmailModal.plain_text || '')}`}
-                    className="btn-primary btn-sm"
-                    style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 800 }}
+                    className="btn-secondary btn-sm"
+                    style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700 }}
                   >
                     <Mail size={13} /> In Mail-App öffnen
                   </a>
@@ -2820,6 +2970,94 @@ export const HRContractGeneratorView = ({
                 dangerouslySetInnerHTML={{ __html: onboardingEmailModal.html_body }}
               />
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* =====================================================================
+          POP-UP NOTIFICATION AFTER ONBOARDING EMAIL IS SENT
+         ===================================================================== */}
+      {emailSentPopup && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15,23,42,0.65)',
+            backdropFilter: 'blur(3px)',
+            zIndex: 10005,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 18,
+          }}
+          onClick={() => setEmailSentPopup(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: '100%',
+              maxWidth: 480,
+              background: '#ffffff',
+              borderRadius: 16,
+              padding: '24px 26px',
+              boxShadow: '0 24px 60px rgba(15,23,42,0.35)',
+              border: '2px solid #10b981',
+              textAlign: 'center',
+            }}
+          >
+            <div
+              style={{
+                width: 54,
+                height: 54,
+                borderRadius: 999,
+                background: '#dcfce7',
+                color: '#059669',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginBottom: 12,
+              }}
+            >
+              <CheckCircle2 size={30} />
+            </div>
+            <h3 style={{ margin: '0 0 8px 0', fontSize: 18, fontWeight: 800, color: '#0f172a' }}>
+              Willkommens-E-Mail erfolgreich gesendet
+            </h3>
+            <p style={{ margin: '0 0 14px 0', fontSize: 13.5, color: '#334151', lineHeight: 1.55 }}>
+              Die Onboarding-E-Mail für <strong>{emailSentPopup.employeeName}</strong> wurde erfolgreich an{' '}
+              <strong style={{ color: '#047857' }}>{emailSentPopup.toEmail}</strong> versendet.
+            </p>
+            <div
+              style={{
+                background: '#f8fafc',
+                border: '1px solid #e2e8f0',
+                borderRadius: 10,
+                padding: '10px 14px',
+                fontSize: 12.5,
+                textAlign: 'left',
+                marginBottom: 18,
+                color: '#334155',
+                lineHeight: 1.65,
+              }}
+            >
+              <div>
+                <strong>Portal-Login:</strong> <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{emailSentPopup.username}</span>
+              </div>
+              <div>
+                <strong>Einmal-Passwort (OTP):</strong> <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{emailSentPopup.otp}</span>
+              </div>
+              <div>
+                <strong>Login-Link:</strong> <span style={{ color: '#FF6B00', fontWeight: 700 }}>{emailSentPopup.portalUrl}</span>
+              </div>
+            </div>
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={() => setEmailSentPopup(null)}
+              style={{ width: '100%', padding: '10px 16px', fontWeight: 800, fontSize: 13.5, background: '#059669', borderColor: '#047857' }}
+            >
+              OK — Schließen
+            </button>
           </div>
         </div>
       )}

@@ -2443,6 +2443,7 @@ def _build_and_send_onboarding_welcome_email(
     regenerate_otp: bool = False,
     contract_title: str = "",
     override_private_email: Optional[str] = None,
+    preview_only: bool = False,
 ) -> dict:
     """
     Ensures the Mitarbeiter has an active portal User account (`@bruenel.de` username) + One-Time Password (OTP),
@@ -2535,7 +2536,7 @@ def _build_and_send_onboarding_welcome_email(
                 u.hashed_password = get_password_hash(otp_plain)
                 u.must_change_password = True
 
-    portal_url = "https://portal.bruenel.de"
+    portal_url = "https://www.bruenel.de/de#login"
     salutation = (attrs.get("salutation") or attrs.get("anrede") or "Herr").strip()
     full_name = f"{emp.first_name or ''} {emp.last_name or ''}".strip() or "Mitarbeiter/in"
     first_name = (emp.first_name or full_name).strip()
@@ -2545,13 +2546,13 @@ def _build_and_send_onboarding_welcome_email(
 
     if salutation == "Frau":
         display_title_name = f"Frau {full_name}"
-        greeting_line = f"Sehr geehrte Frau {last_name}, liebe {first_name}," if last_name else f"Hallo Frau {full_name},"
+        greeting_line = f"Sehr geehrte Frau {last_name}," if last_name else f"Sehr geehrte Frau {full_name},"
     elif salutation == "Firma":
         display_title_name = f"Firma {company_name} ({full_name})"
         greeting_line = f"Sehr geehrte Damen und Herren ({company_name} — {full_name}),"
     else:
         display_title_name = f"Herr {full_name}"
-        greeting_line = f"Sehr geehrter Herr {last_name}, lieber {first_name}," if last_name else f"Hallo Herr {full_name},"
+        greeting_line = f"Sehr geehrter Herr {last_name}," if last_name else f"Sehr geehrter Herr {full_name},"
 
     start_date_str = attrs.get("contract_start_date") or datetime.utcnow().strftime("%Y-%m-%d")
     if len(start_date_str) >= 10 and "-" in start_date_str[:10]:
@@ -2560,45 +2561,45 @@ def _build_and_send_onboarding_welcome_email(
     else:
         start_date_de = start_date_str
 
-    subject = f"🎉 Herzlich willkommen bei der Brünel Deutschland UG, {display_title_name}! Ihr Mitarbeiter-Portal & App-Zugang 🚀"
+    subject = f"Herzlich willkommen bei der Brünel Deutschland UG, {display_title_name} – Ihr Mitarbeiter-Portal & App-Zugang"
 
     plain_text = (
         f"{greeting_line}\n\n"
-        f"herzlich willkommen im Team der Brünel Deutschland UG! 🎉🤝\n"
-        f"Wir freuen uns sehr auf die Zusammenarbeit mit Ihnen als {role_label} und wünschen Ihnen einen großartigen Start, viel Erfolg und eine gute Arbeitszeit bei uns!\n\n"
+        f"herzlich willkommen im Team der Brünel Deutschland UG.\n"
+        f"Wir freuen uns sehr auf die Zusammenarbeit mit Ihnen als {role_label} und wünschen Ihnen einen erfolgreichen Start sowie eine gute Arbeitszeit in unserem Unternehmen.\n\n"
         f"Ihr unterschriebener Vertrag wurde erfolgreich in Ihrer digitalen Personalakte hinterlegt und ist ab sofort in Ihrem persönlichen Mitarbeiter-Portal unter „Dokumente“ für Sie freigeschaltet.\n\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"🔐 IHRE PERSÖNLICHEN ZUGANGSDATEN (MITARBEITER-PORTAL)\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"🌐 Login-Link: {portal_url}\n"
-        f"👤 Benutzername (Portal-Login): {login_key}\n"
-        f"🔑 Einmal-Passwort (OTP): {otp_plain}\n"
+        f"------------------------------------------------------------\n"
+        f"IHRE PERSÖNLICHEN ZUGANGSDATEN (MITARBEITER-PORTAL)\n"
+        f"------------------------------------------------------------\n"
+        f"Login-Link: {portal_url}\n"
+        f"Benutzername (Portal-Login): {login_key}\n"
+        f"Einmal-Passwort (OTP): {otp_plain}\n"
         f"(Hinweis: Ihre @bruenel.de-Kennung dient als Ihr Benutzername für das Portal. Beim ersten Login werden Sie gebeten, Ihr eigenes persönliches Passwort festzulegen.)\n\n"
-        f"✨ WAS SIE IM BRÜNEL MITARBEITER-PORTAL TUN KÖNNEN:\n"
-        f"⏱️ Arbeitszeiten & Pausen täglich bequem per Smartphone erfassen\n"
-        f"📄 Ihre unterschriebenen Verträge, DSGVO-Dokumente & Lohnabrechnungen jederzeit einsehen und herunterladen\n"
-        f"🌴 Urlaubsanträge & 🏥 Krankmeldungen (AU) direkt digital einreichen\n"
-        f"🏗️ Ihre Projekte, Baustellen & Aufgaben live abrufen\n\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"📲 ANLEITUNG: PORTAL ALS APP AUF IHREM SMARTPHONE INSTALLIEREN\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"🍎 FÜR IPHONE / iOS (Safari):\n"
-        f"1️⃣ Öffnen Sie Safari 🧭 auf Ihrem iPhone und rufen Sie {portal_url} auf.\n"
-        f"2️⃣ Tippen Sie unten in der Mitte auf das Teilen-Symbol 📤 (Quadrat mit Pfeil nach oben).\n"
-        f"3️⃣ Scrollen Sie im Menü nach unten und tippen Sie auf „Zum Home-Bildschirm“ ➕📱.\n"
-        f"4️⃣ Tippen Sie oben rechts auf „Hinzufügen“ ✅ — fertig! Das Brünel-Icon erscheint jetzt wie eine App auf Ihrem Home-Bildschirm.\n\n"
-        f"🤖 FÜR ANDROID (Google Chrome):\n"
-        f"1️⃣ Öffnen Sie Google Chrome 🌐 auf Ihrem Android-Smartphone und rufen Sie {portal_url} auf.\n"
-        f"2️⃣ Tippen Sie oben rechts auf das Drei-Punkte-Menü ⋮.\n"
-        f"3️⃣ Wählen Sie „Zum Startbildschirm hinzufügen“ 📲 oder „App installieren“ ⬇️.\n"
-        f"4️⃣ Bestätigen Sie mit „Hinzufügen / Installieren“ ✅ — das Brünel-Portal ist nun direkt als App auf Ihrem Startbildschirm verfügbar!\n\n"
-        f"Bei Fragen stehen wir Ihnen jederzeit gerne zur Verfügung.\n"
-        f"Auf eine erfolgreiche Zusammenarbeit!\n\n"
+        f"FUNKTIONEN IM BRÜNEL MITARBEITER-PORTAL:\n"
+        f"- Arbeitszeiten und Pausen täglich digital erfassen\n"
+        f"- Unterschriebene Verträge, DSGVO-Dokumente und Lohnabrechnungen jederzeit einsehen und herunterladen\n"
+        f"- Urlaubsanträge und Krankmeldungen (AU) digital einreichen\n"
+        f"- Projekte, Baustellen und Aufgaben abrufen\n\n"
+        f"------------------------------------------------------------\n"
+        f"ANLEITUNG: PORTAL ALS APP AUF IHREM SMARTPHONE HINZUFÜGEN\n"
+        f"------------------------------------------------------------\n\n"
+        f"FÜR IPHONE / iOS (Safari):\n"
+        f"1. Öffnen Sie Safari auf Ihrem iPhone und rufen Sie {portal_url} auf.\n"
+        f"2. Tippen Sie unten in der Menüleiste auf das Teilen-Symbol (Quadrat mit Pfeil nach oben).\n"
+        f"3. Scrollen Sie im Menü nach unten und wählen Sie „Zum Home-Bildschirm“.\n"
+        f"4. Bestätigen Sie oben rechts mit „Hinzufügen“. Das Brünel-Portal erscheint nun als App-Icon auf Ihrem Home-Bildschirm.\n\n"
+        f"FÜR ANDROID (Google Chrome):\n"
+        f"1. Öffnen Sie Google Chrome auf Ihrem Android-Smartphone und rufen Sie {portal_url} auf.\n"
+        f"2. Tippen Sie oben rechts auf das Drei-Punkte-Menü.\n"
+        f"3. Wählen Sie „Zum Startbildschirm hinzufügen“ oder „App installieren“.\n"
+        f"4. Bestätigen Sie mit „Hinzufügen / Installieren“. Das Brünel-Portal ist nun direkt auf Ihrem Startbildschirm verfügbar.\n\n"
+        f"Bei Rückfragen stehen wir Ihnen jederzeit gerne zur Verfügung.\n"
+        f"Auf eine erfolgreiche Zusammenarbeit.\n\n"
         f"Mit freundlichen Grüßen\n"
         f"Brünel Deutschland UG (haftungsbeschränkt)\n"
-        f"Geschäftsführung & HR-Abteilung\n"
+        f"Geschäftsführung & Personalabteilung\n"
         f"Ramonville Str. 28 · 61184 Karben\n"
-        f"Web: https://www.bruenel.de | Portal: {portal_url}\n"
+        f"Web: https://www.bruenel.de | Mitarbeiter-Login: {portal_url}\n"
     )
 
     html_body = f"""<!DOCTYPE html>
@@ -2609,193 +2610,203 @@ def _build_and_send_onboarding_welcome_email(
   <title>{subject}</title>
 </head>
 <body style="margin:0;padding:0;background-color:#f1f5f9;font-family:'Segoe UI',Arial,sans-serif;color:#0f172a;">
-  <div style="max-width:640px;margin:24px auto;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 10px 30px rgba(15,23,42,0.08);border:1px solid #e2e8f0;">
+  <div style="max-width:640px;margin:24px auto;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 8px 24px rgba(15,23,42,0.08);border:1px solid #cbd5e1;">
     <!-- Top Corporate Header -->
-    <div style="background:linear-gradient(135deg,#0f172a 0%,#1e293b 100%);padding:28px 32px;color:#ffffff;border-bottom:4px solid #FF6B00;">
-      <div style="display:flex;justify-content:space-between;align-items:center;">
-        <div>
-          <span style="display:inline-block;padding:4px 10px;border-radius:999px;background:#FF6B00;color:#ffffff;font-size:11px;font-weight:800;letter-spacing:0.06em;text-transform:uppercase;">
-            🎉 WILLKOMMEN IM TEAM
-          </span>
-          <h1 style="margin:10px 0 4px 0;font-size:22px;font-weight:800;color:#ffffff;">
-            Herzlich willkommen bei Brünel Deutschland UG!
-          </h1>
-          <p style="margin:0;font-size:13.5px;color:#cbd5e1;">
-            Onboarding abgeschlossen · Ihr persönlicher Mitarbeiter-Portal &amp; App-Zugang ist aktiv 🚀
-          </p>
-        </div>
+    <div style="background:#0f172a;padding:26px 32px;color:#ffffff;border-bottom:4px solid #FF6B00;">
+      <div style="font-size:11px;font-weight:700;color:#FF6B00;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:6px;">
+        BRÜNEL DEUTSCHLAND UG · PERSONALABTEILUNG &amp; ONBOARDING
       </div>
+      <h1 style="margin:0 0 6px 0;font-size:20px;font-weight:700;color:#ffffff;">
+        Herzlich willkommen bei der Brünel Deutschland UG
+      </h1>
+      <p style="margin:0;font-size:13px;color:#cbd5e1;">
+        Vertragsunterlagen freigeschaltet · Ihr persönlicher Zugang zum Mitarbeiter-Portal
+      </p>
     </div>
 
     <!-- Main Greeting -->
     <div style="padding:28px 32px;">
       <p style="margin:0 0 14px 0;font-size:15px;line-height:1.6;">
-        <strong>{greeting_line}</strong> 👋
+        <strong>{greeting_line}</strong>
       </p>
-      <p style="margin:0 0 14px 0;font-size:14.5px;line-height:1.65;color:#334155;">
-        wir heißen Sie <strong>herzlich willkommen im Team der Brünel Deutschland UG</strong>! 🎉👷‍♂️🤝<br />
-        Wir freuen uns sehr, Sie ab dem <strong>{start_date_de}</strong> als <strong>{role_label}</strong> an Bord zu haben, und wünschen Ihnen einen großartigen Start, spannende Projekte, viel Erfolg und eine rundum gute Arbeitszeit in unserem Unternehmen!
+      <p style="margin:0 0 14px 0;font-size:14px;line-height:1.65;color:#334155;">
+        wir heißen Sie herzlich willkommen im Team der <strong>Brünel Deutschland UG (haftungsbeschränkt)</strong>.<br />
+        Wir freuen uns auf die Zusammenarbeit mit Ihnen ab dem <strong>{start_date_de}</strong> in der Position als <strong>{role_label}</strong> und wünschen Ihnen einen erfolgreichen Start sowie eine gute Arbeitszeit in unserem Unternehmen.
       </p>
       <p style="margin:0 0 20px 0;font-size:14px;line-height:1.6;color:#334155;">
-        ✅ <strong>Ihr Vertrag ist jetzt freigeschaltet:</strong> Ihr unterschriebener Vertrag{f' (<em>{contract_title}</em>)' if contract_title else ''} wurde erfolgreich abgeschlossen und ist ab sofort in Ihrem persönlichen <strong>Mitarbeiter-Portal unter „Dokumente“</strong> für Sie sichtbar und jederzeit als PDF abrufbar.
+        <strong>Status Ihrer Vertragsunterlagen:</strong> Ihr unterschriebener Vertrag{f' (<em>{contract_title}</em>)' if contract_title else ''} wurde in Ihrer digitalen Personalakte abgeschlossen und ist ab sofort in Ihrem persönlichen <strong>Mitarbeiter-Portal unter „Dokumente“</strong> für Sie freigeschaltet.
       </p>
 
       <!-- Credentials Card -->
-      <div style="background:#fff7ed;border:2px solid #FF6B00;border-radius:14px;padding:20px 22px;margin:22px 0;">
-        <div style="font-size:12px;font-weight:800;color:#9a3412;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:10px;">
-          🔐 Ihre persönlichen Login-Zugangsdaten
+      <div style="background:#f8fafc;border:1px solid #cbd5e1;border-left:4px solid #FF6B00;border-radius:8px;padding:20px 22px;margin:22px 0;">
+        <div style="font-size:12px;font-weight:700;color:#0f172a;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:12px;">
+          Ihre persönlichen Zugangsdaten zum Mitarbeiter-Portal
         </div>
         <table style="width:100%;border-collapse:collapse;font-size:14px;">
           <tr>
-            <td style="padding:6px 0;color:#475569;width:44%;">🌐 <strong>Portal-Link:</strong></td>
-            <td style="padding:6px 0;font-weight:800;">
+            <td style="padding:6px 0;color:#475569;width:44%;"><strong>Login-Link:</strong></td>
+            <td style="padding:6px 0;font-weight:700;">
               <a href="{portal_url}" style="color:#FF6B00;text-decoration:none;">{portal_url}</a>
             </td>
           </tr>
           <tr>
-            <td style="padding:6px 0;color:#475569;">👤 <strong>Benutzername (Portal-Login):</strong></td>
-            <td style="padding:6px 0;font-family:monospace;font-size:14px;font-weight:800;color:#0f172a;">
+            <td style="padding:6px 0;color:#475569;"><strong>Benutzername (Portal-Login):</strong></td>
+            <td style="padding:6px 0;font-family:monospace;font-size:14px;font-weight:700;color:#0f172a;">
               {login_key}
             </td>
           </tr>
           <tr>
-            <td style="padding:6px 0;color:#475569;">🔑 <strong>Einmal-Passwort (OTP):</strong></td>
+            <td style="padding:6px 0;color:#475569;"><strong>Einmal-Passwort (OTP):</strong></td>
             <td style="padding:6px 0;">
-              <span style="display:inline-block;padding:4px 12px;border-radius:8px;background:#0f172a;color:#ffffff;font-family:monospace;font-size:15px;font-weight:800;letter-spacing:0.06em;">
+              <span style="display:inline-block;padding:4px 12px;border-radius:6px;background:#0f172a;color:#ffffff;font-family:monospace;font-size:14px;font-weight:700;letter-spacing:0.06em;">
                 {otp_plain}
               </span>
             </td>
           </tr>
         </table>
-        <div style="margin-top:12px;font-size:12px;color:#9a3412;line-height:1.45;">
-          💡 <strong>Wichtiger Hinweis zum Login:</strong> Bitte melden Sie sich im Portal mit Ihrem Benutzernamen <strong>{login_key}</strong> und dem obigen Einmal-Passwort an. Beim ersten Login werden Sie automatisch gebeten, Ihr eigenes persönliches Passwort festzulegen.
+        <div style="margin-top:12px;font-size:12px;color:#475569;line-height:1.5;">
+          <strong>Hinweis zur Erstanmeldung:</strong> Bitte melden Sie sich unter <a href="{portal_url}" style="color:#FF6B00;text-decoration:none;font-weight:600;">{portal_url}</a> mit Ihrem Benutzernamen <strong>{login_key}</strong> und dem oben genannten Einmal-Passwort an. Beim ersten Login werden Sie aufgefordert, ein persönliches Passwort zu vergeben.
         </div>
-        <div style="margin-top:16px;text-align:center;">
-          <a href="{portal_url}" target="_blank" rel="noreferrer" style="display:inline-block;padding:12px 26px;border-radius:10px;background:#FF6B00;color:#ffffff;font-weight:800;font-size:14px;text-decoration:none;box-shadow:0 4px 12px rgba(255,107,0,0.3);">
-            🚀 Jetzt im Mitarbeiter-Portal anmelden →
+        <div style="margin-top:16px;">
+          <a href="{portal_url}" target="_blank" rel="noreferrer" style="display:inline-block;padding:11px 22px;border-radius:8px;background:#FF6B00;color:#ffffff;font-weight:700;font-size:13.5px;text-decoration:none;">
+            Zum Mitarbeiter-Portal anmelden
           </a>
         </div>
       </div>
 
       <!-- Portal Features Section -->
-      <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:18px 20px;margin:20px 0;">
-        <div style="font-size:13.5px;font-weight:800;color:#0f172a;margin-bottom:10px;">
-          ✨ Was Sie in Ihrem Brünel Mitarbeiter-Portal erledigen können:
+      <div style="background:#ffffff;border:1px solid #e2e8f0;border-radius:8px;padding:16px 20px;margin:20px 0;">
+        <div style="font-size:13.5px;font-weight:700;color:#0f172a;margin-bottom:8px;">
+          Funktionen im Brünel Mitarbeiter-Portal:
         </div>
-        <ul style="margin:0;padding-left:20px;font-size:13.5px;line-height:1.75;color:#334155;">
-          <li>⏱️ <strong>Arbeitszeiten erfassen:</strong> Täglichen Arbeitsbeginn, Pausen und Feierabend direkt per Klick eintragen.</li>
-          <li>📄 <strong>Dokumente &amp; Verträge:</strong> Ihre unterschriebenen Verträge, DSGVO-Erklärung und monatlichen Lohnabrechnungen herunterladen.</li>
-          <li>🌴 <strong>Urlaub &amp; 🏥 Krankmeldung (AU):</strong> Urlaubsanträge stellen und Arbeitsunfähigkeitsbescheinigungen direkt per Foto/PDF hochladen.</li>
-          <li>🏗️ <strong>Projekte &amp; Einsätze:</strong> Ihre aktuellen Baustellen, Teams und Aufgaben live im Blick behalten.</li>
+        <ul style="margin:0;padding-left:20px;font-size:13.5px;line-height:1.7;color:#334155;">
+          <li><strong>Arbeitszeiterfassung:</strong> Täglichen Arbeitsbeginn, Pausen und Arbeitsende digital erfassen.</li>
+          <li><strong>Dokumente &amp; Verträge:</strong> Unterschriebene Verträge, DSGVO-Erklärung und Abrechnungen einsehen und herunterladen.</li>
+          <li><strong>Abwesenheiten:</strong> Urlaubsanträge stellen sowie Arbeitsunfähigkeitsbescheinigungen digital einreichen.</li>
+          <li><strong>Projekte &amp; Einsätze:</strong> Aktuelle Projektzuweisungen, Baustellen und Aufgaben einsehen.</li>
         </ul>
       </div>
 
       <!-- Mobile Homescreen App Installation Guide (iOS & Android) -->
       <div style="margin:24px 0 10px 0;">
-        <h3 style="margin:0 0 8px 0;font-size:16px;font-weight:800;color:#0f172a;">
-          📲 So fügen Sie das Portal als App auf Ihrem Smartphone-Home-Bildschirm hinzu
+        <h3 style="margin:0 0 8px 0;font-size:15px;font-weight:700;color:#0f172a;">
+          Anleitung: Mitarbeiter-Portal als App auf dem Smartphone einrichten
         </h3>
         <p style="margin:0 0 14px 0;font-size:13px;color:#475569;line-height:1.5;">
-          Damit Sie Ihre Arbeitszeiten und Dokumente jeden Tag mit nur einem Fingertipp öffnen können, speichern Sie sich <strong>portal.bruenel.de</strong> direkt als App-Icon auf Ihrem Handy:
+          Für den schnellen täglichen Zugriff auf Zeiterfassung und Dokumente können Sie den Login-Link direkt auf dem Startbildschirm Ihres Smartphones ablegen:
         </p>
 
         <!-- iPhone / iOS Box -->
-        <div style="background:#f8fafc;border:1px solid #cbd5e1;border-radius:12px;padding:16px 18px;margin-bottom:12px;">
-          <div style="font-size:14px;font-weight:800;color:#0f172a;margin-bottom:8px;">
-            🍎 Für iPhone / iOS (mit Safari Browser)
+        <div style="background:#f8fafc;border:1px solid #cbd5e1;border-radius:8px;padding:14px 18px;margin-bottom:12px;">
+          <div style="font-size:13.5px;font-weight:700;color:#0f172a;margin-bottom:6px;">
+            Apple iPhone / iOS (Safari Browser)
           </div>
-          <ol style="margin:0;padding-left:20px;font-size:13px;line-height:1.75;color:#334155;">
-            <li>Öffnen Sie die App <strong>Safari</strong> 🧭 auf Ihrem iPhone und rufen Sie <a href="{portal_url}" style="color:#FF6B00;font-weight:700;">{portal_url}</a> auf.</li>
-            <li>Tippen Sie unten in der Menüleiste auf das <strong>Teilen-Symbol</strong> 📤 <em>(Quadrat mit dem Pfeil nach oben)</em>.</li>
-            <li>Scrollen Sie im Menü etwas nach unten und tippen Sie auf <strong>„Zum Home-Bildschirm“</strong> ➕📱.</li>
-            <li>Tippen Sie oben rechts auf <strong>„Hinzufügen“</strong> ✅ — fertig! Das <strong>Brünel App-Icon</strong> befindet sich nun direkt auf Ihrem iPhone-Startbildschirm.</li>
+          <ol style="margin:0;padding-left:20px;font-size:13px;line-height:1.7;color:#334155;">
+            <li>Öffnen Sie <strong>Safari</strong> auf Ihrem iPhone und rufen Sie <a href="{portal_url}" style="color:#FF6B00;font-weight:700;">{portal_url}</a> auf.</li>
+            <li>Tippen Sie in der unteren Menüleiste auf das <strong>Teilen-Symbol</strong> (Quadrat mit Pfeil nach oben).</li>
+            <li>Wählen Sie im Menü den Punkt <strong>„Zum Home-Bildschirm“</strong>.</li>
+            <li>Bestätigen Sie oben rechts mit <strong>„Hinzufügen“</strong>.</li>
           </ol>
         </div>
 
         <!-- Android Box -->
-        <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:12px;padding:16px 18px;">
-          <div style="font-size:14px;font-weight:800;color:#065f46;margin-bottom:8px;">
-            🤖 Für Android-Smartphones (mit Google Chrome)
+        <div style="background:#f8fafc;border:1px solid #cbd5e1;border-radius:8px;padding:14px 18px;">
+          <div style="font-size:13.5px;font-weight:700;color:#0f172a;margin-bottom:6px;">
+            Android-Smartphone (Google Chrome Browser)
           </div>
-          <ol style="margin:0;padding-left:20px;font-size:13px;line-height:1.75;color:#1e293b;">
-            <li>Öffnen Sie <strong>Google Chrome</strong> 🌐 auf Ihrem Android-Handy und rufen Sie <a href="{portal_url}" style="color:#059669;font-weight:700;">{portal_url}</a> auf.</li>
-            <li>Tippen Sie oben rechts neben der Adresszeile auf das <strong>Drei-Punkte-Menü</strong> ⋮.</li>
-            <li>Tippen Sie im Menü auf <strong>„Zum Startbildschirm hinzufügen“</strong> 📲 oder <strong>„App installieren“</strong> ⬇️.</li>
-            <li>Bestätigen Sie mit <strong>„Hinzufügen / Installieren“</strong> ✅ — das Brünel-Portal erscheint sofort als App-Icon auf Ihrem Startbildschirm!</li>
+          <ol style="margin:0;padding-left:20px;font-size:13px;line-height:1.7;color:#334155;">
+            <li>Öffnen Sie <strong>Google Chrome</strong> auf Ihrem Smartphone und rufen Sie <a href="{portal_url}" style="color:#FF6B00;font-weight:700;">{portal_url}</a> auf.</li>
+            <li>Tippen Sie oben rechts auf das <strong>Drei-Punkte-Menü</strong>.</li>
+            <li>Wählen Sie <strong>„Zum Startbildschirm hinzufügen“</strong> bzw. <strong>„App installieren“</strong>.</li>
+            <li>Bestätigen Sie die Eingabe mit <strong>„Hinzufügen“</strong>.</li>
           </ol>
         </div>
       </div>
 
       <p style="margin:22px 0 8px 0;font-size:14px;line-height:1.6;color:#334155;">
-        Bei Fragen zu Ihrem Login oder zum Portal erreichen Sie Ihr Projektleiter- und HR-Team jederzeit.<br />
-        <strong>Nochmals herzlich willkommen im Team &amp; auf eine erfolgreiche Zusammenarbeit! 🚀🤝</strong>
+        Bei Fragen zu Ihrer Anmeldung steht Ihnen unsere Personalabteilung jederzeit gerne zur Verfügung.<br />
+        <strong>Mit freundlichen Grüßen und auf eine erfolgreiche Zusammenarbeit</strong>
       </p>
     </div>
 
     <!-- Footer -->
     <div style="background:#0f172a;color:#94a3b8;padding:18px 32px;font-size:12px;line-height:1.6;">
-      <div style="color:#ffffff;font-weight:800;font-size:13px;">Brünel Deutschland UG (haftungsbeschränkt)</div>
+      <div style="color:#ffffff;font-weight:700;font-size:13px;">Brünel Deutschland UG (haftungsbeschränkt)</div>
       <div>Ramonville Str. 28 · 61184 Karben · Deutschland</div>
-      <div>Geschäftsführer: Sam Rastegar Moghadam · Web: <a href="https://www.bruenel.de" style="color:#FF6B00;text-decoration:none;">www.bruenel.de</a> · Mitarbeiter-Portal: <a href="{portal_url}" style="color:#FF6B00;text-decoration:none;">portal.bruenel.de</a></div>
+      <div>Geschäftsführer: Sam Rastegar Moghadam · Web: <a href="https://www.bruenel.de" style="color:#FF6B00;text-decoration:none;">www.bruenel.de</a> · Mitarbeiter-Login: <a href="{portal_url}" style="color:#FF6B00;text-decoration:none;">www.bruenel.de/de#login</a></div>
     </div>
   </div>
 </body>
 </html>"""
 
     # Strictly send ONLY to private_email and NEVER to @bruenel.de!
-    recipient_email = private_email if (private_email and not private_email.lower().endswith("@bruenel.de")) else ""
+    recipient_email = private_email.strip() if (private_email and not private_email.lower().endswith("@bruenel.de")) else ""
     sent_via_smtp = False
     smtp_note = ""
     from_addr = "hr@bruenel.de"
 
-    if recipient_email:
+    if recipient_email and not preview_only:
+        from email.utils import formataddr, formatdate, make_msgid
+        from email.header import Header
+
         smtp_user = None
         smtp_pass = None
         smtp_host = os.environ.get("SMTP_HOST", "smtp.strato.de")
         smtp_port = int(os.environ.get("SMTP_PORT", "465"))
 
-        if sender_user and getattr(sender_user, "email_password", None):
-            smtp_user = sender_user.email
+        if sender_user and getattr(sender_user, "email_password", None) and "@" in (sender_user.email or ""):
+            smtp_user = sender_user.email.strip()
             smtp_pass = sender_user.email_password
             smtp_host = sender_user.smtp_host or smtp_host
             smtp_port = int(sender_user.smtp_port or smtp_port)
         else:
             configured_admin = (
                 db.query(models.User)
-                .filter(models.User.email_password.isnot(None), models.User.email_password != "")
+                .filter(
+                    models.User.email_password.isnot(None),
+                    models.User.email_password != "",
+                    models.User.email.like("%@%"),
+                )
                 .first()
             )
             if configured_admin:
-                smtp_user = configured_admin.email
+                smtp_user = configured_admin.email.strip()
                 smtp_pass = configured_admin.email_password
                 smtp_host = configured_admin.smtp_host or smtp_host
                 smtp_port = int(configured_admin.smtp_port or smtp_port)
             elif os.environ.get("SMTP_USER") and os.environ.get("SMTP_PASSWORD"):
-                smtp_user = os.environ.get("SMTP_USER")
+                smtp_user = os.environ.get("SMTP_USER").strip()
                 smtp_pass = os.environ.get("SMTP_PASSWORD")
 
         if smtp_user and smtp_pass:
-            from_addr = smtp_user
+            valid_from_email = smtp_user if "@" in smtp_user else f"{smtp_user}@bruenel.de"
+            from_addr = valid_from_email
             try:
                 msg = MIMEMultipart("alternative")
-                msg["Subject"] = subject
-                msg["From"] = f"Brünel Deutschland UG HR <{smtp_user}>"
+                msg["Subject"] = Header(subject, "utf-8")
+                # RFC 5322 compliant From header: ASCII display name + unencoded <addr-spec>
+                msg["From"] = formataddr(("Bruenel Deutschland UG", valid_from_email))
                 msg["To"] = recipient_email
+                msg["Reply-To"] = valid_from_email
+                msg["Date"] = formatdate(localtime=True)
+                msg["Message-ID"] = make_msgid(domain="bruenel.de")
                 msg.attach(MIMEText(plain_text, "plain", "utf-8"))
                 msg.attach(MIMEText(html_body, "html", "utf-8"))
 
-                with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=10) as server:
+                with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=12) as server:
                     server.login(smtp_user, smtp_pass)
-                    server.send_message(msg)
+                    server.sendmail(valid_from_email, [recipient_email], msg.as_string())
                 sent_via_smtp = True
-                smtp_note = f"Willkommens-E-Mail erfolgreich automatisch an die private E-Mail ({recipient_email}) gesendet. (Portal-Login: {login_key})"
+                smtp_note = f"Willkommens-E-Mail erfolgreich an die private E-Mail ({recipient_email}) gesendet. (Portal-Login: {login_key})"
             except Exception as smtp_err:
                 sent_via_smtp = False
-                smtp_note = f"SMTP-Versandhinweis ({recipient_email}): {str(smtp_err)}. Sie können die E-Mail direkt per 1-Klick versenden."
+                smtp_note = f"SMTP-Versandhinweis ({recipient_email}): {str(smtp_err)}."
         else:
             smtp_note = f"E-Mail-Vorlage für die private E-Mail ({recipient_email}) erstellt. (Portal-Login: {login_key} — es wird keine E-Mail an @bruenel.de gesendet)."
+    elif recipient_email and preview_only:
+        smtp_note = f"Vorschau der Willkommens-E-Mail für {recipient_email}. Klicken Sie auf „An private E-Mail senden“, um die E-Mail jetzt zu versenden."
     else:
-        smtp_note = f"⚠️ Bitte hinterlegen Sie eine private E-Mail-Adresse des Mitarbeiters für den Onboarding-Versand! (Die @bruenel.de-Kennung '{login_key}' dient ausschließlich als Portal-Benutzername, an @bruenel.de werden keine E-Mails versendet)."
+        smtp_note = f"Bitte hinterlegen Sie eine private E-Mail-Adresse des Mitarbeiters für den Onboarding-Versand. (Die @bruenel.de-Kennung '{login_key}' dient ausschließlich als Portal-Benutzername)."
 
     now_iso = datetime.utcnow().isoformat()
     attrs["onboarding_email_prepared_at"] = now_iso
@@ -2842,6 +2853,7 @@ def send_employee_onboarding_email(
 
     body = payload or {}
     regenerate_otp = bool(body.get("regenerate_otp", False))
+    preview_only = bool(body.get("preview_only", False))
     result = _build_and_send_onboarding_welcome_email(
         db=db,
         emp=emp,
@@ -2849,6 +2861,7 @@ def send_employee_onboarding_email(
         regenerate_otp=regenerate_otp,
         contract_title=body.get("contract_title") or "",
         override_private_email=body.get("private_email"),
+        preview_only=preview_only,
     )
     db.commit()
     log_audit(

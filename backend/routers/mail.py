@@ -195,11 +195,18 @@ def send_email(
     if not current_user.email_password:
         raise HTTPException(status_code=400, detail="Mail not configured. Please enter password in settings.")
     
+    from email.utils import formataddr, formatdate, make_msgid
+    from email.header import Header
+
+    valid_from = current_user.email.strip() if "@" in (current_user.email or "") else f"{(current_user.email or 'info').strip()}@bruenel.de"
+
     # Create the email
     msg = MIMEMultipart("alternative")
-    msg["Subject"] = data.subject
-    msg["From"] = current_user.email
-    msg["To"] = data.to_email
+    msg["Subject"] = Header(data.subject or "", "utf-8")
+    msg["From"] = formataddr(("Bruenel Deutschland UG", valid_from))
+    msg["To"] = data.to_email.strip()
+    msg["Date"] = formatdate(localtime=True)
+    msg["Message-ID"] = make_msgid(domain="bruenel.de")
 
     # Append signature if exists
     body_html = f"<p>{data.body.replace(chr(10), '<br>')}</p>"
