@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { DateInput, TimeInput } from '../components/DateTimeInputs';
 import {
   Users, Clock, Calendar, FileText, HeartPulse, Plus, Check, X, Upload,
@@ -398,6 +398,11 @@ export const HRManagementModule = ({ user }) => {
   const [approvingAllEmpId, setApprovingAllEmpId] = useState(null);
   const [expandedDocMap, setExpandedDocMap] = useState({});
   const [expandedTimeEmpMap, setExpandedTimeEmpMap] = useState({});
+  const [recycledEmployees, setRecycledEmployees] = useState([]);
+  const [showRecycleBin, setShowRecycleBin] = useState(false);
+  const [empFormDirty, setEmpFormDirty] = useState(false);
+  const [showUnsavedPrompt, setShowUnsavedPrompt] = useState(false);
+  const skipNextDirtyRef = useRef(false);
 
   // Document Selection, Sorting & Filtering State (for Personalakte & HR Documents Tab)
   const [selectedDocIds, setSelectedDocIds] = useState([]);
@@ -943,6 +948,7 @@ Return ONLY a valid JSON object with these exact keys (empty string "" if not pr
     fetchWithToken('/api/v1/hr/time-logs').then(setTimeLogs).catch(console.error);
     fetchWithToken('/api/v1/hr/leave-requests').then(setLeaves).catch(console.error);
     fetchWithToken('/api/v1/hr/sickness').then(setSickness).catch(console.error);
+    fetchWithToken('/api/v1/hr/employees/recycle-bin').then(d => setRecycledEmployees(Array.isArray(d) ? d : [])).catch(() => setRecycledEmployees([]));
     fetchWithToken('/api/v1/hr/payslips').then(setPayslips).catch(console.error);
     loadBi(biMonth, effectiveBiEmpId);
   };
@@ -1086,6 +1092,9 @@ Return ONLY a valid JSON object with these exact keys (empty string "" if not pr
   };
 
   const openCreateEmployeeModal = () => {
+    skipNextDirtyRef.current = true;
+    setEmpFormDirty(false);
+    setShowUnsavedPrompt(false);
     setEditingEmpId(null);
     setEmpCardTab('personal');
     setOtpBanner(null);
@@ -1116,6 +1125,9 @@ Return ONLY a valid JSON object with these exact keys (empty string "" if not pr
   };
 
   const populateEmpModal = (emp) => {
+    skipNextDirtyRef.current = true;
+    setEmpFormDirty(false);
+    setShowUnsavedPrompt(false);
     setEditingEmpId(emp.id);
     if (emp.role && !roleOptions.includes(emp.role)) {
       setRoleOptions(prev => Array.from(new Set([...prev, emp.role])));
@@ -1420,19 +1432,48 @@ Return ONLY a valid JSON object with these exact keys (empty string "" if not pr
     }
   };
 
+  useEffect(() => {
+    if (!showAddEmp) return;
+    if (skipNextDirtyRef.current) {
+      skipNextDirtyRef.current = false;
+      return;
+    }
+    setEmpFormDirty(true);
+  }, [newEmp, showAddEmp]);
+
+  const requestCloseEmpModal = () => {
+    if (empFormDirty) {
+      setShowUnsavedPrompt(true);
+    } else {
+      setShowAddEmp(false);
+      setShowUnsavedPrompt(false);
+    }
+  };
+
   const handleDeleteEmployee = async (empId, empName) => {
     const ok = await confirmDelete({
-      title: 'Mitarbeiter & Personalakte löschen?',
-      message: `Sind Sie sicher, dass Sie die Personalakte und den Account von "${empName}" unwiderruflich löschen möchten?\n\nAlle zugehörigen Dokumente, Arbeitszeiten und Zugangsdaten werden endgültig entfernt.`,
+      title: 'Mitarbeiter in Papierkorb verschieben?',
+      message: `Möchten Sie "${empName}" in den Papierkorb verschieben?\n\nKeine Daten werden endgültig gelöscht — Personalakte, Arbeitszeiten, Urlaub, Dokumente und Zugangsdaten bleiben im Papierkorb gespeichert und können jederzeit wiederhergestellt werden.`,
       itemName: empName,
     });
     if (!ok) return;
     try {
       await fetchWithToken(`/api/v1/hr/employees/${empId}`, { method: 'DELETE' });
       if (editingEmpId === empId) {
+        setEmpFormDirty(false);
+        setShowUnsavedPrompt(false);
         setShowAddEmp(false);
         setEditingEmpId(null);
       }
+      loadAll();
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  const handleRestoreEmployee = async (empId) => {
+    try {
+      await fetchWithToken(`/api/v1/hr/employees/${empId}/restore`, { method: 'POST' });
       loadAll();
     } catch (err) {
       alert(err.message);
@@ -1723,6 +1764,8 @@ Return ONLY a valid JSON object with these exact keys (empty string "" if not pr
         setCustomDocLabel('');
       }
 
+      setEmpFormDirty(false);
+      setShowUnsavedPrompt(false);
       setShowAddEmp(false);
       loadAll();
       if (jumpToContract && targetEmpId) {
@@ -2114,7 +2157,7 @@ Return ONLY a valid JSON object with these exact keys (empty string "" if not pr
             justifyContent: 'center',
             padding: 16,
           }}
-          onClick={() => setShowAddEmp(false)}
+          onClick={requestCloseEmpModal}
         >
           <div
             onClick={(e) => e.stopPropagation()}
@@ -2200,14 +2243,14 @@ Return ONLY a valid JSON object with these exact keys (empty string "" if not pr
                     className="btn-secondary btn-sm"
                     style={{ color: '#dc2626', borderColor: '#fecaca', background: '#fef2f2', padding: '5px 8px' }}
                     onClick={() => handleDeleteEmployee(editingEmpId, `${newEmp.first_name} ${newEmp.last_name}`)}
-                    title="Personalakte löschen"
+                    title="In Papierkorb verschieben"
                   >
                     <Trash2 size={13} />
                   </button>
                 )}
                 <button
                   type="button"
-                  onClick={() => setShowAddEmp(false)}
+                  onClick={requestCloseEmpModal}
                   title="Schließen"
                   style={{
                     width: 28,
@@ -4189,7 +4232,7 @@ Return ONLY a valid JSON object with these exact keys (empty string "" if not pr
               {/* Minimal Step Footer */}
               <div className="flex-between" style={{ padding: '12px 18px', borderTop: '1px solid #e2e8f0', background: '#f8fafc', gap: 10, flexWrap: 'wrap' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <button type="button" className="btn-secondary btn-sm" onClick={() => setShowAddEmp(false)}>
+                  <button type="button" className="btn-secondary btn-sm" onClick={requestCloseEmpModal}>
                     Abbrechen
                   </button>
                   <span style={{ fontSize: 11.5, color: '#64748b', fontWeight: 600 }}>
@@ -4206,29 +4249,27 @@ Return ONLY a valid JSON object with these exact keys (empty string "" if not pr
                       <ArrowLeft size={14} /> Zurück
                     </button>
                   )}
+                  {editingEmpId && (
+                    <button type="submit" className={isLastTab ? 'btn-secondary' : 'btn-primary'}>
+                      <Check size={14} /> Änderungen speichern
+                    </button>
+                  )}
                   {!isLastTab ? (
                     <button
                       type="button"
-                      className="btn-primary"
+                      className={editingEmpId ? 'btn-secondary' : 'btn-primary'}
                       onClick={() => setEmpCardTab(modalTabs[currentTabIdx + 1].id)}
                     >
                       Weiter <ArrowRight size={14} />
                     </button>
                   ) : (
-                    <>
-                      {editingEmpId && (
-                        <button type="submit" className="btn-secondary">
-                          <Check size={14} /> Änderungen speichern
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        className="btn-primary"
-                        onClick={(ev) => handleSaveEmployeeCard(ev, true)}
-                      >
-                        <FileText size={14} /> {editingEmpId ? 'Speichern & Vertrag generieren →' : 'Mitarbeiter anlegen & Vertrag generieren →'}
-                      </button>
-                    </>
+                    <button
+                      type="button"
+                      className="btn-primary"
+                      onClick={(ev) => handleSaveEmployeeCard(ev, true)}
+                    >
+                      <FileText size={14} /> {editingEmpId ? 'Speichern & Vertrag generieren →' : 'Mitarbeiter anlegen & Vertrag generieren →'}
+                    </button>
                   )}
                 </div>
               </div>
@@ -4237,6 +4278,85 @@ Return ONLY a valid JSON object with these exact keys (empty string "" if not pr
         </div>
         );
       })()}
+
+      {showAddEmp && showUnsavedPrompt && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 10060,
+            background: 'rgba(15, 23, 42, 0.62)',
+            backdropFilter: 'blur(3px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 16,
+          }}
+          onClick={() => setShowUnsavedPrompt(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: '100%',
+              maxWidth: 440,
+              background: '#ffffff',
+              borderRadius: 14,
+              border: '1px solid #e2e8f0',
+              boxShadow: '0 24px 64px rgba(15, 23, 42, 0.32)',
+              padding: '20px 22px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 12,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+              <strong style={{ fontSize: 15.5, color: '#0f172a' }}>Ungespeicherte Änderungen</strong>
+              <button
+                type="button"
+                onClick={() => setShowUnsavedPrompt(false)}
+                style={{ border: 'none', background: 'transparent', color: '#64748b', cursor: 'pointer', padding: 4 }}
+                title="Zurück zum Formular"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <p style={{ margin: 0, fontSize: 13, color: '#475569', lineHeight: 1.5 }}>
+              Sie haben Änderungen in der Personalakte vorgenommen. Möchten Sie diese jetzt speichern/aktualisieren oder verwerfen?
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
+              <button
+                type="button"
+                className="btn-secondary btn-sm"
+                onClick={() => setShowUnsavedPrompt(false)}
+              >
+                Abbrechen
+              </button>
+              <button
+                type="button"
+                className="btn-secondary btn-sm"
+                style={{ color: '#dc2626', borderColor: '#fecaca', background: '#fef2f2' }}
+                onClick={() => {
+                  setEmpFormDirty(false);
+                  setShowUnsavedPrompt(false);
+                  setShowAddEmp(false);
+                }}
+              >
+                Verwerfen
+              </button>
+              <button
+                type="button"
+                className="btn-primary btn-sm"
+                onClick={(ev) => {
+                  setShowUnsavedPrompt(false);
+                  handleSaveEmployeeCard(ev, false);
+                }}
+              >
+                <Check size={14} /> Änderungen speichern
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* =====================================================================
           AI DOCUMENT READER: LOADING POPUP + REVIEW & EDIT POPUP
@@ -4506,7 +4626,21 @@ Return ONLY a valid JSON object with these exact keys (empty string "" if not pr
                 <option value="5">Tier 5 · Field / Extern</option>
               </select>
               <button type="button" className="btn-secondary btn-sm" onClick={() => { setQ(''); setTypeFilter('All'); setRoleFilter('All'); setEmpSortBy('name'); setEmpSortDir('asc'); }}>Reset</button>
-              <button type="button" className="btn-secondary btn-sm" style={{ marginLeft: 'auto' }} onClick={() => downloadCsv({
+              <button
+                type="button"
+                className="btn-secondary btn-sm"
+                style={{
+                  marginLeft: 'auto',
+                  borderColor: showRecycleBin ? '#f97316' : undefined,
+                  background: showRecycleBin ? '#fff7ed' : undefined,
+                  color: showRecycleBin ? '#c2410c' : undefined,
+                }}
+                onClick={() => setShowRecycleBin((v) => !v)}
+                title="Gelöschte Mitarbeiter & Personalakten im Papierkorb anzeigen"
+              >
+                <Trash2 size={13} /> Papierkorb ({recycledEmployees.length})
+              </button>
+              <button type="button" className="btn-secondary btn-sm" onClick={() => downloadCsv({
                 rows: sortedEmps,
                 columns: [
                   { key: 'employee_number', label: 'Personal-Nr.' },
@@ -4527,6 +4661,54 @@ Return ONLY a valid JSON object with these exact keys (empty string "" if not pr
                 <Download size={13} /> CSV
               </button>
             </div>
+            {showRecycleBin && (
+              <div style={{ padding: '14px 16px', background: '#fff7ed', borderBottom: '1px solid #fed7aa' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, gap: 8, flexWrap: 'wrap' }}>
+                  <div>
+                    <strong style={{ fontSize: 13.5, color: '#9a3412' }}>Papierkorb — Gespeicherte gelöschte Mitarbeiter ({recycledEmployees.length})</strong>
+                    <div style={{ fontSize: 11.5, color: '#c2410c' }}>
+                      Mitarbeiter und alle zugehörigen Daten (Arbeitszeiten, Urlaub, Dokumente, Verträge) werden niemals endgültig gelöscht und können hier wiederhergestellt werden.
+                    </div>
+                  </div>
+                  <button type="button" className="btn-secondary btn-sm" onClick={() => setShowRecycleBin(false)}>
+                    Schließen
+                  </button>
+                </div>
+                {recycledEmployees.length === 0 ? (
+                  <div style={{ padding: '14px 12px', borderRadius: 8, background: '#fff', border: '1px dashed #fdba74', color: '#9a3412', fontSize: 12.5 }}>
+                    Der Papierkorb ist leer.
+                  </div>
+                ) : (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(290px, 1fr))', gap: 10 }}>
+                    {recycledEmployees.map((re) => (
+                      <div key={re.id} style={{ padding: '10px 12px', borderRadius: 9, background: '#fff', border: '1px solid #fed7aa', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontWeight: 700, fontSize: 13, color: '#0f172a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {re.full_name}
+                          </div>
+                          <div style={{ fontSize: 11, color: '#64748b' }}>
+                            {re.employee_number} · {re.employment_type} · {re.role || '—'}
+                          </div>
+                          {re.attributes?.deleted_at && (
+                            <div style={{ fontSize: 10.5, color: '#9a3412', marginTop: 2 }}>
+                              Im Papierkorb seit {formatDate(re.attributes.deleted_at)}
+                            </div>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          className="btn-primary btn-sm"
+                          style={{ flexShrink: 0 }}
+                          onClick={() => handleRestoreEmployee(re.id)}
+                        >
+                          Wiederherstellen
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
                 <thead>

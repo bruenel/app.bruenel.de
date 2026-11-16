@@ -207,6 +207,7 @@ def serialize_employee(
 
 @router.get("/employees")
 def list_employees(
+    include_deleted: bool = False,
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(get_current_user),
 ):
@@ -216,6 +217,9 @@ def list_employees(
     emps = query.order_by(models.Employee.employee_number.asc()).all()
     results = []
     for e in emps:
+        is_deleted = bool((e.attributes or {}).get("is_deleted"))
+        if is_deleted and not (include_deleted and is_hr_mgmt):
+            continue
         include_sens = is_hr_mgmt or (e.id == current_user.employee_id)
         item = serialize_employee(
             e,
@@ -225,6 +229,30 @@ def list_employees(
             include_employee_number=is_hr_mgmt,
         )
         results.append(item)
+    return results
+
+
+@router.get("/employees/recycle-bin")
+def list_recycled_employees(
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    tier = get_effective_tier(current_user)
+    if tier not in (1, 2, 3):
+        raise HTTPException(status_code=403, detail="Only Management or HR can view the recycle bin.")
+    emps = db.query(models.Employee).order_by(models.Employee.employee_number.asc()).all()
+    results = []
+    for e in emps:
+        if (e.attributes or {}).get("is_deleted"):
+            results.append(
+                serialize_employee(
+                    e,
+                    db=db,
+                    include_sensitive=True,
+                    include_pending_contracts=True,
+                    include_employee_number=True,
+                )
+            )
     return results
 
 
@@ -744,49 +772,69 @@ def delete_employee_record(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(get_current_user),
 ):
+    """Soft-delete: moves employee and all preserved data into the Recycle Bin (never permanently deleted)."""
     tier = get_effective_tier(current_user)
     if tier not in (1, 2, 3):
-        raise HTTPException(status_code=403, detail="Only Management or HR can delete employee profiles.")
+        raise HTTPException(status_code=403, detail="Only Management or HR can move employee profiles to the recycle bin.")
 
     emp = db.query(models.Employee).filter(models.Employee.id == emp_id).first()
     if not emp:
         raise HTTPException(status_code=404, detail="Employee not found")
 
-    emp_email = emp.email
-    # Clean up dependent records
-    emp_log_ids = [r.id for r in db.query(models.TimeLog.id).filter(models.TimeLog.employee_id == emp_id).all()]
-    if emp_log_ids:
-        db.query(models.TimeLogTeam).filter(models.TimeLogTeam.time_log_id.in_(emp_log_ids)).delete(synchronize_session=False)
-        db.query(models.TimeLogVehicle).filter(models.TimeLogVehicle.time_log_id.in_(emp_log_ids)).delete(synchronize_session=False)
-        db.query(models.TimeLogTool).filter(models.TimeLogTool.time_log_id.in_(emp_log_ids)).delete(synchronize_session=False)
-    db.query(models.TimeLogTeam).filter(models.TimeLogTeam.team_member_id == emp_id).delete(synchronize_session=False)
-    db.query(models.TimeLog).filter(models.TimeLog.employee_id == emp_id).delete(synchronize_session=False)
-    db.query(models.LeaveRequest).filter(models.LeaveRequest.employee_id == emp_id).delete(synchronize_session=False)
-    db.query(models.SicknessRecord).filter(models.SicknessRecord.employee_id == emp_id).delete(synchronize_session=False)
-    db.query(models.Payslip).filter(models.Payslip.employee_id == emp_id).delete(synchronize_session=False)
-    db.query(models.DocumentRecord).filter(
-        (models.DocumentRecord.employee_id == emp_id) | (models.DocumentRecord.reference_id == emp_id)
-    ).delete(synchronize_session=False)
-    db.query(models.Assignment).filter(models.Assignment.employee_id == emp_id).delete(synchronize_session=False)
-    db.query(models.Expense).filter(models.Expense.employee_id == emp_id).delete(synchronize_session=False)
-    db.query(models.MaterialTransaction).filter(models.MaterialTransaction.employee_id == emp_id).delete(synchronize_session=False)
-    db.query(models.Equipment).filter(models.Equipment.assigned_employee_id == emp_id).update({"assigned_employee_id": None}, synchronize_session=False)
-    db.query(models.Vehicle).filter(models.Vehicle.assigned_team_lead_id == emp_id).update({"assigned_team_lead_id": None}, synchronize_session=False)
+    attrs = dict(emp.attributes or {})
+    attrs["is_deleted"] = True
+    attrs["deleted_at"] = datetime.utcnow().isoformat()
+    attrs["deleted_by"] = current_user.email
+    emp.attributes = attrs
+    emp.is_active = False
 
-    # Delete linked user account unless it is the current logged-in Owner
+    # Disable login access while preserving all user/employee records
     linked_users = db.query(models.User).filter(
-        (models.User.employee_id == emp_id) | (models.User.email == emp_email if emp_email else False)
+        (models.User.employee_id == emp_id) | (models.User.email == emp.email if emp.email else False)
     ).all()
     for u in linked_users:
-        if u.id == current_user.id or u.role == models.RoleEnum.OWNER:
-            u.employee_id = None
-        else:
-            db.delete(u)
+        if u.id != current_user.id and u.role != models.RoleEnum.OWNER:
+            u.can_access_portal = False
+            u.can_access_app = False
 
-    db.delete(emp)
     db.commit()
-    log_audit(db, "employees", "DELETE", emp_id, current_user.email, {"email": emp_email}, None)
-    return {"status": "deleted", "id": emp_id}
+    log_audit(db, "employees", "SOFT_DELETE", emp_id, current_user.email, {"email": emp.email}, {"is_deleted": True})
+    return {"status": "recycled", "id": emp_id}
+
+
+@router.post("/employees/{emp_id}/restore")
+def restore_employee_record(
+    emp_id: str,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Restores an employee and all preserved data from the Recycle Bin."""
+    tier = get_effective_tier(current_user)
+    if tier not in (1, 2, 3):
+        raise HTTPException(status_code=403, detail="Only Management or HR can restore employee profiles.")
+
+    emp = db.query(models.Employee).filter(models.Employee.id == emp_id).first()
+    if not emp:
+        raise HTTPException(status_code=404, detail="Employee not found")
+
+    attrs = dict(emp.attributes or {})
+    attrs.pop("is_deleted", None)
+    attrs.pop("deleted_at", None)
+    attrs.pop("deleted_by", None)
+    emp.attributes = attrs
+    emp.is_active = True
+
+    linked_users = db.query(models.User).filter(
+        (models.User.employee_id == emp_id) | (models.User.email == emp.email if emp.email else False)
+    ).all()
+    for u in linked_users:
+        if u.id != current_user.id and u.role != models.RoleEnum.OWNER:
+            u.can_access_portal = True
+            u.can_access_app = ((emp.role_tier or 5) <= 3)
+
+    db.commit()
+    log_audit(db, "employees", "RESTORE", emp_id, current_user.email, {"is_deleted": True}, {"is_deleted": False})
+    return {"status": "restored", "id": emp_id}
 
 
 # ==============================================================================
