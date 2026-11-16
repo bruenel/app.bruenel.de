@@ -1212,6 +1212,7 @@ Return ONLY a valid JSON object with these exact keys (empty string "" if not pr
       check_in_time: fmtTimeInput(log.check_in_time),
       check_out_time: fmtTimeInput(log.check_out_time),
       break_minutes: log.break_minutes || 0,
+      status: log.status || 'Completed',
     });
   };
 
@@ -1225,6 +1226,7 @@ Return ONLY a valid JSON object with these exact keys (empty string "" if not pr
           check_in_time: editLogForm.check_in_time,
           check_out_time: editLogForm.check_out_time,
           break_minutes: parseInt(editLogForm.break_minutes || 0, 10),
+          status: editLogForm.status || log.status,
         }),
       });
       setEditingLogId(null);
@@ -1232,6 +1234,174 @@ Return ONLY a valid JSON object with these exact keys (empty string "" if not pr
     } catch (err) {
       alert(err.message);
     }
+  };
+
+  const handleSetTimeLogStatus = async (logId, nextStatus) => {
+    try {
+      await fetchWithToken(`/api/v1/hr/time-logs/${logId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ status: nextStatus }),
+      });
+      loadAll();
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  const renderEditableTimeLogRow = (l) => {
+    const isEditing = editingLogId === l.id;
+    const isApproved = l.status === 'Approved';
+    return (
+      <tr key={l.id} style={{ borderBottom: '1px solid #f1f5f9', background: isEditing ? '#fffbf7' : undefined }}>
+        <td style={{ padding: '6px 10px', fontWeight: 700 }}>
+          {isEditing ? (
+            <DateInput
+              value={editLogForm.date}
+              onChange={(e) => setEditLogForm({ ...editLogForm, date: e.target.value })}
+              style={{ width: 130, padding: '4px 6px', fontSize: 11.5 }}
+            />
+          ) : (
+            formatDate(l.date)
+          )}
+        </td>
+        <td style={{ padding: '6px 10px' }}>
+          {isEditing ? (
+            <select
+              value={editLogForm.project_id}
+              onChange={(e) => setEditLogForm({ ...editLogForm, project_id: e.target.value })}
+              style={{ width: 165, padding: '4px 6px', fontSize: 11.5 }}
+            >
+              <option value="">— Allgemein / Kein Projekt —</option>
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+          ) : (
+            l.project_name || '—'
+          )}
+        </td>
+        <td style={{ padding: '6px 10px' }}>
+          {isEditing ? (
+            <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+              <TimeInput
+                value={editLogForm.check_in_time}
+                onChange={(e) => setEditLogForm({ ...editLogForm, check_in_time: e.target.value })}
+                style={{ width: 92, padding: '4px 5px', fontSize: 11.5 }}
+              />
+              <span>–</span>
+              <TimeInput
+                value={editLogForm.check_out_time}
+                onChange={(e) => setEditLogForm({ ...editLogForm, check_out_time: e.target.value })}
+                style={{ width: 92, padding: '4px 5px', fontSize: 11.5 }}
+              />
+            </div>
+          ) : (
+            <>In: {fmtTimeInput(l.check_in_time) || '—'} · Out: {fmtTimeInput(l.check_out_time) || 'Aktiv'}</>
+          )}
+        </td>
+        <td style={{ padding: '6px 10px' }}>
+          {isEditing ? (
+            <input
+              type="number"
+              min="0"
+              value={editLogForm.break_minutes}
+              onChange={(e) => setEditLogForm({ ...editLogForm, break_minutes: e.target.value })}
+              style={{ width: 65, padding: '4px 6px', fontSize: 11.5 }}
+            />
+          ) : (
+            `${l.break_minutes || 0} min`
+          )}
+        </td>
+        <td style={{ padding: '6px 10px', fontWeight: 800, color: '#0f172a' }}>
+          {l.net_hours ?? l.total_hours ?? 0} h
+        </td>
+        <td style={{ padding: '6px 10px' }}>
+          {isEditing ? (
+            <select
+              value={editLogForm.status || 'Completed'}
+              onChange={(e) => setEditLogForm({ ...editLogForm, status: e.target.value })}
+              style={{ width: 'auto', padding: '4px 6px', fontSize: 11 }}
+            >
+              <option value="Approved">Approved (Freigegeben)</option>
+              <option value="Completed">Pending (Offen)</option>
+            </select>
+          ) : (
+            <span
+              className="badge"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+                background: isApproved ? '#dcfce7' : '#fef3c7',
+                color: isApproved ? '#15803d' : '#b45309',
+                fontSize: 10.5,
+              }}
+            >
+              {isApproved && <Lock size={10} />}
+              {isApproved ? 'Freigegeben' : 'Pending'}
+            </span>
+          )}
+        </td>
+        <td style={{ padding: '6px 10px', textAlign: 'right' }}>
+          <div style={{ display: 'inline-flex', gap: 5, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            {isEditing ? (
+              <>
+                <button type="button" className="btn-primary btn-sm" style={{ padding: '3px 8px', fontSize: 10.5 }} onClick={() => saveEditLog(l)}>
+                  <Check size={11} /> Speichern
+                </button>
+                <button type="button" className="btn-secondary btn-sm" style={{ padding: '3px 7px', fontSize: 10.5 }} onClick={() => setEditingLogId(null)}>
+                  <X size={11} />
+                </button>
+              </>
+            ) : (
+              <>
+                {isApproved ? (
+                  <button
+                    type="button"
+                    className="btn-secondary btn-sm"
+                    style={{ padding: '3px 7px', fontSize: 10.5, color: '#b45309', borderColor: '#fde68a', background: '#fffbeb' }}
+                    onClick={() => handleSetTimeLogStatus(l.id, 'Completed')}
+                    title="Freigabe aufheben und auf Pending setzen"
+                  >
+                    Auf Pending
+                  </button>
+                ) : (
+                  l.check_out_time && (
+                    <button
+                      type="button"
+                      className="btn-primary btn-sm"
+                      style={{ padding: '3px 7px', fontSize: 10.5, background: '#059669', borderColor: '#047857' }}
+                      onClick={() => handleApproveTimeLog(l.id)}
+                      title="Freigeben & Sperren"
+                    >
+                      <Check size={11} /> Freigeben
+                    </button>
+                  )
+                )}
+                <button
+                  type="button"
+                  className="btn-secondary btn-sm"
+                  style={{ padding: '3px 7px', fontSize: 10.5 }}
+                  onClick={() => startEditLog(l)}
+                  title="Datum, Uhrzeit, Pause oder Projekt bearbeiten"
+                >
+                  <Edit3 size={11} /> Edit
+                </button>
+                <button
+                  type="button"
+                  className="btn-secondary btn-sm"
+                  style={{ color: '#dc2626', padding: '3px 6px' }}
+                  onClick={() => handleDeleteTimeLog(l.id)}
+                  title="Eintrag löschen"
+                >
+                  <Trash2 size={11} />
+                </button>
+              </>
+            )}
+          </div>
+        </td>
+      </tr>
+    );
   };
 
   const handleDeleteTimeLog = async (logId) => {
@@ -3747,32 +3917,7 @@ Return ONLY a valid JSON object with these exact keys (empty string "" if not pr
                                         </tr>
                                       </thead>
                                       <tbody>
-                                        {mg.logs.map((l) => (
-                                          <tr key={l.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                            <td style={{ padding: '7px 10px', fontWeight: 700 }}>{formatDate(l.date)}</td>
-                                            <td style={{ padding: '7px 10px' }}>{l.project_name || '—'}</td>
-                                            <td style={{ padding: '7px 10px' }}>{fmtTimeInput(l.check_in_time) || '—'} – {fmtTimeInput(l.check_out_time) || 'Aktiv'}</td>
-                                            <td style={{ padding: '7px 10px' }}>{l.break_minutes || 0} min</td>
-                                            <td style={{ padding: '7px 10px', fontWeight: 800, color: '#0f172a' }}>{l.net_hours ?? l.total_hours ?? 0} h</td>
-                                            <td style={{ padding: '7px 10px' }}>
-                                              <span className="badge" style={{ background: l.status === 'Approved' ? '#dcfce7' : '#fef3c7', color: l.status === 'Approved' ? '#15803d' : '#b45309', fontSize: 10.5 }}>
-                                                {l.status}
-                                              </span>
-                                            </td>
-                                            <td style={{ padding: '7px 10px', textAlign: 'right' }}>
-                                              <div style={{ display: 'inline-flex', gap: 5 }}>
-                                                {l.status !== 'Approved' && l.check_out_time && (
-                                                  <button type="button" className="btn-primary btn-sm" style={{ padding: '3px 8px', fontSize: 11 }} onClick={() => handleApproveTimeLog(l.id)}>
-                                                    <Check size={11} /> Freigeben
-                                                  </button>
-                                                )}
-                                                <button type="button" className="btn-secondary btn-sm" style={{ color: '#dc2626', padding: '3px 6px' }} onClick={() => handleDeleteTimeLog(l.id)}>
-                                                  <Trash2 size={11} />
-                                                </button>
-                                              </div>
-                                            </td>
-                                          </tr>
-                                        ))}
+                                        {mg.logs.map(renderEditableTimeLogRow)}
                                       </tbody>
                                     </table>
                                   </div>
@@ -4979,8 +5124,13 @@ Return ONLY a valid JSON object with these exact keys (empty string "" if not pr
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                           <strong style={{ fontSize: 13.5, color: '#0f172a' }}>{emp.full_name}</strong>
                           <span style={{ fontSize: 11.5, color: '#64748b' }}>
-                            {emp.role} · {emp.employment_type}
+                            {emp.role} · {emp.employment_type} ({eb?.weekly_hours_limit || emp.attributes?.weekly_hours || 40}h/Woche)
                           </span>
+                          {eb && (
+                            <span style={{ fontSize: 11, color: '#475569' }}>
+                              Soll: <strong>{eb.soll_hours ?? 0}h</strong> · U: <strong>+{eb.urlaub_hours || 0}h</strong> · K: <strong>+{eb.krankheit_hours || 0}h</strong> · Gesamt: <strong style={{ color: '#FF6B00' }}>{eb.total_credited_hours}h</strong> · Kosten: <strong>{formatEuro(eb.estimated_monthly_cost || eb.base_salary)}</strong>
+                            </span>
+                          )}
                         </div>
 
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }} onClick={(e) => e.stopPropagation()}>
@@ -5151,32 +5301,7 @@ Return ONLY a valid JSON object with these exact keys (empty string "" if not pr
                                                 </tr>
                                               </thead>
                                               <tbody>
-                                                {mg.logs.map((l) => (
-                                                  <tr key={l.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                                    <td style={{ padding: '6px 10px', fontWeight: 700 }}>{formatDate(l.date)}</td>
-                                                    <td style={{ padding: '6px 10px' }}>{l.project_name || '—'}</td>
-                                                    <td style={{ padding: '6px 10px' }}>{fmtTimeInput(l.check_in_time) || '—'} – {fmtTimeInput(l.check_out_time) || 'Aktiv'}</td>
-                                                    <td style={{ padding: '6px 10px' }}>{l.break_minutes || 0} min</td>
-                                                    <td style={{ padding: '6px 10px', fontWeight: 800, color: '#0f172a' }}>{l.net_hours ?? l.total_hours ?? 0} h</td>
-                                                    <td style={{ padding: '6px 10px' }}>
-                                                      <span className="badge" style={{ background: l.status === 'Approved' ? '#dcfce7' : '#fef3c7', color: l.status === 'Approved' ? '#15803d' : '#b45309', fontSize: 10 }}>
-                                                        {l.status}
-                                                      </span>
-                                                    </td>
-                                                    <td style={{ padding: '6px 10px', textAlign: 'right' }}>
-                                                      <div style={{ display: 'inline-flex', gap: 5 }}>
-                                                        {l.status !== 'Approved' && l.check_out_time && (
-                                                          <button type="button" className="btn-primary btn-sm" style={{ padding: '3px 7px', fontSize: 10.5 }} onClick={() => handleApproveTimeLog(l.id)}>
-                                                            <Check size={11} /> Freigeben
-                                                          </button>
-                                                        )}
-                                                        <button type="button" className="btn-secondary btn-sm" style={{ color: '#dc2626', padding: '3px 6px' }} onClick={() => handleDeleteTimeLog(l.id)}>
-                                                          <Trash2 size={11} />
-                                                        </button>
-                                                      </div>
-                                                    </td>
-                                                  </tr>
-                                                ))}
+                                                {mg.logs.map(renderEditableTimeLogRow)}
                                               </tbody>
                                             </table>
                                           </div>
