@@ -511,14 +511,12 @@ Return ONLY a valid JSON object with these exact keys (empty string "" if not pr
   "notes": ""
 }"""
 
-    models_to_try = ["gemini-2.5-flash", "gemini-2.0-flash"]
+    models_to_try = ["gemini-flash-lite-latest", "gemini-3.5-flash-lite"]
     last_err = None
 
     for model_name in models_to_try:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={gemini_key}"
         gen_cfg = {"temperature": 0, "responseMimeType": "application/json"}
-        if "2.5" in model_name:
-            gen_cfg["thinkingConfig"] = {"thinkingBudget": 0}
         body = json.dumps({
             "contents": [{
                 "parts": [

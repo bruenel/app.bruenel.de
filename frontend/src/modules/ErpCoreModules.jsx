@@ -727,7 +727,7 @@ export const HRManagementModule = ({ user }) => {
     };
 
     const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || '';
-    const modelsToTry = ['gemini-2.5-flash', 'gemini-2.0-flash'];
+    const modelsToTry = ['gemini-flash-lite-latest', 'gemini-3.5-flash-lite'];
 
     const prompt = `You are an expert German & EU HR document parser. Analyze the uploaded document thoroughly (Personalausweis front/back, Reisepass, Aufenthaltstitel, Meldebestätigung, Führerschein, Krankenkassenkarte/eGK, Sozialversicherungsausweis, Steuer-ID Schreiben, Bankkarte/Kontoauszug, Lebenslauf/CV, Arbeitsvertrag, Lohnabrechnung, Gewerbeanmeldung, §48b Freistellungsbescheinigung, or any other HR/ID document).
 Read ALL visible text, tables, headers, and Machine-Readable Zones (MRZ lines at the bottom of IDs/passports).
@@ -792,7 +792,6 @@ Return ONLY a valid JSON object with these exact keys (empty string "" if not pr
               for (const model of modelsToTry) {
                 try {
                   const genCfg = { temperature: 0, responseMimeType: 'application/json' };
-                  if (model.includes('2.5')) genCfg.thinkingConfig = { thinkingBudget: 0 };
                   const res = await fetch(
                     `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`,
                     {
@@ -4201,6 +4200,11 @@ Return ONLY a valid JSON object with these exact keys (empty string "" if not pr
             </div>
 
             <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {aiDocError && (
+                <div style={{ padding: '10px 12px', borderRadius: 8, background: '#fef2f2', border: '1px solid #fecaca', color: '#991b1b', fontSize: 12 }}>
+                  ⚠️ KI-Hinweis: {aiDocError}
+                </div>
+              )}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(175px, 1fr))', gap: 10 }}>
                 {[
                   { key: 'first_name', label: 'Vorname' },
