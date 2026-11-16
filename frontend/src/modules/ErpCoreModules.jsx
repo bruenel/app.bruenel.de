@@ -662,11 +662,76 @@ export const HRManagementModule = ({ user }) => {
         reader.readAsDataURL(f);
       });
 
-    const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || '';
-    const modelsToTry = ['gemini-3.8-flash', 'gemini-flash-latest', 'gemini-2.5-flash'];
+    // Resize large images client-side (max 1600px, JPEG 0.85) for 5x faster AI OCR
+    const prepareForAi = async (f) => {
+      const ext = (f.name || '').split('.').pop()?.toLowerCase() || '';
+      let mimeType = f.type;
+      if (!mimeType) {
+        if (ext === 'pdf') mimeType = 'application/pdf';
+        else if (ext === 'png') mimeType = 'image/png';
+        else if (ext === 'webp') mimeType = 'image/webp';
+        else mimeType = 'image/jpeg';
+      }
+      if (mimeType.startsWith('image/') && f.size > 350 * 1024 && typeof createImageBitmap === 'function') {
+        try {
+          const bmp = await createImageBitmap(f);
+          const maxDim = 1600;
+          const scale = Math.min(1, maxDim / Math.max(bmp.width, bmp.height));
+          if (scale < 1) {
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.round(bmp.width * scale);
+            canvas.height = Math.round(bmp.height * scale);
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
+            bmp.close?.();
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+            return { b64: dataUrl.split(',')[1], mimeType: 'image/jpeg' };
+          }
+          bmp.close?.();
+        } catch {
+          // fallback to raw base64
+        }
+      }
+      const b64 = await toBase64(f);
+      return { b64, mimeType };
+    };
 
-    const prompt = `You are an HR document parser for a German company. Analyze this document (it may be a Personalausweis, Reisepass, Aufenthaltstitel, Führerschein, Krankenkassenkarte, Sozialversicherungsausweis, Lebenslauf/CV, Arbeitsvertrag, Gewerbeanmeldung, Freistellungsbescheinigung, or other HR document).
-Extract as many of the following fields as you can find. Return ONLY valid JSON (no markdown):
+    const normalizeIsoDate = (val) => {
+      const s = String(val || '').trim();
+      if (!s) return '';
+      if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+      const m = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{2,4})$/);
+      if (m) {
+        const dd = m[1].padStart(2, '0');
+        const mm = m[2].padStart(2, '0');
+        let yy = m[3];
+        if (yy.length === 2) yy = (Number(yy) > 40 ? '19' : '20') + yy;
+        return `${yy}-${mm}-${dd}`;
+      }
+      return s;
+    };
+
+    const parseAiJson = (rawText) => {
+      try {
+        let cleaned = String(rawText || '{}').trim();
+        if (cleaned.startsWith('```')) {
+          cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
+        }
+        let parsed = JSON.parse(cleaned);
+        if (Array.isArray(parsed) && parsed.length > 0) parsed = parsed[0];
+        return parsed && typeof parsed === 'object' ? parsed : {};
+      } catch {
+        return {};
+      }
+    };
+
+    const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || '';
+    const modelsToTry = ['gemini-2.5-flash', 'gemini-2.0-flash'];
+
+    const prompt = `You are an expert German & EU HR document parser. Analyze the uploaded document thoroughly (Personalausweis front/back, Reisepass, Aufenthaltstitel, Meldebestätigung, Führerschein, Krankenkassenkarte/eGK, Sozialversicherungsausweis, Steuer-ID Schreiben, Bankkarte/Kontoauszug, Lebenslauf/CV, Arbeitsvertrag, Lohnabrechnung, Gewerbeanmeldung, §48b Freistellungsbescheinigung, or any other HR/ID document).
+Read ALL visible text, tables, headers, and Machine-Readable Zones (MRZ lines at the bottom of IDs/passports).
+Convert all dates from DD.MM.YYYY or DD.MM.YY to YYYY-MM-DD format.
+Return ONLY a valid JSON object with these exact keys (empty string "" if not present, do not guess):
 {
   "first_name": "",
   "last_name": "",
@@ -694,95 +759,93 @@ Extract as many of the following fields as you can find. Return ONLY valid JSON 
   "bank_name": "",
   "role": "",
   "notes": ""
-}
-Leave a field as empty string if you cannot find it. Do not guess. Only return JSON.`;
+}`;
 
     try {
-      for (const file of files) {
-        // 1. Upload each document immediately as a separate file
-        const uploadedDoc = await uploadMediaFile({
-          file,
-          referenceType: 'PersonalDokument',
-          referenceId: editingEmpId || 'NEW_EMPLOYEE',
-          title: `KI-Upload: ${file.name}`,
-        });
+      // Run upload + AI extraction in parallel across all uploaded files
+      const perFileResults = await Promise.all(
+        files.map(async (file) => {
+          const uploadPromise = uploadMediaFile({
+            file,
+            referenceType: 'PersonalDokument',
+            referenceId: editingEmpId || 'NEW_EMPLOYEE',
+            title: `KI-Upload: ${file.name}`,
+          }).then(async (uploadedDoc) => {
+            if (uploadedDoc?.document_id && editingEmpId) {
+              await fetchWithToken(`/api/v1/hr/employees/${editingEmpId}/documents`, {
+                method: 'POST',
+                body: JSON.stringify({
+                  document_id: uploadedDoc.document_id,
+                  category: docCategory || 'Personalausweis / Reisepass',
+                  title: `KI-Upload: ${file.name}`,
+                }),
+              }).catch(() => null);
+            }
+            return uploadedDoc;
+          }).catch(() => null);
 
-        if (uploadedDoc?.document_id) {
-          uploadedDocsList.push({ ...uploadedDoc, name: file.name });
-          if (editingEmpId) {
-            await fetchWithToken(`/api/v1/hr/employees/${editingEmpId}/documents`, {
-              method: 'POST',
-              body: JSON.stringify({
-                document_id: uploadedDoc.document_id,
-                category: docCategory || 'Personalausweis / Reisepass',
-                title: `KI-Upload: ${file.name}`,
-              }),
-            }).catch(() => null);
-          }
-        }
-
-        // 2. Read each document with Gemini Vision
-        try {
-          const b64 = await toBase64(file);
-          const mimeType = file.type || 'image/jpeg';
-          let docFields = {};
-
-          if (GEMINI_KEY) {
-            let geminiRes = null;
-            for (const model of modelsToTry) {
-              try {
-                const res = await fetch(
-                  `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`,
-                  {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      contents: [{
-                        parts: [
-                          { text: prompt },
-                          { inline_data: { mime_type: mimeType, data: b64 } },
-                        ],
-                      }],
-                      generationConfig: { temperature: 0, responseMimeType: 'application/json' },
-                    }),
+          const aiPromise = (async () => {
+            const { b64, mimeType } = await prepareForAi(file);
+            let docFields = {};
+            if (GEMINI_KEY) {
+              for (const model of modelsToTry) {
+                try {
+                  const genCfg = { temperature: 0, responseMimeType: 'application/json' };
+                  if (model.includes('2.5')) genCfg.thinkingConfig = { thinkingBudget: 0 };
+                  const res = await fetch(
+                    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`,
+                    {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: mimeType, data: b64 } }] }],
+                        generationConfig: genCfg,
+                      }),
+                    }
+                  );
+                  if (res.ok) {
+                    const geminiJson = await res.json();
+                    const rawText = geminiJson?.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+                    docFields = parseAiJson(rawText);
+                    if (Object.keys(docFields).length > 0) return docFields;
                   }
-                );
-                if (res.ok) {
-                  geminiRes = res;
-                  break;
+                } catch {
+                  // try next model
                 }
-              } catch (e) {
-                // next model
               }
             }
-
-            if (geminiRes) {
-              const geminiJson = await geminiRes.json();
-              const rawText = geminiJson?.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
-              try { docFields = JSON.parse(rawText); } catch { docFields = {}; }
-            } else {
-              const backendRes = await fetchWithToken('/api/v1/hr/ai/read-document', {
-                method: 'POST',
-                body: JSON.stringify({ mime_type: mimeType, data: b64 }),
-              }).catch(() => null);
-              docFields = backendRes?.fields || {};
-            }
-          } else {
             const backendRes = await fetchWithToken('/api/v1/hr/ai/read-document', {
               method: 'POST',
               body: JSON.stringify({ mime_type: mimeType, data: b64 }),
-            }).catch(() => null);
-            docFields = backendRes?.fields || {};
-          }
+            });
+            return backendRes?.fields || {};
+          })().catch((err) => {
+            console.warn('Error reading file with AI:', file.name, err);
+            return { _aiError: err?.message || 'AI read failed' };
+          });
 
-          for (const [k, v] of Object.entries(docFields)) {
-            if (v && String(v).trim()) {
-              mergedFields[k] = v;
-            }
-          }
-        } catch (readErr) {
-          console.warn('Error reading file with AI:', file.name, readErr);
+          const [uploadedDoc, docFields] = await Promise.all([uploadPromise, aiPromise]);
+          return { file, uploadedDoc, docFields };
+        })
+      );
+
+      let lastAiErr = null;
+      for (const item of perFileResults) {
+        if (item.uploadedDoc?.document_id) {
+          uploadedDocsList.push({ ...item.uploadedDoc, name: item.file.name });
         }
+        if (item.docFields?._aiError) {
+          lastAiErr = item.docFields._aiError;
+        }
+        for (const [k, v] of Object.entries(item.docFields || {})) {
+          if (k === '_aiError') continue;
+          if (v && String(v).trim()) {
+            mergedFields[k] = (k === 'birth_date' || k === 'document_valid_until') ? normalizeIsoDate(v) : String(v).trim();
+          }
+        }
+      }
+      if (Object.keys(mergedFields).length === 0 && lastAiErr) {
+        setAiDocError(lastAiErr);
       }
 
       // Open review & edit popup modal with all extracted fields before applying to form

@@ -478,8 +478,10 @@ async def ai_read_document_backend(
     if not b64_data:
         raise HTTPException(status_code=400, detail="Missing image data")
 
-    prompt = """You are an HR document parser for a German company. Analyze this document (it may be a Personalausweis, Reisepass, Aufenthaltstitel, Führerschein, Krankenkassenkarte, Sozialversicherungsausweis, Lebenslauf/CV, Gewerbeanmeldung, or other HR document).
-Extract as many of the following fields as you can find. Return ONLY valid JSON (no markdown):
+    prompt = """You are an expert German & EU HR document parser. Analyze the uploaded document thoroughly (it may be a Personalausweis front/back, Reisepass, Aufenthaltstitel, Meldebestätigung, Führerschein, Krankenkassenkarte/eGK, Sozialversicherungsausweis, Steuer-ID Schreiben, Bankkarte/Kontoauszug, Lebenslauf/CV, Arbeitsvertrag, Lohnabrechnung, Gewerbeanmeldung, §48b Freistellungsbescheinigung, or any other HR/ID document).
+Read ALL visible text, tables, headers, and Machine-Readable Zones (MRZ lines at the bottom of IDs/passports).
+Convert all dates from DD.MM.YYYY or DD.MM.YY to YYYY-MM-DD format.
+Return ONLY a valid JSON object with these exact keys (empty string "" if not present, do not guess):
 {
   "first_name": "",
   "last_name": "",
@@ -507,14 +509,16 @@ Extract as many of the following fields as you can find. Return ONLY valid JSON 
   "bank_name": "",
   "role": "",
   "notes": ""
-}
-Leave a field as empty string if you cannot find it. Do not guess. Only return JSON."""
+}"""
 
-    models_to_try = ["gemini-3.8-flash", "gemini-flash-latest", "gemini-2.5-flash"]
+    models_to_try = ["gemini-2.5-flash", "gemini-2.0-flash"]
     last_err = None
 
     for model_name in models_to_try:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={gemini_key}"
+        gen_cfg = {"temperature": 0, "responseMimeType": "application/json"}
+        if "2.5" in model_name:
+            gen_cfg["thinkingConfig"] = {"thinkingBudget": 0}
         body = json.dumps({
             "contents": [{
                 "parts": [
@@ -522,15 +526,21 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                     {"inline_data": {"mime_type": mime_type, "data": b64_data}}
                 ]
             }],
-            "generationConfig": {"temperature": 0, "responseMimeType": "application/json"}
+            "generationConfig": gen_cfg,
         }).encode("utf-8")
         req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
         try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
+            with urllib.request.urlopen(req, timeout=25) as resp:
                 resp_json = json.loads(resp.read().decode("utf-8"))
                 raw_text = resp_json.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "{}")
+                cleaned = raw_text.strip()
+                if cleaned.startswith("```"):
+                    cleaned = cleaned.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
                 try:
-                    fields = json.loads(raw_text)
+                    parsed = json.loads(cleaned)
+                    if isinstance(parsed, list) and parsed:
+                        parsed = parsed[0]
+                    fields = parsed if isinstance(parsed, dict) else {}
                 except Exception:
                     fields = {}
                 return {"fields": fields, "model": model_name}
