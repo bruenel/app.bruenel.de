@@ -396,6 +396,7 @@ export const HRManagementModule = ({ user }) => {
   const [expandedHoursMonthMap, setExpandedHoursMonthMap] = useState({});
   const [hoursCalMonth, setHoursCalMonth] = useState(() => new Date().toISOString().slice(0, 7));
   const [approvingAllEmpId, setApprovingAllEmpId] = useState(null);
+  const [expandedDocMap, setExpandedDocMap] = useState({});
 
   // Document Selection, Sorting & Filtering State (for Personalakte & HR Documents Tab)
   const [selectedDocIds, setSelectedDocIds] = useState([]);
@@ -1800,14 +1801,12 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
       )}
 
       {/* Sub-navigation (short labels, underline style) */}
-      <SubTabs base="/hr" variant="underline" active={tab} items={[
-        { id: 'overview', label: 'Übersicht' },
+      <SubTabs base="/hr" variant="underline" active={tab === 'overview' || tab === 'documents' ? 'employees' : tab} items={[
         { id: 'employees', label: 'Mitarbeiter', count: employees.length },
         { id: 'contracts', label: 'Verträge' },
         { id: 'timelogs', label: 'Arbeitszeiten', count: timeLogs.length },
         { id: 'leaves', label: 'Urlaub', count: leaves.length },
         { id: 'sickness', label: 'Krankheit', count: sickness.length },
-        { id: 'documents', label: 'Dokumente', count: employees.reduce((acc, e) => acc + ((e.documents || []).length), 0) },
       ]} />
 
       {/* =====================================================================
@@ -3209,7 +3208,7 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                                 )}
                               </div>
 
-                              {/* Document Cards */}
+                              {/* Animated Expanding Document Title List */}
                               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                                 {filteredEmpDocs.map(doc => {
                                   const fileUrl = doc.url || doc.download_url || doc.file_url;
@@ -3217,106 +3216,147 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                                   const ext = (doc.file_name || '').split('.').pop()?.toUpperCase() || 'FILE';
                                   const isChecked = selectedDocIds.includes(doc.id);
                                   const isPayslipDoc = (doc.effectiveKind || '').toLowerCase().includes('lohnabrechnung') || doc.reference_type === 'Lohnabrechnung';
+                                  const isDocOpen = isEditingThis || Boolean(expandedDocMap[doc.id]);
                                   return (
-                                    <div key={doc.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', padding: '12px 14px', borderRadius: '8px', background: isChecked ? '#fff7ed' : 'var(--surface)', border: isChecked ? '1.5px solid var(--accent)' : '1px solid var(--border)', fontSize: '0.8rem', gap: '12px' }}>
-                                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', minWidth: '260px', flex: '1 1 360px' }}>
-                                        <input
-                                          type="checkbox"
-                                          checked={isChecked}
-                                          onChange={(ev) => {
-                                            if (ev.target.checked) setSelectedDocIds(prev => [...prev, doc.id]);
-                                            else setSelectedDocIds(prev => prev.filter(id => id !== doc.id));
-                                          }}
-                                          style={{ width: '16px', height: '16px', flexShrink: 0, marginTop: '4px', padding: 0 }}
-                                        />
-                                        <div style={{ marginTop: '2px', padding: '6px', borderRadius: '6px', background: isPayslipDoc ? '#ecfdf5' : 'rgba(255,107,0,0.1)', color: isPayslipDoc ? '#059669' : 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                          <FileText size={16} />
+                                    <div
+                                      key={doc.id}
+                                      style={{
+                                        borderRadius: '8px',
+                                        background: isChecked ? '#fff7ed' : '#ffffff',
+                                        border: isChecked ? '1.5px solid var(--accent)' : '1px solid #e2e8f0',
+                                        overflow: 'hidden',
+                                        fontSize: '0.8rem',
+                                      }}
+                                    >
+                                      {/* Minimal Title Row (Click to Expand) */}
+                                      <div
+                                        onClick={() => setExpandedDocMap(prev => ({ ...prev, [doc.id]: !prev[doc.id] }))}
+                                        style={{
+                                          padding: '9px 12px',
+                                          display: 'flex',
+                                          justifyContent: 'space-between',
+                                          alignItems: 'center',
+                                          gap: '10px',
+                                          cursor: 'pointer',
+                                          background: isDocOpen ? '#f8fafc' : 'transparent',
+                                          borderBottom: isDocOpen ? '1px solid #e2e8f0' : '1px solid transparent',
+                                          transition: 'background 0.18s ease, border-color 0.18s ease',
+                                          userSelect: 'none',
+                                        }}
+                                      >
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '9px', minWidth: 0, flex: 1 }}>
+                                          <input
+                                            type="checkbox"
+                                            checked={isChecked}
+                                            onClick={(ev) => ev.stopPropagation()}
+                                            onChange={(ev) => {
+                                              if (ev.target.checked) setSelectedDocIds(prev => [...prev, doc.id]);
+                                              else setSelectedDocIds(prev => prev.filter(id => id !== doc.id));
+                                            }}
+                                            style={{ width: '15px', height: '15px', flexShrink: 0, margin: 0, padding: 0 }}
+                                          />
+                                          <FileText size={15} style={{ color: isPayslipDoc ? '#059669' : '#FF6B00', flexShrink: 0 }} />
+                                          <strong style={{ fontSize: '0.84rem', color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                            {doc.title || doc.file_name || 'Dokument'}
+                                          </strong>
                                         </div>
-                                        <div style={{ minWidth: 0, flex: 1 }}>
-                                          {isEditingThis ? (
-                                            <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '6px' }}>
-                                              <input value={editingDocTitle} onChange={e => setEditingDocTitle(e.target.value)} style={{ fontSize: '0.82rem', padding: '4px 8px', flex: 1, minWidth: '160px' }} placeholder="Dokumenten-Bezeichnung" autoFocus />
-                                              <select value={editingDocCategory} onChange={e => setEditingDocCategory(e.target.value)} style={{ fontSize: '0.8rem', padding: '4px 8px', width: 'auto' }}>
-                                                <option value="Lohnabrechnung">💰 Lohnabrechnung</option>
-                                                <option value="Personalausweis / Reisepass">Personalausweis / Reisepass</option>
-                                                <option value="Arbeitsvertrag / Werkvertrag">Arbeitsvertrag / Werkvertrag</option>
-                                                <option value="Freelancer Projektvertrag">Freelancer Projektvertrag</option>
-                                                <option value="Krankmeldung (AU)">Krankmeldung (AU)</option>
-                                                <option value="Krankenkassenkarte / SV-Ausweis">Krankenkassenkarte / SV-Ausweis</option>
-                                                <option value="Führerschein / Zertifikat">Führerschein / Zertifikat</option>
-                                                <option value="Sonstiges">Sonstiges</option>
-                                              </select>
-                                              <DateInput value={editingDocDate} onChange={e => setEditingDocDate(e.target.value)} style={{ width: '135px' }} />
-                                              <button type="button" className="btn-primary btn-sm" style={{ padding: '4px 8px' }} onClick={() => handleSaveDocTitle(doc.id)}><Check size={13} /> Speichern</button>
-                                              <button type="button" className="btn-secondary btn-sm" style={{ padding: '4px 8px' }} onClick={() => setEditingDocId(null)}><X size={13} /></button>
-                                            </div>
-                                          ) : (
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '4px' }}>
-                                              <strong style={{ fontSize: '0.86rem', color: 'var(--text-main)', lineHeight: 1.35 }}>{doc.title}</strong>
-                                              <span className="badge" style={{ fontSize: '0.68rem', padding: '2px 7px', background: isPayslipDoc ? '#d1fae5' : 'rgba(255,107,0,0.12)', color: isPayslipDoc ? '#065f46' : 'var(--accent)', fontWeight: 700 }}>
-                                                {doc.effectiveKind}
-                                              </span>
-                                              {isPayslipDoc && (
-                                                <span className="badge" style={{ fontSize: '0.66rem', padding: '2px 6px', background: '#ecfdf5', color: '#047857' }}>
-                                                  ✓ Im Lohnabrechnung-Tab sichtbar
-                                                </span>
-                                              )}
-                                              {(doc.status === 'Pending_Signature' || doc.employee_visible === false || doc.visibility === 'admin_only') && (
-                                                <span className="badge" style={{ fontSize: '0.66rem', padding: '2px 7px', background: '#fffbeb', color: '#b45309', border: '1px solid #fde68a', fontWeight: 700 }}>
-                                                  ⏳ Ausstehender Vertrag (Nur HR — Nicht für Mitarbeiter sichtbar)
-                                                </span>
-                                              )}
-                                              {doc.status === 'Signed' && (
-                                                <span className="badge" style={{ fontSize: '0.66rem', padding: '2px 7px', background: '#dcfce7', color: '#15803d', border: '1px solid #86efac', fontWeight: 700 }}>
-                                                  ✅ Unterschrieben (Für Mitarbeiter sichtbar)
-                                                </span>
-                                              )}
-                                              <span className="badge" style={{ fontSize: '0.66rem', padding: '2px 6px', background: doc.uploaded_by === 'Mitarbeiter' ? '#dbeafe' : '#f1f5f9', color: doc.uploaded_by === 'Mitarbeiter' ? '#1d4ed8' : '#475569' }}>
-                                                {doc.uploaded_by === 'Mitarbeiter' ? '👤 Vom Mitarbeiter' : '🏢 Vom Management'}
-                                              </span>
-                                              <span className="badge" style={{ fontSize: '0.68rem', padding: '2px 6px', background: '#e2e8f0', color: '#475569' }}>{ext}</span>
-                                            </div>
+
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+                                          <span style={{ fontSize: '0.68rem', padding: '2px 7px', borderRadius: 999, background: isPayslipDoc ? '#d1fae5' : '#fff7ed', color: isPayslipDoc ? '#065f46' : '#c2410c', fontWeight: 700 }}>
+                                            {doc.effectiveKind}
+                                          </span>
+                                          {doc.effectiveDate && (
+                                            <span style={{ fontSize: '0.72rem', color: '#64748b' }}>
+                                              {formatDate(doc.effectiveDate)}
+                                            </span>
                                           )}
-                                          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', fontSize: '0.73rem', color: 'var(--text-muted)' }}>
-                                            {doc.effectiveDate && <span>Datum: <strong style={{ color: 'var(--text)' }}>{formatDate(doc.effectiveDate)}</strong></span>}
-                                            {doc.file_name && <span>Datei: <strong style={{ color: 'var(--text)' }}>{doc.file_name}</strong></span>}
-                                            {doc.file_size ? <span>Größe: <strong style={{ color: 'var(--text)' }}>{(doc.file_size / 1024).toFixed(1)} KB</strong></span> : null}
-                                          </div>
                                         </div>
                                       </div>
-                                      <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexShrink: 0, flexWrap: 'wrap' }}>
-                                        {doc.html_content ? (
-                                          <button
-                                            type="button"
-                                            className="btn-secondary btn-sm"
-                                            style={{ color: 'var(--accent)', display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '4px 9px' }}
-                                            onClick={() => downloadSingleContractPdf(doc.title, doc.html_content)}
-                                          >
-                                            <Download size={13} /> Als PDF
-                                          </button>
-                                        ) : fileUrl ? (
-                                          <a href={resolveMediaUrl(fileUrl)} target="_blank" rel="noreferrer" download={doc.file_name || true} className="btn-secondary btn-sm" style={{ textDecoration: 'none', color: 'var(--accent)', display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '4px 9px' }}>
-                                            <Download size={13} /> Download
-                                          </a>
-                                        ) : null}
-                                        {!isEditingThis && (
-                                          <button
-                                            type="button"
-                                            className="btn-secondary btn-sm"
-                                            style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 9px' }}
-                                            onClick={() => {
-                                              setEditingDocId(doc.id);
-                                              setEditingDocTitle(doc.title || doc.file_name || '');
-                                              setEditingDocCategory(doc.effectiveKind || 'Sonstiges');
-                                              setEditingDocDate(doc.effectiveDate || new Date().toISOString().slice(0, 10));
-                                            }}
-                                          >
-                                            <Edit3 size={13} /> Sortieren / Bearbeiten
-                                          </button>
-                                        )}
-                                        <button type="button" className="btn-secondary btn-sm" style={{ color: '#dc2626', display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 9px' }} onClick={() => handleDeleteEmpDocument(doc.id)}>
-                                          <Trash2 size={13} /> Löschen
-                                        </button>
+
+                                      {/* Smooth Animated Expandable Details */}
+                                      <div
+                                        style={{
+                                          display: 'grid',
+                                          gridTemplateRows: isDocOpen ? '1fr' : '0fr',
+                                          opacity: isDocOpen ? 1 : 0,
+                                          transition: 'grid-template-rows 0.24s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.2s ease',
+                                        }}
+                                      >
+                                        <div style={{ overflow: 'hidden', minHeight: 0 }}>
+                                          <div style={{ padding: '10px 14px', background: '#f8fafc', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                                            <div style={{ flex: '1 1 320px', minWidth: 0 }}>
+                                              {isEditingThis && (
+                                                <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '8px' }}>
+                                                  <input value={editingDocTitle} onChange={e => setEditingDocTitle(e.target.value)} style={{ fontSize: '0.82rem', padding: '4px 8px', flex: 1, minWidth: '160px' }} placeholder="Dokumenten-Bezeichnung" autoFocus />
+                                                  <select value={editingDocCategory} onChange={e => setEditingDocCategory(e.target.value)} style={{ fontSize: '0.8rem', padding: '4px 8px', width: 'auto' }}>
+                                                    <option value="Lohnabrechnung">💰 Lohnabrechnung</option>
+                                                    <option value="Personalausweis / Reisepass">Personalausweis / Reisepass</option>
+                                                    <option value="Arbeitsvertrag / Werkvertrag">Arbeitsvertrag / Werkvertrag</option>
+                                                    <option value="Freelancer Projektvertrag">Freelancer Projektvertrag</option>
+                                                    <option value="Krankmeldung (AU)">Krankmeldung (AU)</option>
+                                                    <option value="Krankenkassenkarte / SV-Ausweis">Krankenkassenkarte / SV-Ausweis</option>
+                                                    <option value="Führerschein / Zertifikat">Führerschein / Zertifikat</option>
+                                                    <option value="Sonstiges">Sonstiges</option>
+                                                  </select>
+                                                  <DateInput value={editingDocDate} onChange={e => setEditingDocDate(e.target.value)} style={{ width: '135px' }} />
+                                                  <button type="button" className="btn-primary btn-sm" style={{ padding: '4px 8px' }} onClick={() => handleSaveDocTitle(doc.id)}><Check size={13} /> Speichern</button>
+                                                  <button type="button" className="btn-secondary btn-sm" style={{ padding: '4px 8px' }} onClick={() => setEditingDocId(null)}><X size={13} /></button>
+                                                </div>
+                                              )}
+                                              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center', fontSize: '0.73rem', color: '#475569' }}>
+                                                <span style={{ padding: '1px 6px', borderRadius: 4, background: '#e2e8f0', color: '#334155', fontWeight: 700 }}>{ext}</span>
+                                                {doc.file_name && <span>Datei: <strong>{doc.file_name}</strong></span>}
+                                                {doc.file_size ? <span>Größe: <strong>{(doc.file_size / 1024).toFixed(1)} KB</strong></span> : null}
+                                                <span>Quelle: <strong>{doc.uploaded_by === 'Mitarbeiter' ? 'Mitarbeiter' : 'Management'}</strong></span>
+                                                {(doc.status === 'Pending_Signature' || doc.employee_visible === false || doc.visibility === 'admin_only') && (
+                                                  <span style={{ padding: '1px 6px', borderRadius: 4, background: '#fef3c7', color: '#b45309', fontWeight: 700 }}>
+                                                    ⏳ Ausstehend (Nur HR)
+                                                  </span>
+                                                )}
+                                                {doc.status === 'Signed' && (
+                                                  <span style={{ padding: '1px 6px', borderRadius: 4, background: '#dcfce7', color: '#15803d', fontWeight: 700 }}>
+                                                    ✓ Unterschrieben
+                                                  </span>
+                                                )}
+                                              </div>
+                                            </div>
+
+                                            <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexShrink: 0, flexWrap: 'wrap' }}>
+                                              {doc.html_content ? (
+                                                <button
+                                                  type="button"
+                                                  className="btn-secondary btn-sm"
+                                                  style={{ color: 'var(--accent)', display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '4px 9px' }}
+                                                  onClick={() => downloadSingleContractPdf(doc.title, doc.html_content)}
+                                                >
+                                                  <Download size={13} /> Als PDF
+                                                </button>
+                                              ) : fileUrl ? (
+                                                <a href={resolveMediaUrl(fileUrl)} target="_blank" rel="noreferrer" download={doc.file_name || true} className="btn-secondary btn-sm" style={{ textDecoration: 'none', color: 'var(--accent)', display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '4px 9px' }}>
+                                                  <Download size={13} /> Download
+                                                </a>
+                                              ) : null}
+                                              {!isEditingThis && (
+                                                <button
+                                                  type="button"
+                                                  className="btn-secondary btn-sm"
+                                                  style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 9px' }}
+                                                  onClick={() => {
+                                                    setEditingDocId(doc.id);
+                                                    setEditingDocTitle(doc.title || doc.file_name || '');
+                                                    setEditingDocCategory(doc.effectiveKind || 'Sonstiges');
+                                                    setEditingDocDate(doc.effectiveDate || new Date().toISOString().slice(0, 10));
+                                                  }}
+                                                >
+                                                  <Edit3 size={13} /> Bearbeiten
+                                                </button>
+                                              )}
+                                              <button type="button" className="btn-secondary btn-sm" style={{ color: '#dc2626', display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 9px' }} onClick={() => handleDeleteEmpDocument(doc.id)}>
+                                                <Trash2 size={13} /> Löschen
+                                              </button>
+                                            </div>
+                                          </div>
+                                        </div>
                                       </div>
                                     </div>
                                   );
@@ -4167,25 +4207,6 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
       )}
 
       {/* Tab Content */}
-      {tab === 'overview' && (
-        <HREmployeeOverviewView
-          employees={employees}
-          timeLogs={timeLogs}
-          leaves={leaves}
-          sickness={sickness}
-          onOpenEmployeeModal={(emp) => openEditEmployeeModal(emp)}
-          onOpenEmployee={(emp) => openEditEmployeeModal(emp)}
-          onJumpToContractGenerator={(empId) => {
-            setContractGenEmpId(empId);
-            setTab('contracts');
-          }}
-          onGenerateContractForEmp={(empId) => {
-            setContractGenEmpId(empId);
-            setTab('contracts');
-          }}
-        />
-      )}
-
       {tab === 'contracts' && (
         <HRContractGeneratorView
           employees={employees}
@@ -4199,12 +4220,17 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
         />
       )}
 
-      {tab === 'employees' && (() => {
+      {/* Unified Modern & Minimal Employees View (Overview + Directory) */}
+      {(tab === 'employees' || tab === 'overview' || tab === 'documents' || !tab) && (() => {
         const monthHours = {};
         timeLogs.forEach((l) => {
           if (!l.employee_id || !String(l.date || '').startsWith(biMonth)) return;
           monthHours[l.employee_id] = (monthHours[l.employee_id] || 0) + Number(l.net_hours || 0);
         });
+        const totalMonthHrsAll = Object.values(monthHours).reduce((a, b) => a + b, 0);
+        const activeEmpCount = employees.filter((e) => e.is_active !== false).length;
+        const totalDocsCount = employees.reduce((acc, e) => acc + ((e.documents || []).length), 0);
+        const pendingLeavesCount = leaves.filter((l) => l.status === 'Pending').length;
         const sortVal = (e) => {
           const a = e.attributes || {};
           switch (empSortBy) {
@@ -4233,7 +4259,24 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
         );
         const sel = { width: 'auto', padding: '6px 9px', fontSize: 12, background: '#fff', border: '1px solid #cbd5e1', borderRadius: 7, color: '#0f172a' };
         return (
-          <div className="glass-panel" style={{ padding: 0, borderRadius: 12, background: '#fff', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {/* Minimal Overview KPI Strip */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 10 }}>
+              {[
+                { label: 'Mitarbeiter Gesamt', val: employees.length, sub: `${activeEmpCount} aktiv`, accent: '#0f172a' },
+                { label: `Arbeitsstunden (${biMonth})`, val: `${totalMonthHrsAll.toFixed(1)} h`, sub: 'Erfasste Netto-Stunden', accent: '#FF6B00' },
+                { label: 'Offene Urlaubsanträge', val: pendingLeavesCount, sub: `${sickness.length} Krankmeldungen`, accent: pendingLeavesCount > 0 ? '#ca8a04' : '#16a34a' },
+                { label: 'Personalakten-Dokumente', val: totalDocsCount, sub: 'Klick auf Mitarbeiter → Akte', accent: '#1d4ed8' },
+              ].map((k, idx) => (
+                <div key={idx} style={{ padding: '10px 14px', borderRadius: 10, background: '#fff', border: '1px solid #e2e8f0', borderLeft: `3px solid ${k.accent}` }}>
+                  <div style={{ fontSize: 11, color: '#64748b', fontWeight: 700 }}>{k.label}</div>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: '#0f172a', marginTop: 2 }}>{k.val}</div>
+                  <div style={{ fontSize: 11, color: '#64748b' }}>{k.sub}</div>
+                </div>
+              ))}
+            </div>
+
+            <div className="glass-panel" style={{ padding: 0, borderRadius: 12, background: '#fff', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
             <div style={{ padding: '10px 14px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
               <input placeholder="Suchen…" value={q} onChange={(e) => setQ(e.target.value)} style={{ ...sel, minWidth: 230, flex: '1 1 230px', maxWidth: 320 }} />
               <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} style={sel}>
@@ -4374,6 +4417,7 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                   })}
                 </tbody>
               </table>
+            </div>
             </div>
           </div>
         );
@@ -5217,7 +5261,7 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
         </div>
       )}
 
-      {(tab === 'documents' || tab === 'payslips') && (() => {
+      {tab === 'payslips' && (() => {
         const allEmployeeDocs = employees.flatMap(emp =>
           (emp.documents || []).map(doc => ({
             ...doc,
