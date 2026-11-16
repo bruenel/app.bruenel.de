@@ -2196,7 +2196,7 @@ export const HRContractGeneratorView = ({
           style={{
             position: 'fixed',
             inset: 0,
-            background: 'rgba(15,23,42,0.72)',
+            background: 'rgba(15,23,42,0.56)',
             backdropFilter: 'blur(4px)',
             zIndex: 9998,
             display: 'flex',
@@ -2210,30 +2210,31 @@ export const HRContractGeneratorView = ({
             onClick={(e) => e.stopPropagation()}
             style={{
               width: '96vw',
-              maxWidth: 1320,
-              maxHeight: '94vh',
-              background: '#f8fafc',
-              borderRadius: 16,
+              maxWidth: 1280,
+              maxHeight: '92vh',
+              background: '#ffffff',
+              borderRadius: 14,
               display: 'flex',
               flexDirection: 'column',
               overflow: 'hidden',
-              boxShadow: '0 25px 60px rgba(15,23,42,0.45)',
-              border: '1px solid #334155',
+              boxShadow: '0 24px 64px rgba(15,23,42,0.28)',
+              border: '1px solid #e2e8f0',
+              animation: 'hrModalIn 0.22s cubic-bezier(0.22, 1, 0.36, 1)',
             }}
           >
-            {/* Modal Sticky Header */}
-            <div style={{ padding: '14px 20px', background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)', color: '#fff', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, borderBottom: '3px solid #FF6B00' }}>
+            {/* Clean Minimal Light-Mode Modal Header (Matches Mitarbeiter Popup) */}
+            <div style={{ padding: '12px 18px', background: '#f8fafc', color: '#0f172a', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, borderBottom: '1px solid #e2e8f0' }}>
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ padding: '3px 9px', borderRadius: 6, background: '#FF6B00', color: '#fff', fontSize: 11, fontWeight: 800 }}>
+                  <span style={{ padding: '2px 8px', borderRadius: 5, background: '#fff7ed', color: '#c2410c', border: '1px solid #fed7aa', fontSize: 10.5, fontWeight: 800 }}>
                     VERTRAGS-GENERATOR
                   </span>
-                  <strong style={{ fontSize: 15.5 }}>
-                    Neuen Vertrag / Vertragspaket generieren {selectedEmp ? `— ${selectedEmp.full_name}` : ''}
+                  <strong style={{ fontSize: 15, fontWeight: 800, color: '#0f172a' }}>
+                    Vertragspaket generieren {selectedEmp ? `— ${selectedEmp.full_name}` : ''}
                   </strong>
                 </div>
-                <div style={{ fontSize: 11.5, color: '#cbd5e1', marginTop: 2 }}>
-                  Mitarbeiter &amp; Vertragsmodule auswählen → Konditionen prüfen → Vertragstext live im Dokument anpassen → Verbindlich ausstellen &amp; als PDF speichern
+                <div style={{ fontSize: 11.5, color: '#64748b', marginTop: 2 }}>
+                  Mitarbeiter &amp; Module wählen → Konditionen prüfen → Live im Dokument anpassen → Ausstellen &amp; PDF speichern
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -2242,24 +2243,34 @@ export const HRContractGeneratorView = ({
                   className="btn-primary btn-sm"
                   disabled={issuing}
                   onClick={handleIssueSelectedContracts}
-                  style={{ fontWeight: 800, padding: '8px 14px' }}
+                  style={{ fontWeight: 700, padding: '7px 14px' }}
                 >
                   <Check size={14} />{' '}
                   {issuing ? 'Wird ausgestellt...' : `Verträge ausstellen (${selectedCodes.length})`}
                 </button>
                 <button
                   type="button"
-                  className="btn-secondary btn-sm"
                   onClick={() => setShowGeneratorModal(false)}
-                  style={{ background: 'rgba(255,255,255,0.12)', color: '#fff', border: '1px solid rgba(255,255,255,0.25)' }}
+                  title="Fenster schließen"
+                  style={{
+                    width: 28,
+                    height: 28,
+                    borderRadius: 7,
+                    border: '1px solid #cbd5e1',
+                    background: '#fff',
+                    color: '#475569',
+                    display: 'grid',
+                    placeItems: 'center',
+                    cursor: 'pointer',
+                  }}
                 >
-                  <X size={14} /> Fenster schließen
+                  <X size={14} />
                 </button>
               </div>
             </div>
 
             {/* Modal Scrollable Body */}
-            <div style={{ flex: 1, overflowY: 'auto', padding: 18, display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div style={{ flex: 1, overflowY: 'auto', padding: 18, background: '#f8fafc', display: 'flex', flexDirection: 'column', gap: 14 }}>
               {issueSuccessBanner && (
                 <div style={{ padding: '14px 18px', borderRadius: 12, background: '#ecfdf5', border: '1.5px solid #10b981', color: '#065f46', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
                   <div>

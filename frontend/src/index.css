@@ -892,6 +892,16 @@ tbody tr:hover { background: #fafafc; }
   to { transform: rotate(360deg); }
 }
 
+@keyframes hrModalIn {
+  from { opacity: 0; transform: translateY(10px) scale(0.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes hrTabFade {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 /* =============================================================================
    UGG PROTOCOL MODULE — MOBILE & RESPONSIVE OPTIMIZATIONS
    ============================================================================= */

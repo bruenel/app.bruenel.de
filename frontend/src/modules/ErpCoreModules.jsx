@@ -389,6 +389,8 @@ export const HRManagementModule = ({ user }) => {
   const [customDocLabel, setCustomDocLabel] = useState('');
   const [uploadingEmpDoc, setUploadingEmpDoc] = useState(false);
   const [otpBanner, setOtpBanner] = useState(null);
+  const [aiReadingFiles, setAiReadingFiles] = useState([]);
+  const [aiReviewModal, setAiReviewModal] = useState(null);
 
   // Document Selection, Sorting & Filtering State (for Personalakte & HR Documents Tab)
   const [selectedDocIds, setSelectedDocIds] = useState([]);
@@ -529,11 +531,116 @@ export const HRManagementModule = ({ user }) => {
       .catch(() => setOtReport(null));
   };
 
-  // ── AI Document Reader (Multi-file support) ────────────────────────────────
+  // ── AI Document Reader (Multi-file support with Loading & Review Modal) ─────
+  const applyAiReviewedFields = () => {
+    if (!aiReviewModal) return;
+    const reviewed = aiReviewModal.fields || {};
+    const uploadedDocsList = aiReviewModal.uploadedDocs || [];
+
+    setNewEmp((prev) => {
+      const attrs = { ...(prev.attributes || {}) };
+      if (reviewed.birth_date) {
+        attrs.birth_date = reviewed.birth_date;
+        attrs.geburtsdatum = reviewed.birth_date;
+      }
+      if (reviewed.nationality) {
+        attrs.nationality = reviewed.nationality;
+        attrs.staatsangehoerigkeit = reviewed.nationality;
+      }
+      if (reviewed.gender) {
+        attrs.geschlecht = reviewed.gender;
+        const g = String(reviewed.gender).trim().toLowerCase();
+        if (g === 'f' || g === 'w' || g.includes('weib') || g.includes('fem') || g.includes('frau')) {
+          attrs.salutation = 'Frau';
+        } else if (g === 'm' || g.includes('männ') || g.includes('male') || g.includes('herr')) {
+          attrs.salutation = 'Herr';
+        }
+      }
+      if (reviewed.company_name && prev.employment_type === 'Subunternehmer') {
+        attrs.salutation = 'Firma';
+      }
+      if (reviewed.street) {
+        attrs.street = reviewed.street;
+        attrs.strasse = reviewed.street;
+      }
+      if (reviewed.postal_code) {
+        attrs.postal_code = reviewed.postal_code;
+        attrs.plz = reviewed.postal_code;
+      }
+      if (reviewed.city) {
+        attrs.city = reviewed.city;
+        attrs.ort = reviewed.city;
+      }
+      if (reviewed.steuer_id) attrs.steuer_id = reviewed.steuer_id;
+      if (reviewed.sozialversicherungsnummer) attrs.sozialversicherungsnummer = reviewed.sozialversicherungsnummer;
+      if (reviewed.krankenversicherung_name) attrs.krankenversicherung_name = reviewed.krankenversicherung_name;
+      if (reviewed.krankenversicherung_nummer) attrs.krankenversicherung_nummer = reviewed.krankenversicherung_nummer;
+      if (reviewed.drivers_license) attrs.drivers_license = reviewed.drivers_license;
+      if (reviewed.document_type) attrs.ausweistyp = reviewed.document_type;
+      if (reviewed.document_number) attrs.ausweisnummer = reviewed.document_number;
+      if (reviewed.document_valid_until) attrs.ausweis_gueltig_bis = reviewed.document_valid_until;
+      if (reviewed.company_name) attrs.company_name = reviewed.company_name;
+      if (reviewed.ust_id) attrs.ust_id = reviewed.ust_id;
+      if (reviewed.steuernummer) attrs.steuernummer = reviewed.steuernummer;
+      if (reviewed.iban) attrs.iban = reviewed.iban;
+      if (reviewed.bic) attrs.bic = reviewed.bic;
+      if (reviewed.bank_name) attrs.bank_name = reviewed.bank_name;
+      if (reviewed.notes) attrs.notes = reviewed.notes;
+
+      const nextFirst = reviewed.first_name || prev.first_name;
+      const nextLast = reviewed.last_name || prev.last_name;
+      const scannedEmail = String(reviewed.email || '').trim();
+      if (scannedEmail && !scannedEmail.toLowerCase().endsWith('@bruenel.de')) {
+        attrs.private_email = scannedEmail;
+      }
+      let nextPortalEmail = prev.email || '';
+      if (scannedEmail && scannedEmail.toLowerCase().endsWith('@bruenel.de')) {
+        nextPortalEmail = scannedEmail.toLowerCase();
+      } else if (!nextPortalEmail || !nextPortalEmail.toLowerCase().endsWith('@bruenel.de')) {
+        const generatedBruenel = buildBruenelLoginEmail(nextFirst, nextLast);
+        if (generatedBruenel) nextPortalEmail = generatedBruenel;
+      }
+
+      const existingIds = new Set((prev.documents || []).map((d) => d.id));
+      const newDocs = uploadedDocsList
+        .filter((doc) => doc.document_id && !existingIds.has(doc.document_id))
+        .map((doc) => ({
+          id: doc.document_id,
+          title: doc.name,
+          category: docCategory || 'Personalausweis / Reisepass',
+          url: doc.download_url,
+          created_at: new Date().toISOString(),
+        }));
+
+      return {
+        ...prev,
+        first_name: nextFirst,
+        last_name: nextLast,
+        email: nextPortalEmail,
+        phone: reviewed.phone || prev.phone,
+        role: reviewed.role || prev.role,
+        attributes: attrs,
+        documents: [...(prev.documents || []), ...newDocs],
+      };
+    });
+
+    setAiDocResult({
+      fields: reviewed,
+      fileName: (aiReviewModal.fileNames || []).join(', '),
+      count: (aiReviewModal.fileNames || []).length,
+    });
+    setAiReviewModal(null);
+    if (!showAddEmp) {
+      setShowAddEmp(true);
+    }
+    setEmpCardTab('personal');
+  };
+
   const handleAiDocumentRead = async (e) => {
     const files = Array.from(e.target.files || []);
     if (!files.length) return;
     e.target.value = '';
+    setAiReadingFiles(files.map((f) => f.name));
     setAiDocReading(true);
     setAiDocResult(null);
     setAiDocError(null);
@@ -672,104 +779,44 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
         }
       }
 
-      if (editingEmpId) {
-        loadAll();
-      }
-
-      // 3. Auto-fill form fields from all extracted documents
-      setNewEmp((prev) => {
-        const attrs = { ...(prev.attributes || {}) };
-        if (mergedFields.birth_date) {
-          attrs.birth_date = mergedFields.birth_date;
-          attrs.geburtsdatum = mergedFields.birth_date;
-        }
-        if (mergedFields.nationality) {
-          attrs.nationality = mergedFields.nationality;
-          attrs.staatsangehoerigkeit = mergedFields.nationality;
-        }
-        if (mergedFields.gender) {
-          attrs.geschlecht = mergedFields.gender;
-          const g = String(mergedFields.gender).trim().toLowerCase();
-          if (g === 'f' || g === 'w' || g.includes('weib') || g.includes('fem') || g.includes('frau')) {
-            attrs.salutation = 'Frau';
-          } else if (g === 'm' || g.includes('männ') || g.includes('male') || g.includes('herr')) {
-            attrs.salutation = 'Herr';
-          }
-        }
-        if (mergedFields.company_name && prev.employment_type === 'Subunternehmer') {
-          attrs.salutation = 'Firma';
-        }
-        if (mergedFields.street) {
-          attrs.street = mergedFields.street;
-          attrs.strasse = mergedFields.street;
-        }
-        if (mergedFields.postal_code) {
-          attrs.postal_code = mergedFields.postal_code;
-          attrs.plz = mergedFields.postal_code;
-        }
-        if (mergedFields.city) {
-          attrs.city = mergedFields.city;
-          attrs.ort = mergedFields.city;
-        }
-        if (mergedFields.steuer_id) attrs.steuer_id = mergedFields.steuer_id;
-        if (mergedFields.sozialversicherungsnummer) attrs.sozialversicherungsnummer = mergedFields.sozialversicherungsnummer;
-        if (mergedFields.krankenversicherung_name) attrs.krankenversicherung_name = mergedFields.krankenversicherung_name;
-        if (mergedFields.krankenversicherung_nummer) attrs.krankenversicherung_nummer = mergedFields.krankenversicherung_nummer;
-        if (mergedFields.drivers_license) attrs.drivers_license = mergedFields.drivers_license;
-        if (mergedFields.document_type) attrs.ausweistyp = mergedFields.document_type;
-        if (mergedFields.document_number) attrs.ausweisnummer = mergedFields.document_number;
-        if (mergedFields.document_valid_until) attrs.ausweis_gueltig_bis = mergedFields.document_valid_until;
-        if (mergedFields.company_name) attrs.company_name = mergedFields.company_name;
-        if (mergedFields.ust_id) attrs.ust_id = mergedFields.ust_id;
-        if (mergedFields.steuernummer) attrs.steuernummer = mergedFields.steuernummer;
-        if (mergedFields.iban) attrs.iban = mergedFields.iban;
-        if (mergedFields.bic) attrs.bic = mergedFields.bic;
-        if (mergedFields.bank_name) attrs.bank_name = mergedFields.bank_name;
-
-        const nextFirst = mergedFields.first_name || prev.first_name;
-        const nextLast = mergedFields.last_name || prev.last_name;
-        const scannedEmail = String(mergedFields.email || '').trim();
-        if (scannedEmail && !scannedEmail.toLowerCase().endsWith('@bruenel.de')) {
-          attrs.private_email = scannedEmail;
-        }
-        let nextPortalEmail = prev.email || '';
-        if (scannedEmail && scannedEmail.toLowerCase().endsWith('@bruenel.de')) {
-          nextPortalEmail = scannedEmail.toLowerCase();
-        } else if (!nextPortalEmail || !nextPortalEmail.toLowerCase().endsWith('@bruenel.de')) {
-          const generatedBruenel = buildBruenelLoginEmail(nextFirst, nextLast);
-          if (generatedBruenel) nextPortalEmail = generatedBruenel;
-        }
-
-        return {
-          ...prev,
-          first_name: nextFirst,
-          last_name: nextLast,
-          email: nextPortalEmail,
-          phone: mergedFields.phone || prev.phone,
-          role: mergedFields.role || prev.role,
-          attributes: attrs,
-          documents: [
-            ...(prev.documents || []),
-            ...uploadedDocsList.map(doc => ({
-              id: doc.document_id,
-              title: doc.name,
-              category: docCategory || 'Personalausweis / Reisepass',
-              url: doc.download_url,
-              created_at: new Date().toISOString(),
-            })),
-          ],
-        };
-      });
-
-      setAiDocResult({
-        fields: mergedFields,
-        fileName: files.map(f => f.name).join(', '),
-        count: files.length,
+      // Open review & edit popup modal with all extracted fields before applying to form
+      setAiReviewModal({
+        fields: {
+          first_name: mergedFields.first_name || '',
+          last_name: mergedFields.last_name || '',
+          gender: mergedFields.gender || '',
+          birth_date: mergedFields.birth_date || '',
+          nationality: mergedFields.nationality || '',
+          email: mergedFields.email || '',
+          phone: mergedFields.phone || '',
+          street: mergedFields.street || '',
+          postal_code: mergedFields.postal_code || '',
+          city: mergedFields.city || '',
+          steuer_id: mergedFields.steuer_id || '',
+          sozialversicherungsnummer: mergedFields.sozialversicherungsnummer || '',
+          krankenversicherung_name: mergedFields.krankenversicherung_name || '',
+          krankenversicherung_nummer: mergedFields.krankenversicherung_nummer || '',
+          drivers_license: mergedFields.drivers_license || '',
+          document_type: mergedFields.document_type || '',
+          document_number: mergedFields.document_number || '',
+          document_valid_until: mergedFields.document_valid_until || '',
+          iban: mergedFields.iban || '',
+          bic: mergedFields.bic || '',
+          bank_name: mergedFields.bank_name || '',
+          company_name: mergedFields.company_name || '',
+          ust_id: mergedFields.ust_id || '',
+          steuernummer: mergedFields.steuernummer || '',
+          role: mergedFields.role || '',
+          notes: mergedFields.notes || '',
+        },
+        uploadedDocs: uploadedDocsList,
+        fileNames: files.map((f) => f.name),
       });
     } catch (err) {
       setAiDocError(err.message || 'Fehler beim Hochladen oder Verarbeiten der Dokumente');
     } finally {
       setAiDocReading(false);
+      setAiReadingFiles([]);
     }
   };
 
@@ -1721,20 +1768,18 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
       )}
 
       {/* Sub-navigation (short labels, underline style) */}
-      {!showAddEmp && (
-        <SubTabs base="/hr" variant="underline" active={tab} items={[
-          { id: 'overview', label: 'Übersicht' },
-          { id: 'employees', label: 'Mitarbeiter', count: employees.length },
-          { id: 'contracts', label: 'Verträge' },
-          { id: 'timelogs', label: 'Arbeitszeiten', count: timeLogs.length },
-          { id: 'leaves', label: 'Urlaub', count: leaves.length },
-          { id: 'sickness', label: 'Krankheit', count: sickness.length },
-          { id: 'documents', label: 'Dokumente', count: employees.reduce((acc, e) => acc + ((e.documents || []).length), 0) },
-        ]} />
-      )}
+      <SubTabs base="/hr" variant="underline" active={tab} items={[
+        { id: 'overview', label: 'Übersicht' },
+        { id: 'employees', label: 'Mitarbeiter', count: employees.length },
+        { id: 'contracts', label: 'Verträge' },
+        { id: 'timelogs', label: 'Arbeitszeiten', count: timeLogs.length },
+        { id: 'leaves', label: 'Urlaub', count: leaves.length },
+        { id: 'sickness', label: 'Krankheit', count: sickness.length },
+        { id: 'documents', label: 'Dokumente', count: employees.reduce((acc, e) => acc + ((e.documents || []).length), 0) },
+      ]} />
 
       {/* =====================================================================
-          COMPACT EMPLOYEE OBJECT VIEW (PERSONALAKTE — MATCHES OBJECTS & PROPERTIES)
+          CLEAN MINIMAL POPUP MODAL: MITARBEITER ERSTELLEN / PERSONALAKTE
          ===================================================================== */}
       {showAddEmp && (() => {
         const empLogsAll = editingEmpId ? timeLogs.filter((l) => l.employee_id === editingEmpId) : [];
@@ -1775,144 +1820,225 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
             ]
           : [];
 
+        const modalTabs = [
+          { id: 'personal', num: 1, label: 'Stammdaten' },
+          { id: 'contract', num: 2, label: isFreelanceModal ? 'Freelancer & Verträge' : 'Vertrag & Gehalt' },
+          { id: 'tax', num: 3, label: 'Steuer, KV & Bank' },
+          ...(editingEmpId ? [
+            { id: 'hours', num: 4, label: 'Arbeitszeiten', badge: empLogsAll.length || null },
+            { id: 'absence', num: 5, label: 'Urlaub & AU', badge: (empSicknessAll.length + empLeavesAll.length) || null },
+            { id: 'payslips', num: 6, label: 'Lohn', badge: empPayslipsAll.length || null },
+          ] : []),
+          { id: 'docs', num: editingEmpId ? 7 : 4, label: 'Dokumente & KI', badge: (newEmp.documents || []).length || null },
+          { id: 'sos', num: editingEmpId ? 8 : 5, label: 'SOS Notfall' },
+          { id: 'sub', num: editingEmpId ? 9 : 6, label: 'Sub §48b' },
+          { id: 'security', num: editingEmpId ? 10 : 7, label: 'Account & OTP' },
+        ];
+        const currentTabIdx = Math.max(0, modalTabs.findIndex((t) => t.id === empCardTab));
+        const isLastTab = currentTabIdx === modalTabs.length - 1;
+
         return (
         <div
-          className="glass-panel"
           style={{
-            width: '100%',
+            position: 'fixed',
+            inset: 0,
+            zIndex: 9990,
+            background: 'rgba(15, 23, 42, 0.56)',
+            backdropFilter: 'blur(4px)',
             display: 'flex',
-            flexDirection: 'column',
-            padding: 0,
-            overflow: 'hidden',
-            background: '#ffffff',
-            borderRadius: '12px',
-            border: '1px solid #e2e8f0',
-            boxShadow: '0 2px 12px rgba(15,23,42,0.04)',
-            marginTop: '6px',
-            marginBottom: '20px',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 16,
           }}
+          onClick={() => setShowAddEmp(false)}
         >
-          {/* Compact Object Header Bar (matches BuildingDetailView in Objects & Properties) */}
-          <div style={{ padding: '12px 16px', borderBottom: '1px solid #e2e8f0', background: '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              <button
-                type="button"
-                className="btn-secondary btn-sm"
-                onClick={() => setShowAddEmp(false)}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontWeight: 700, padding: '6px 11px', background: '#fff', border: '1px solid #cbd5e1', borderRadius: 8 }}
-              >
-                <ArrowLeft size={14} /> Zurück
-              </button>
-              {editingEmpId && (
-                <span style={{ padding: '3px 9px', borderRadius: 6, background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', fontFamily: 'monospace', fontSize: 11.5, fontWeight: 800 }}>
-                  {newEmp.employee_number || employees.find((x) => x.id === editingEmpId)?.employee_number || 'EMP'}
-                </span>
-              )}
-              <button
-                type="button"
-                onClick={() => setNewEmp((prev) => ({ ...prev, is_active: !prev.is_active }))}
-                style={{
-                  padding: '3px 9px',
-                  borderRadius: 999,
-                  fontSize: 11,
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  border: newEmp.is_active === false ? '1px solid #fca5a5' : '1px solid #86efac',
-                  background: newEmp.is_active === false ? '#fef2f2' : '#dcfce7',
-                  color: newEmp.is_active === false ? '#dc2626' : '#15803d',
-                }}
-                title="Status umschalten (Aktiv / Gesperrt)"
-              >
-                {newEmp.is_active === false ? '🔒 Gesperrt' : '✓ Aktiv'}
-              </button>
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                  <strong style={{ fontSize: 15, fontWeight: 800, color: '#0f172a' }}>
-                    {editingEmpId ? `${newEmp.first_name} ${newEmp.last_name}` : 'Neuer Mitarbeiter / Freelancer'}
-                  </strong>
-                  <span style={{ fontSize: 12, color: '#64748b', fontWeight: 600 }}>
-                    {newEmp.role} · {newEmp.department}
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: '100%',
+              maxWidth: 1020,
+              maxHeight: '92vh',
+              display: 'flex',
+              flexDirection: 'column',
+              padding: 0,
+              overflow: 'hidden',
+              background: '#ffffff',
+              borderRadius: 14,
+              border: '1px solid #e2e8f0',
+              boxShadow: '0 24px 64px rgba(15, 23, 42, 0.28)',
+              animation: 'hrModalIn 0.22s cubic-bezier(0.22, 1, 0.36, 1)',
+            }}
+          >
+            {/* Minimal Popup Header */}
+            <div style={{ padding: '12px 18px', borderBottom: '1px solid #e2e8f0', background: '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                {editingEmpId && (
+                  <span style={{ padding: '2px 8px', borderRadius: 5, background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', fontFamily: 'monospace', fontSize: 11, fontWeight: 700 }}>
+                    {newEmp.employee_number || employees.find((x) => x.id === editingEmpId)?.employee_number || 'EMP'}
                   </span>
+                )}
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <strong style={{ fontSize: 15, fontWeight: 800, color: '#0f172a' }}>
+                      {editingEmpId ? `${newEmp.first_name} ${newEmp.last_name}` : 'Neuer Mitarbeiter / Freelancer'}
+                    </strong>
+                    <button
+                      type="button"
+                      onClick={() => setNewEmp((prev) => ({ ...prev, is_active: !prev.is_active }))}
+                      style={{
+                        padding: '2px 8px',
+                        borderRadius: 999,
+                        fontSize: 10.5,
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        border: newEmp.is_active === false ? '1px solid #fca5a5' : '1px solid #86efac',
+                        background: newEmp.is_active === false ? '#fef2f2' : '#dcfce7',
+                        color: newEmp.is_active === false ? '#dc2626' : '#15803d',
+                      }}
+                      title="Status umschalten (Aktiv / Gesperrt)"
+                    >
+                      {newEmp.is_active === false ? 'Gesperrt' : 'Aktiv'}
+                    </button>
+                  </div>
+                  <div style={{ fontSize: 11, color: '#64748b' }}>
+                    {newEmp.role} · {newEmp.department}{newEmp.email ? ` · ${newEmp.email}` : ''}
+                  </div>
                 </div>
-                <div style={{ fontSize: 11, color: '#64748b' }}>
-                  {newEmp.email || 'Keine E-Mail'} · {newEmp.phone || 'Kein Telefon'}
-                </div>
+              </div>
+
+              {/* Right: KPI Pills (edit mode) + Type Selector + Close */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                {editingEmpId && (
+                  <>
+                    <button type="button" onClick={() => setEmpCardTab('hours')} style={{ padding: '4px 8px', borderRadius: 6, background: empCardTab === 'hours' ? '#fff7ed' : '#fff', border: '1px solid #e2e8f0', fontSize: 11, fontWeight: 700, color: '#0f172a', cursor: 'pointer' }}>
+                      {empMonthHours.toFixed(1)}/{empQuotaHours}h {empOvertimeHours > 0 ? `(+${empOvertimeHours}h)` : ''}
+                    </button>
+                    <button type="button" onClick={() => setEmpCardTab('absence')} style={{ padding: '4px 8px', borderRadius: 6, background: empCardTab === 'absence' ? '#fff7ed' : '#fff', border: '1px solid #e2e8f0', fontSize: 11, fontWeight: 700, color: '#0f172a', cursor: 'pointer' }}>
+                      Urlaub: {empLeavesAll.length} · AU: {empSicknessAll.length}
+                    </button>
+                    <button type="button" onClick={() => setEmpCardTab('payslips')} style={{ padding: '4px 8px', borderRadius: 6, background: empCardTab === 'payslips' ? '#ecfdf5' : '#fff', border: '1px solid #a7f3d0', fontSize: 11, fontWeight: 700, color: '#047857', cursor: 'pointer' }}>
+                      Lohn: {empPayslipsAll.length}
+                    </button>
+                  </>
+                )}
+                <select
+                  value={newEmp.employment_type}
+                  onChange={(e) => handleEmploymentTypeSwitch(e.target.value)}
+                  style={{ width: 'auto', padding: '4px 8px', fontSize: 11.5, fontWeight: 700, borderRadius: 6, border: '1px solid #fdba74', background: '#fff7ed', color: '#9a3412' }}
+                >
+                  {['Full-time', 'Part-time', 'Minijob', 'Freelancer', 'Subunternehmer', 'Candidate'].map((tp) => (
+                    <option key={tp} value={tp}>{tp}</option>
+                  ))}
+                </select>
+                {editingEmpId && (
+                  <button
+                    type="button"
+                    className="btn-secondary btn-sm"
+                    style={{ color: '#dc2626', borderColor: '#fecaca', background: '#fef2f2', padding: '5px 8px' }}
+                    onClick={() => handleDeleteEmployee(editingEmpId, `${newEmp.first_name} ${newEmp.last_name}`)}
+                    title="Personalakte löschen"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setShowAddEmp(false)}
+                  title="Schließen"
+                  style={{
+                    width: 28,
+                    height: 28,
+                    borderRadius: 7,
+                    border: '1px solid #cbd5e1',
+                    background: '#fff',
+                    color: '#475569',
+                    display: 'grid',
+                    placeItems: 'center',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <X size={14} />
+                </button>
               </div>
             </div>
 
-            {/* Right: Per-Employee KPI Pills + Type Selector + Save/Delete */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-              {editingEmpId && (
-                <>
-                  <button type="button" onClick={() => setEmpCardTab('hours')} style={{ padding: '4px 9px', borderRadius: 7, background: empCardTab === 'hours' ? '#fff7ed' : '#fff', border: '1px solid #e2e8f0', fontSize: 11, fontWeight: 700, color: '#0f172a', cursor: 'pointer' }}>
-                    ⏱ {empMonthHours.toFixed(1)} / {empQuotaHours} h {empOvertimeHours > 0 ? `(+${empOvertimeHours}h ÜS)` : ''}
+            {/* Minimal Animated Underline Tabs */}
+            <div
+              style={{
+                padding: '0 18px',
+                background: '#fff',
+                borderBottom: '1px solid #e2e8f0',
+                display: 'flex',
+                gap: 2,
+                overflowX: 'auto',
+                scrollbarWidth: 'none',
+              }}
+            >
+              {modalTabs.map((st) => {
+                const isActive = empCardTab === st.id;
+                return (
+                  <button
+                    key={st.id}
+                    type="button"
+                    onClick={() => setEmpCardTab(st.id)}
+                    style={{
+                      padding: '9px 11px',
+                      fontSize: 12,
+                      fontWeight: isActive ? 700 : 500,
+                      color: isActive ? '#FF6B00' : '#64748b',
+                      background: 'transparent',
+                      border: 'none',
+                      borderBottom: isActive ? '2px solid #FF6B00' : '2px solid transparent',
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 5,
+                      transition: 'color 0.18s ease, border-color 0.2s ease',
+                    }}
+                  >
+                    <span
+                      style={{
+                        width: 17,
+                        height: 17,
+                        borderRadius: 999,
+                        fontSize: 10,
+                        fontWeight: 700,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        background: isActive ? '#FF6B00' : '#f1f5f9',
+                        color: isActive ? '#fff' : '#64748b',
+                        transition: 'background 0.18s ease, color 0.18s ease',
+                      }}
+                    >
+                      {st.num}
+                    </span>
+                    {st.label}
+                    {st.badge != null && st.badge > 0 && (
+                      <span style={{ fontSize: 10, padding: '0 5px', borderRadius: 999, background: '#f1f5f9', color: '#475569', fontWeight: 700 }}>
+                        {st.badge}
+                      </span>
+                    )}
                   </button>
-                  <button type="button" onClick={() => setEmpCardTab('absence')} style={{ padding: '4px 9px', borderRadius: 7, background: empCardTab === 'absence' ? '#fff7ed' : '#fff', border: '1px solid #e2e8f0', fontSize: 11, fontWeight: 700, color: '#0f172a', cursor: 'pointer' }}>
-                    🌴 Urlaub: {empLeavesAll.length} · 🏥 AU: {empSicknessAll.length}
-                  </button>
-                  <button type="button" onClick={() => setEmpCardTab('payslips')} style={{ padding: '4px 9px', borderRadius: 7, background: empCardTab === 'payslips' ? '#ecfdf5' : '#fff', border: '1px solid #a7f3d0', fontSize: 11, fontWeight: 700, color: '#047857', cursor: 'pointer' }}>
-                    💰 Lohn: {empPayslipsAll.length}
-                  </button>
-                </>
-              )}
-              <select
-                value={newEmp.employment_type}
-                onChange={(e) => handleEmploymentTypeSwitch(e.target.value)}
-                style={{ width: 'auto', padding: '5px 9px', fontSize: 11.5, fontWeight: 700, borderRadius: 7, border: '1px solid #fdba74', background: '#fff7ed', color: '#9a3412' }}
-              >
-                {['Full-time', 'Part-time', 'Minijob', 'Freelancer', 'Subunternehmer', 'Candidate'].map((tp) => (
-                  <option key={tp} value={tp}>{tp}</option>
-                ))}
-              </select>
-              {editingEmpId && (
-                <button
-                  type="button"
-                  className="btn-secondary btn-sm"
-                  style={{ color: '#dc2626', borderColor: '#fecaca', background: '#fef2f2', padding: '6px 9px' }}
-                  onClick={() => handleDeleteEmployee(editingEmpId, `${newEmp.first_name} ${newEmp.last_name}`)}
-                  title="Personalakte löschen"
-                >
-                  <Trash2 size={13} />
-                </button>
-              )}
+                );
+              })}
             </div>
-          </div>
 
-          {/* Compact Light-Mode Section Tabs Bar */}
-          <div className="finder-tabs" style={{ padding: '6px 14px', background: '#fff', borderBottom: '1px solid #e2e8f0', display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-            {[
-              { id: 'personal', num: 1, label: 'Master Card (Stammdaten)' },
-              { id: 'contract', num: 2, label: isFreelanceModal ? 'Freelancer & Verträge' : 'Vertrag & Gehalt' },
-              { id: 'tax', num: 3, label: 'Steuer, KV & Bank' },
-              ...(editingEmpId ? [
-                { id: 'hours', num: 4, label: 'Arbeitszeiten & Überstunden', badge: empLogsAll.length || null },
-                { id: 'absence', num: 5, label: 'Krankheit (AU) & Urlaub', badge: (empSicknessAll.length + empLeavesAll.length) || null },
-                { id: 'payslips', num: 6, label: 'Lohnabrechnung', badge: empPayslipsAll.length || null },
-              ] : []),
-              { id: 'docs', num: editingEmpId ? 7 : 4, label: 'Dokumente & KI-Scanner', badge: (newEmp.documents || []).length || null },
-              { id: 'sos', num: editingEmpId ? 8 : 5, label: 'SOS Notfall' },
-              { id: 'sub', num: editingEmpId ? 9 : 6, label: 'Sub §48b' },
-              { id: 'security', num: editingEmpId ? 10 : 7, label: 'Account & OTP' },
-            ].map((st) => (
-              <button
-                key={st.id}
-                type="button"
-                className={`finder-tab ${empCardTab === st.id ? 'active' : ''}`}
-                onClick={() => setEmpCardTab(st.id)}
-                style={{ padding: '6px 11px', fontSize: 12 }}
-              >
-                <span className="ftab-num">{st.num}</span>
-                {st.label}
-                {st.badge != null && st.badge > 0 && (
-                  <span className="ftab-badge">{st.badge}</span>
-                )}
-              </button>
-            ))}
-          </div>
-
-            {/* Static-Height Scrollable Form Body */}
+            {/* Scrollable Animated Form Body */}
             <form onSubmit={handleSaveEmployeeCard} style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-              <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div
+                key={empCardTab}
+                style={{
+                  flex: 1,
+                  overflowY: 'auto',
+                  padding: '18px 22px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '14px',
+                  animation: 'hrTabFade 0.2s cubic-bezier(0.22, 1, 0.36, 1)',
+                }}
+              >
                 {/* SECTION 1: STAMMDATEN, SELECTIVE POSITION & ABTEILUNG, ASSIGNED PROJECT */}
                 {empCardTab === 'personal' && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
@@ -3564,47 +3690,236 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                   </div>
                 )}              </div>
 
-              {/* Fixed Static Footer */}
-              <div className="flex-between" style={{ padding: '12px 18px', borderTop: '1px solid #e2e8f0', background: '#f8fafc' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  {editingEmpId && (
+              {/* Minimal Step Footer */}
+              <div className="flex-between" style={{ padding: '12px 18px', borderTop: '1px solid #e2e8f0', background: '#f8fafc', gap: 10, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <button type="button" className="btn-secondary btn-sm" onClick={() => setShowAddEmp(false)}>
+                    Abbrechen
+                  </button>
+                  <span style={{ fontSize: 11.5, color: '#64748b', fontWeight: 600 }}>
+                    Schritt {currentTabIdx + 1} / {modalTabs.length}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                  {currentTabIdx > 0 && (
                     <button
                       type="button"
-                      className="btn-secondary btn-sm"
-                      style={{ color: '#dc2626', borderColor: '#fecaca', background: '#fef2f2' }}
-                      onClick={() => handleDeleteEmployee(editingEmpId, `${newEmp.first_name} ${newEmp.last_name}`)}
+                      className="btn-secondary"
+                      onClick={() => setEmpCardTab(modalTabs[currentTabIdx - 1].id)}
                     >
-                      <Trash2 size={13} /> Personalakte löschen
+                      <ArrowLeft size={14} /> Zurück
                     </button>
                   )}
-                  <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
-                    Typ: <strong>{newEmp.employment_type}</strong> • Position: <strong>{newEmp.role}</strong> • Abteilung: <strong>{newEmp.department}</strong>
-                  </div>
-                </div>
-                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                  <button type="button" className="btn-secondary" onClick={() => setShowAddEmp(false)}>
-                    <ArrowLeft size={14} /> Zurück zur Übersicht
-                  </button>
-                  <button
-                    type="button"
-                    className="btn-secondary"
-                    style={{ borderColor: '#FF6B00', color: '#FF6B00', background: '#fff7ed', fontWeight: 800 }}
-                    onClick={(ev) => handleSaveEmployeeCard(ev, true)}
-                  >
-                    <FileText size={15} /> Speichern & Vertrag generieren →
-                  </button>
-                  <button type="submit" className="btn-primary">
-                    <Check size={15} /> {editingEmpId ? 'Änderungen speichern' : 'Mitarbeiter anlegen & speichern'}
-                  </button>
+                  {!isLastTab ? (
+                    <button
+                      type="button"
+                      className="btn-primary"
+                      onClick={() => setEmpCardTab(modalTabs[currentTabIdx + 1].id)}
+                    >
+                      Weiter <ArrowRight size={14} />
+                    </button>
+                  ) : (
+                    <>
+                      {editingEmpId && (
+                        <button type="submit" className="btn-secondary">
+                          <Check size={14} /> Änderungen speichern
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className="btn-primary"
+                        onClick={(ev) => handleSaveEmployeeCard(ev, true)}
+                      >
+                        <FileText size={14} /> {editingEmpId ? 'Speichern & Vertrag generieren →' : 'Mitarbeiter anlegen & Vertrag generieren →'}
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             </form>
+          </div>
         </div>
         );
       })()}
 
+      {/* =====================================================================
+          AI DOCUMENT READER: LOADING POPUP + REVIEW & EDIT POPUP
+         ===================================================================== */}
+      {aiDocReading && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 10050,
+            background: 'rgba(15, 23, 42, 0.6)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 16,
+          }}
+        >
+          <div
+            style={{
+              width: '100%',
+              maxWidth: 420,
+              background: '#ffffff',
+              borderRadius: 14,
+              padding: '26px 24px',
+              textAlign: 'center',
+              boxShadow: '0 24px 64px rgba(15, 23, 42, 0.3)',
+              border: '1px solid #e2e8f0',
+              animation: 'hrModalIn 0.2s ease',
+            }}
+          >
+            <div
+              style={{
+                width: 44,
+                height: 44,
+                margin: '0 auto 14px',
+                borderRadius: 999,
+                border: '3px solid #fed7aa',
+                borderTopColor: '#FF6B00',
+                animation: 'spin 0.8s linear infinite',
+              }}
+            />
+            <div style={{ fontSize: 15, fontWeight: 800, color: '#0f172a', marginBottom: 6 }}>
+              KI liest Dokumente…
+            </div>
+            <div style={{ fontSize: 12.5, color: '#64748b', lineHeight: 1.5 }}>
+              Dokumente werden hochgeladen und automatisch ausgelesen:
+            </div>
+            {aiReadingFiles.length > 0 && (
+              <div style={{ marginTop: 10, padding: '8px 10px', borderRadius: 8, background: '#f8fafc', border: '1px solid #e2e8f0', fontSize: 11.5, color: '#334155', fontWeight: 600 }}>
+                {aiReadingFiles.join(' · ')}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {aiReviewModal && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 10050,
+            background: 'rgba(15, 23, 42, 0.6)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 16,
+          }}
+          onClick={() => setAiReviewModal(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: '100%',
+              maxWidth: 780,
+              maxHeight: '88vh',
+              background: '#ffffff',
+              borderRadius: 14,
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+              boxShadow: '0 24px 64px rgba(15, 23, 42, 0.32)',
+              border: '1px solid #e2e8f0',
+              animation: 'hrModalIn 0.2s cubic-bezier(0.22, 1, 0.36, 1)',
+            }}
+          >
+            <div style={{ padding: '14px 18px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+              <div>
+                <div style={{ fontSize: 14.5, fontWeight: 800, color: '#0f172a', display: 'flex', alignItems: 'center', gap: 7 }}>
+                  <Sparkles size={16} style={{ color: '#059669' }} />
+                  KI-Ergebnis prüfen &amp; übernehmen
+                </div>
+                <div style={{ fontSize: 11.5, color: '#64748b', marginTop: 2 }}>
+                  Datei(en): {(aiReviewModal.fileNames || []).join(', ')} — Bitte prüfen oder korrigieren Sie die Felder vor der Übernahme.
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAiReviewModal(null)}
+                style={{ width: 28, height: 28, borderRadius: 7, border: '1px solid #cbd5e1', background: '#fff', color: '#475569', display: 'grid', placeItems: 'center', cursor: 'pointer' }}
+              >
+                <X size={14} />
+              </button>
+            </div>
+
+            <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(175px, 1fr))', gap: 10 }}>
+                {[
+                  { key: 'first_name', label: 'Vorname' },
+                  { key: 'last_name', label: 'Nachname' },
+                  { key: 'gender', label: 'Geschlecht (m/w)' },
+                  { key: 'birth_date', label: 'Geburtsdatum (YYYY-MM-DD)' },
+                  { key: 'nationality', label: 'Staatsangehörigkeit' },
+                  { key: 'phone', label: 'Telefon' },
+                  { key: 'email', label: 'E-Mail' },
+                  { key: 'role', label: 'Position / Beruf' },
+                  { key: 'street', label: 'Straße & Hausnr.' },
+                  { key: 'postal_code', label: 'PLZ' },
+                  { key: 'city', label: 'Ort / Stadt' },
+                  { key: 'steuer_id', label: 'Steuer-ID' },
+                  { key: 'sozialversicherungsnummer', label: 'SV-Nummer' },
+                  { key: 'krankenversicherung_name', label: 'Krankenkasse' },
+                  { key: 'krankenversicherung_nummer', label: 'KV-Nummer' },
+                  { key: 'iban', label: 'IBAN' },
+                  { key: 'bic', label: 'BIC' },
+                  { key: 'bank_name', label: 'Bankname' },
+                  { key: 'document_type', label: 'Ausweistyp' },
+                  { key: 'document_number', label: 'Ausweisnummer' },
+                  { key: 'document_valid_until', label: 'Gültig bis (YYYY-MM-DD)' },
+                  { key: 'drivers_license', label: 'Führerschein' },
+                  { key: 'company_name', label: 'Firmenname (Sub)' },
+                  { key: 'ust_id', label: 'USt-IdNr.' },
+                  { key: 'steuernummer', label: 'Steuernummer' },
+                ].map((f) => {
+                  const val = aiReviewModal.fields?.[f.key] || '';
+                  return (
+                    <div key={f.key}>
+                      <label style={{ fontSize: 11, fontWeight: 700, color: val ? '#065f46' : '#64748b', display: 'block', marginBottom: 3 }}>
+                        {f.label}
+                      </label>
+                      <input
+                        value={val}
+                        onChange={(ev) =>
+                          setAiReviewModal((prev) => ({
+                            ...prev,
+                            fields: { ...(prev?.fields || {}), [f.key]: ev.target.value },
+                          }))
+                        }
+                        style={{
+                          fontSize: 12.5,
+                          padding: '6px 9px',
+                          borderRadius: 7,
+                          border: val ? '1.5px solid #10b981' : '1px solid #cbd5e1',
+                          background: val ? '#f0fdf4' : '#ffffff',
+                          width: '100%',
+                        }}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div style={{ padding: '12px 18px', borderTop: '1px solid #e2e8f0', background: '#f8fafc', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+              <button type="button" className="btn-secondary" onClick={() => setAiReviewModal(null)}>
+                Abbrechen
+              </button>
+              <button type="button" className="btn-primary" onClick={applyAiReviewedFields}>
+                <Check size={14} /> Daten übernehmen &amp; Formular ausfüllen
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Tab Content */}
-      {!showAddEmp && tab === 'overview' && (
+      {tab === 'overview' && (
         <HREmployeeOverviewView
           employees={employees}
           timeLogs={timeLogs}
@@ -3623,7 +3938,7 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
         />
       )}
 
-      {!showAddEmp && tab === 'contracts' && (
+      {tab === 'contracts' && (
         <HRContractGeneratorView
           employees={employees}
           preselectedEmpId={contractGenEmpId}
@@ -3636,7 +3951,7 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
         />
       )}
 
-      {!showAddEmp && tab === 'employees' && (() => {
+      {tab === 'employees' && (() => {
         const monthHours = {};
         timeLogs.forEach((l) => {
           if (!l.employee_id || !String(l.date || '').startsWith(biMonth)) return;
@@ -3816,7 +4131,7 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
         );
       })()}
 
-      {!showAddEmp && tab === 'timelogs' && (
+      {tab === 'timelogs' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
           {/* Smart Instant Character-by-Character Employee Search + Selective Billing Month + Add Manual Working Hours Bar */}
           <div className="glass-panel" style={{ padding: '16px 18px' }}>
@@ -4368,7 +4683,7 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
         </div>
       )}
 
-      {!showAddEmp && tab === 'leaves' && (
+      {tab === 'leaves' && (
         <div className="glass-panel">
           <div className="toolbar" style={{ marginBottom: 16 }}>
             <select value={leaveFilter} onChange={(e) => setLeaveFilter(e.target.value)}>
@@ -4482,7 +4797,7 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
         </div>
       )}
 
-      {!showAddEmp && tab === 'sickness' && (
+      {tab === 'sickness' && (
         <div className="glass-panel">
           <div className="toolbar" style={{ marginBottom: 16 }}>
             <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
@@ -4578,7 +4893,7 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
         </div>
       )}
 
-      {!showAddEmp && (tab === 'documents' || tab === 'payslips') && (() => {
+      {(tab === 'documents' || tab === 'payslips') && (() => {
         const allEmployeeDocs = employees.flatMap(emp =>
           (emp.documents || []).map(doc => ({
             ...doc,
