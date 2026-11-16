@@ -5,7 +5,7 @@ import {
   Building2, MapPin, Video, Image, ShieldAlert, ArrowRightLeft, Lock, Edit3,
   MessageSquare, Download, ChevronLeft, ChevronRight, BarChart3, GripVertical,
   Search, KeyRound, Trash2, ShieldCheck, Briefcase, PhoneCall, AlertTriangle,
-  Sparkles, ScanLine, FolderOpen, ShieldCheck as ShieldKey, ArrowLeft,
+  Sparkles, ScanLine, FolderOpen, ShieldCheck as ShieldKey, ArrowLeft, ArrowRight,
 } from 'lucide-react';
 import { fetchWithToken, uploadMediaFile, resolveMediaUrl, TIER_LABELS, formatEuro, formatDate, formatDateTime, formatDateRange } from '../core/api';
 import { TASK_STATUS_CONFIG, getStatusStyle } from '../core/i18n';
@@ -391,6 +391,11 @@ export const HRManagementModule = ({ user }) => {
   const [otpBanner, setOtpBanner] = useState(null);
   const [aiReadingFiles, setAiReadingFiles] = useState([]);
   const [aiReviewModal, setAiReviewModal] = useState(null);
+  const [biViewMode, setBiViewMode] = useState('bars'); // 'bars' | 'calendar' | 'compact'
+  const [empHoursViewMode, setEmpHoursViewMode] = useState('months'); // 'months' | 'calendar'
+  const [expandedHoursMonthMap, setExpandedHoursMonthMap] = useState({});
+  const [hoursCalMonth, setHoursCalMonth] = useState(() => new Date().toISOString().slice(0, 7));
+  const [approvingAllEmpId, setApprovingAllEmpId] = useState(null);
 
   // Document Selection, Sorting & Filtering State (for Personalakte & HR Documents Tab)
   const [selectedDocIds, setSelectedDocIds] = useState([]);
@@ -1105,6 +1110,33 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
       loadAll();
     } catch (err) {
       alert(err.message);
+    }
+  };
+
+  const handleApproveAllEmployeeHours = async (empId, monthKey = null) => {
+    const pendingLogs = timeLogs.filter(
+      (l) =>
+        l.employee_id === empId &&
+        l.status !== 'Approved' &&
+        Boolean(l.check_out_time) &&
+        (!monthKey || String(l.date || '').startsWith(monthKey))
+    );
+    if (pendingLogs.length === 0) return;
+    setApprovingAllEmpId(empId);
+    try {
+      await Promise.all(
+        pendingLogs.map((l) =>
+          fetchWithToken(`/api/v1/hr/time-logs/${l.id}/approve`, {
+            method: 'PATCH',
+            body: JSON.stringify({}),
+          })
+        )
+      );
+      loadAll();
+    } catch (err) {
+      alert(err.message || 'Fehler bei der Sammel-Freigabe');
+    } finally {
+      setApprovingAllEmpId(null);
     }
   };
 
@@ -3380,15 +3412,54 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                   </div>
                 )}
 
-                {/* SECTION 8: ARBEITSZEITEN & ÜBERSTUNDEN (PER EMPLOYEE) */}
-                {editingEmpId && empCardTab === 'hours' && (
+                {/* SECTION 8: ARBEITSZEITEN & ÜBERSTUNDEN (PER EMPLOYEE — MONTHS ACCORDION + CALENDAR + 1-CLICK APPROVE) */}
+                {editingEmpId && empCardTab === 'hours' && (() => {
+                  const empPendingAll = empLogsAll.filter((l) => l.status !== 'Approved' && Boolean(l.check_out_time));
+                  const empApprovedHoursAll = empLogsAll
+                    .filter((l) => l.status === 'Approved')
+                    .reduce((s, l) => s + Number(l.net_hours ?? l.total_hours ?? 0), 0);
+
+                  // Group logs by YYYY-MM descending
+                  const monthGroupsMap = new Map();
+                  for (const l of empLogsAll) {
+                    const mKey = String(l.date || '').slice(0, 7) || 'Unbekannt';
+                    if (!monthGroupsMap.has(mKey)) monthGroupsMap.set(mKey, []);
+                    monthGroupsMap.get(mKey).push(l);
+                  }
+                  const monthGroups = Array.from(monthGroupsMap.entries())
+                    .sort((a, b) => b[0].localeCompare(a[0]))
+                    .map(([mKey, logs]) => {
+                      const sortedLogs = [...logs].sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+                      const totalH = sortedLogs.reduce((s, x) => s + Number(x.net_hours ?? x.total_hours ?? 0), 0);
+                      const pendingCount = sortedLogs.filter((x) => x.status !== 'Approved' && Boolean(x.check_out_time)).length;
+                      let label = mKey;
+                      if (/^\d{4}-\d{2}$/.test(mKey)) {
+                        const [yy, mm] = mKey.split('-').map(Number);
+                        label = new Date(yy, mm - 1, 1).toLocaleDateString('de-DE', { month: 'long', year: 'numeric' });
+                      }
+                      return { mKey, label, logs: sortedLogs, totalH, pendingCount };
+                    });
+
+                  // Calendar grid data for hoursCalMonth
+                  const [calY, calM] = (/^\d{4}-\d{2}$/.test(hoursCalMonth) ? hoursCalMonth : new Date().toISOString().slice(0, 7)).split('-').map(Number);
+                  const calFirstDay = new Date(calY, calM - 1, 1);
+                  const calDaysInMonth = new Date(calY, calM, 0).getDate();
+                  const calStartOffset = (calFirstDay.getDay() + 6) % 7; // Monday = 0
+                  const calTitle = calFirstDay.toLocaleDateString('de-DE', { month: 'long', year: 'numeric' });
+                  const shiftCalMonth = (delta) => {
+                    const d = new Date(calY, calM - 1 + delta, 1);
+                    setHoursCalMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+                  };
+
+                  return (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    {/* KPI Strip */}
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 10 }}>
                       {[
                         { label: `Stunden (${biMonth})`, val: `${empMonthHours.toFixed(1)} h`, sub: `Soll: ${empQuotaHours} h` },
                         { label: 'Überstunden (Monat)', val: `${empOvertimeHours} h`, sub: `Satz: ${formatEuro(newEmp.attributes?.overtime_rate || 28.5)}/h`, color: empOvertimeHours > 0 ? '#ea580c' : '#0f172a' },
-                        { label: 'Schichten (Monat)', val: `${empMonthLogs.length}`, sub: `Gesamt: ${empLogsAll.length} Einträge` },
-                        { label: 'Wochenlimit', val: `${newEmp.attributes?.weekly_hours || 40} h/Woche`, sub: newEmp.employment_type },
+                        { label: 'Freigegeben (Gesamt)', val: `${empApprovedHoursAll.toFixed(1)} h`, sub: `${empLogsAll.length - empPendingAll.length} Schichten`, color: '#15803d' },
+                        { label: 'Offen zur Freigabe', val: `${empPendingAll.length}`, sub: empPendingAll.length > 0 ? 'Klick zum Freigeben' : 'Alles freigegeben', color: empPendingAll.length > 0 ? '#b45309' : '#15803d' },
                       ].map((k, i) => (
                         <div key={i} style={{ padding: '10px 12px', borderRadius: 10, background: '#f8fafc', border: '1px solid #e2e8f0' }}>
                           <div style={{ fontSize: 11, color: '#64748b', fontWeight: 700 }}>{k.label}</div>
@@ -3396,6 +3467,41 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                           <div style={{ fontSize: 11, color: '#64748b' }}>{k.sub}</div>
                         </div>
                       ))}
+                    </div>
+
+                    {/* Action Bar: View Switcher (Monatsliste / Kalender) + One-Click Approve All Pending */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                      <div className="hr-seg">
+                        <button
+                          type="button"
+                          className={empHoursViewMode === 'months' ? 'active' : ''}
+                          onClick={() => setEmpHoursViewMode('months')}
+                        >
+                          Monatsliste ({monthGroups.length})
+                        </button>
+                        <button
+                          type="button"
+                          className={empHoursViewMode === 'calendar' ? 'active' : ''}
+                          onClick={() => setEmpHoursViewMode('calendar')}
+                        >
+                          Kalenderansicht
+                        </button>
+                      </div>
+
+                      {empPendingAll.length > 0 && (
+                        <button
+                          type="button"
+                          className="btn-primary btn-sm"
+                          disabled={approvingAllEmpId === editingEmpId}
+                          onClick={() => handleApproveAllEmployeeHours(editingEmpId)}
+                          style={{ background: '#059669', borderColor: '#047857', fontWeight: 700 }}
+                        >
+                          <Check size={13} />{' '}
+                          {approvingAllEmpId === editingEmpId
+                            ? 'Wird freigegeben…'
+                            : `Alle offenen Stunden freigeben (${empPendingAll.length})`}
+                        </button>
+                      )}
                     </div>
 
                     {/* Inline Quick-Add Working Hours for this Employee */}
@@ -3450,51 +3556,193 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                           } catch (err) { alert(err.message); }
                         }}
                       >
-                        <Plus size={13} /> Arbeitszeit buchen
+                        <Plus size={13} /> Buchen
                       </button>
                     </div>
 
-                    <div style={{ border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden' }}>
-                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
-                        <thead>
-                          <tr style={{ background: '#f1f5f9', color: '#475569', fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase' }}>
-                            <th style={{ padding: '8px 10px', textAlign: 'left' }}>Datum</th>
-                            <th style={{ padding: '8px 10px', textAlign: 'left' }}>Projekt</th>
-                            <th style={{ padding: '8px 10px', textAlign: 'left' }}>Start – Ende</th>
-                            <th style={{ padding: '8px 10px', textAlign: 'left' }}>Pause</th>
-                            <th style={{ padding: '8px 10px', textAlign: 'left' }}>Netto</th>
-                            <th style={{ padding: '8px 10px', textAlign: 'left' }}>Status</th>
-                            <th style={{ padding: '8px 10px', textAlign: 'right' }}>Aktion</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {empLogsAll.length === 0 ? (
-                            <tr><td colSpan={7} style={{ padding: 20, textAlign: 'center', color: '#64748b' }}>Noch keine Arbeitszeiten für diesen Mitarbeiter erfasst.</td></tr>
-                          ) : empLogsAll.map((l) => (
-                            <tr key={l.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                              <td style={{ padding: '8px 10px', fontWeight: 700 }}>{formatDate(l.date)}</td>
-                              <td style={{ padding: '8px 10px' }}>{l.project_name || '—'}</td>
-                              <td style={{ padding: '8px 10px' }}>{fmtTimeInput(l.check_in_time) || '—'} – {fmtTimeInput(l.check_out_time) || 'Aktiv'}</td>
-                              <td style={{ padding: '8px 10px' }}>{l.break_minutes || 0} min</td>
-                              <td style={{ padding: '8px 10px', fontWeight: 800, color: '#0f172a' }}>{l.net_hours ?? l.total_hours ?? 0} h</td>
-                              <td style={{ padding: '8px 10px' }}>
-                                <span className="badge" style={{ background: l.status === 'Approved' ? '#dcfce7' : '#fef3c7', color: l.status === 'Approved' ? '#15803d' : '#b45309' }}>{l.status}</span>
-                              </td>
-                              <td style={{ padding: '8px 10px', textAlign: 'right' }}>
-                                <div style={{ display: 'inline-flex', gap: 6 }}>
-                                  {l.status !== 'Approved' && l.check_out_time && (
-                                    <button type="button" className="btn-primary btn-sm" onClick={() => handleApproveTimeLog(l.id)}><Check size={12} /> Freigeben</button>
-                                  )}
-                                  <button type="button" className="btn-secondary btn-sm" style={{ color: '#dc2626' }} onClick={() => handleDeleteTimeLog(l.id)}><Trash2 size={12} /></button>
+                    {/* VIEW 1: MONTHS ACCORDION WITH SMOOTH ANIMATION */}
+                    {empHoursViewMode === 'months' && (
+                      monthGroups.length === 0 ? (
+                        <div style={{ padding: 24, textAlign: 'center', color: '#64748b', border: '1px dashed #cbd5e1', borderRadius: 10, fontSize: 12.5 }}>
+                          Noch keine Arbeitszeiten für diesen Mitarbeiter erfasst.
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          {monthGroups.map((mg) => {
+                            const key = `${editingEmpId}_${mg.mKey}`;
+                            const isOpen = expandedHoursMonthMap[key] !== undefined
+                              ? Boolean(expandedHoursMonthMap[key])
+                              : mg.pendingCount > 0 || mg.mKey === biMonth;
+                            return (
+                              <div key={mg.mKey} style={{ border: `1px solid ${mg.pendingCount > 0 ? '#fcd34d' : '#e2e8f0'}`, borderRadius: 8, overflow: 'hidden', background: '#fff' }}>
+                                <div
+                                  onClick={() => setExpandedHoursMonthMap((prev) => ({ ...prev, [key]: !isOpen }))}
+                                  style={{
+                                    padding: '8px 12px',
+                                    background: isOpen ? '#f8fafc' : '#fff',
+                                    borderBottom: isOpen ? '1px solid #e2e8f0' : '1px solid transparent',
+                                    transition: 'background 0.2s ease, border-color 0.2s ease',
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center',
+                                    flexWrap: 'wrap',
+                                    gap: 8,
+                                    cursor: 'pointer',
+                                    userSelect: 'none',
+                                  }}
+                                >
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    <strong style={{ fontSize: 13, color: '#0f172a', textTransform: 'capitalize' }}>{mg.label}</strong>
+                                    <span style={{ fontSize: 11.5, color: '#64748b' }}>
+                                      {mg.logs.length} Schichten · <strong style={{ color: '#0f172a' }}>{mg.totalH.toFixed(1)} h</strong>
+                                    </span>
+                                  </div>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }} onClick={(e) => e.stopPropagation()}>
+                                    {mg.pendingCount > 0 ? (
+                                      <>
+                                        <span style={{ padding: '2px 8px', borderRadius: 999, background: '#fef3c7', color: '#b45309', fontSize: 11, fontWeight: 700 }}>
+                                          {mg.pendingCount} offen
+                                        </span>
+                                        <button
+                                          type="button"
+                                          className="btn-primary btn-sm"
+                                          style={{ fontSize: 11, padding: '3px 8px', background: '#059669', borderColor: '#047857' }}
+                                          disabled={approvingAllEmpId === editingEmpId}
+                                          onClick={() => handleApproveAllEmployeeHours(editingEmpId, mg.mKey)}
+                                        >
+                                          <Check size={11} /> Monat freigeben
+                                        </button>
+                                      </>
+                                    ) : (
+                                      <span style={{ padding: '2px 8px', borderRadius: 999, background: '#dcfce7', color: '#15803d', fontSize: 11, fontWeight: 700 }}>
+                                        ✓ Freigegeben
+                                      </span>
+                                    )}
+                                  </div>
                                 </div>
-                              </td>
-                            </tr>
+
+                                {/* Smooth Animated Expandable Month Details */}
+                                <div
+                                  style={{
+                                    display: 'grid',
+                                    gridTemplateRows: isOpen ? '1fr' : '0fr',
+                                    opacity: isOpen ? 1 : 0,
+                                    transition: 'grid-template-rows 0.24s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.2s ease',
+                                  }}
+                                >
+                                  <div style={{ overflow: 'hidden', minHeight: 0 }}>
+                                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                                      <thead>
+                                        <tr style={{ background: '#f8fafc', color: '#64748b', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', borderBottom: '1px solid #e2e8f0' }}>
+                                          <th style={{ padding: '6px 10px', textAlign: 'left' }}>Datum</th>
+                                          <th style={{ padding: '6px 10px', textAlign: 'left' }}>Projekt</th>
+                                          <th style={{ padding: '6px 10px', textAlign: 'left' }}>Start – Ende</th>
+                                          <th style={{ padding: '6px 10px', textAlign: 'left' }}>Pause</th>
+                                          <th style={{ padding: '6px 10px', textAlign: 'left' }}>Netto</th>
+                                          <th style={{ padding: '6px 10px', textAlign: 'left' }}>Status</th>
+                                          <th style={{ padding: '6px 10px', textAlign: 'right' }}>Aktion</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {mg.logs.map((l) => (
+                                          <tr key={l.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                            <td style={{ padding: '7px 10px', fontWeight: 700 }}>{formatDate(l.date)}</td>
+                                            <td style={{ padding: '7px 10px' }}>{l.project_name || '—'}</td>
+                                            <td style={{ padding: '7px 10px' }}>{fmtTimeInput(l.check_in_time) || '—'} – {fmtTimeInput(l.check_out_time) || 'Aktiv'}</td>
+                                            <td style={{ padding: '7px 10px' }}>{l.break_minutes || 0} min</td>
+                                            <td style={{ padding: '7px 10px', fontWeight: 800, color: '#0f172a' }}>{l.net_hours ?? l.total_hours ?? 0} h</td>
+                                            <td style={{ padding: '7px 10px' }}>
+                                              <span className="badge" style={{ background: l.status === 'Approved' ? '#dcfce7' : '#fef3c7', color: l.status === 'Approved' ? '#15803d' : '#b45309', fontSize: 10.5 }}>
+                                                {l.status}
+                                              </span>
+                                            </td>
+                                            <td style={{ padding: '7px 10px', textAlign: 'right' }}>
+                                              <div style={{ display: 'inline-flex', gap: 5 }}>
+                                                {l.status !== 'Approved' && l.check_out_time && (
+                                                  <button type="button" className="btn-primary btn-sm" style={{ padding: '3px 8px', fontSize: 11 }} onClick={() => handleApproveTimeLog(l.id)}>
+                                                    <Check size={11} /> Freigeben
+                                                  </button>
+                                                )}
+                                                <button type="button" className="btn-secondary btn-sm" style={{ color: '#dc2626', padding: '3px 6px' }} onClick={() => handleDeleteTimeLog(l.id)}>
+                                                  <Trash2 size={11} />
+                                                </button>
+                                              </div>
+                                            </td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )
+                    )}
+
+                    {/* VIEW 2: EMPLOYEE MONTHLY CALENDAR VIEW */}
+                    {empHoursViewMode === 'calendar' && (
+                      <div style={{ border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden', background: '#fff', animation: 'hrTabFade 0.2s ease' }}>
+                        <div style={{ padding: '10px 14px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <button type="button" className="btn-secondary btn-sm" onClick={() => shiftCalMonth(-1)}>
+                            <ChevronLeft size={14} />
+                          </button>
+                          <strong style={{ fontSize: 13.5, color: '#0f172a', textTransform: 'capitalize' }}>{calTitle}</strong>
+                          <button type="button" className="btn-secondary btn-sm" onClick={() => shiftCalMonth(1)}>
+                            <ChevronRight size={14} />
+                          </button>
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', background: '#f1f5f9', borderBottom: '1px solid #e2e8f0', fontSize: 10.5, fontWeight: 700, color: '#64748b', textAlign: 'center' }}>
+                          {['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'].map((d) => (
+                            <div key={d} style={{ padding: '6px 4px' }}>{d}</div>
                           ))}
-                        </tbody>
-                      </table>
-                    </div>
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))' }}>
+                          {Array.from({ length: calStartOffset }).map((_, idx) => (
+                            <div key={`empty-${idx}`} style={{ minHeight: 68, background: '#fafafa', borderRight: '1px solid #f1f5f9', borderBottom: '1px solid #f1f5f9' }} />
+                          ))}
+                          {Array.from({ length: calDaysInMonth }).map((_, idx) => {
+                            const dayNum = idx + 1;
+                            const isoDay = `${calY}-${String(calM).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
+                            const dayLogs = empLogsAll.filter((l) => String(l.date || '').slice(0, 10) === isoDay);
+                            const dayHours = dayLogs.reduce((s, l) => s + Number(l.net_hours ?? l.total_hours ?? 0), 0);
+                            const hasPending = dayLogs.some((l) => l.status !== 'Approved');
+                            const hasLeave = empLeavesAll.some((lv) => lv.status === 'Approved' && isoDay >= lv.start_date && isoDay <= lv.end_date);
+                            const hasSick = empSicknessAll.some((sk) => isoDay >= sk.start_date && isoDay <= sk.end_date);
+                            return (
+                              <div
+                                key={isoDay}
+                                style={{
+                                  minHeight: 68,
+                                  padding: 6,
+                                  borderRight: '1px solid #f1f5f9',
+                                  borderBottom: '1px solid #f1f5f9',
+                                  background: hasSick ? '#fef2f2' : hasLeave ? '#fefce8' : dayLogs.length > 0 ? (hasPending ? '#fff7ed' : '#f0fdf4') : '#fff',
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  justifyContent: 'space-between',
+                                }}
+                              >
+                                <span style={{ fontSize: 11, fontWeight: 700, color: '#475569' }}>{dayNum}</span>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                  {dayLogs.length > 0 && (
+                                    <span style={{ fontSize: 10.5, fontWeight: 800, color: hasPending ? '#c2410c' : '#15803d' }}>
+                                      {dayHours.toFixed(1)}h {hasPending ? '⏳' : '✓'}
+                                    </span>
+                                  )}
+                                  {hasLeave && <span style={{ fontSize: 9.5, fontWeight: 700, color: '#a16207' }}>Urlaub</span>}
+                                  {hasSick && <span style={{ fontSize: 9.5, fontWeight: 700, color: '#dc2626' }}>Krank</span>}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
                   </div>
-                )}
+                  );
+                })()}
 
                 {/* SECTION 9: KRANKHEIT (AU) & URLAUB (PER EMPLOYEE) */}
                 {editingEmpId && empCardTab === 'absence' && (
@@ -4271,130 +4519,229 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
             )}
           </div>
 
-          {/* Monthly BI Working Hours Summary (1st to 31st + Management HR 8h Urlaub & Krankheit Credits + Überstunden) */}
-          <div className="glass-panel">
-            <div className="flex-between" style={{ flexWrap: 'wrap', gap: '12px', marginBottom: '14px' }}>
+          {/* Modern Minimal Animated BI Dashboard (1st to 31st) */}
+          <div className="glass-panel" style={{ padding: '16px 18px', borderRadius: 12, background: '#fff', border: '1px solid #e2e8f0' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 14 }}>
               <div>
-                <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <BarChart3 size={18} /> Monthly HR Working Time, Überstunden, Urlaub & Krankheit Summary (1st – 31st)
+                <h3 style={{ margin: 0, fontSize: 15, fontWeight: 800, color: '#0f172a', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <BarChart3 size={17} style={{ color: '#FF6B00' }} />
+                  Monthly HR Working Time, Überstunden, Urlaub &amp; Krankheit Summary (1st – 31st)
                 </h3>
                 {biSummary && (
-                  <p style={{ fontSize: '0.78rem', marginTop: '2px' }}>
-                    Period: <strong>{biSummary.period_start}</strong> to <strong>{biSummary.period_end}</strong> • Management HR view automatically credits <strong>+8.0 h/day</strong> for approved Urlaub & Krankheit and monitors weekly contract limits.
+                  <p style={{ fontSize: 11.5, color: '#64748b', margin: '3px 0 0' }}>
+                    {biSummary.period_start} – {biSummary.period_end} · +8.0h/Tag Urlaub &amp; Krankheit
                   </p>
                 )}
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <input
+                  type="month"
+                  value={biMonth}
+                  onChange={(e) => setBiMonth(e.target.value)}
+                  style={{ width: 'auto', padding: '5px 9px', fontSize: 12, borderRadius: 7, border: '1px solid #cbd5e1', fontWeight: 600 }}
+                />
+                <div className="hr-seg">
+                  {[
+                    { id: 'bars', label: 'Balken' },
+                    { id: 'calendar', label: 'Kalender' },
+                    { id: 'compact', label: 'Kompakt' },
+                  ].map((vm) => (
+                    <button
+                      key={vm.id}
+                      type="button"
+                      className={biViewMode === vm.id ? 'active' : ''}
+                      onClick={() => setBiViewMode(vm.id)}
+                    >
+                      {vm.label}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 
             {biSummary && (
               <>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(0, 1fr))', gap: '12px', marginBottom: '16px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10, marginBottom: 14, animation: 'hrTabFade 0.22s ease' }}>
                   {[
-                    { label: 'Worked Hours (1st–31st)', val: `${biSummary.total_hours} h`, sub: `${biSummary.days_worked} days on site` },
-                    { label: 'Überstunden (Overtime)', val: `${biSummary.total_overtime_hours || 0} h`, sub: `${formatEuro(biSummary.total_overtime_cost)} • ${(biSummary.weekly_alerts || []).length} KW Alert(s)`, color: '#ea580c' },
-                    { label: 'Approved / Pending Shifts', val: `${biSummary.approved_hours} h / ${biSummary.pending_hours} h`, sub: `Break: ${biSummary.total_break_minutes} min` },
-                    { label: 'Urlaub Credit (+8h/Day)', val: `+${biSummary.leave_credited_hours || 0} h`, sub: `${biSummary.leave_days_count || 0} Urlaub day(s)`, color: '#ca8a04' },
-                    { label: 'Krankheit Credit (+8h/Day)', val: `+${biSummary.sick_credited_hours || 0} h`, sub: `${biSummary.sick_days_count || 0} Krankheit day(s)`, color: '#dc2626' },
+                    { label: 'Worked (1st–31st)', val: `${biSummary.total_hours} h`, sub: `${biSummary.days_worked} Tage vor Ort`, accent: '#0f172a' },
+                    { label: 'Überstunden', val: `${biSummary.total_overtime_hours || 0} h`, sub: `${formatEuro(biSummary.total_overtime_cost)} · ${(biSummary.weekly_alerts || []).length} KW`, accent: '#ea580c' },
+                    { label: 'Approved / Pending', val: `${biSummary.approved_hours} / ${biSummary.pending_hours} h`, sub: `Pause: ${biSummary.total_break_minutes} min`, accent: '#16a34a' },
+                    { label: 'Urlaub (+8h/Tag)', val: `+${biSummary.leave_credited_hours || 0} h`, sub: `${biSummary.leave_days_count || 0} Tag(e)`, accent: '#ca8a04' },
+                    { label: 'Krankheit (+8h/Tag)', val: `+${biSummary.sick_credited_hours || 0} h`, sub: `${biSummary.sick_days_count || 0} Tag(e)`, accent: '#dc2626' },
                   ].map((k, idx) => (
-                    <div key={idx} style={{ padding: '12px 14px', borderRadius: '10px', background: 'var(--surface-2)', border: '1px solid var(--border)' }}>
-                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600 }}>{k.label}</div>
-                      <div style={{ fontSize: '1.25rem', fontWeight: 800, marginTop: '4px', color: k.color || 'var(--text-main)' }}>{k.val}</div>
-                      <div style={{ fontSize: '0.71rem', color: 'var(--text-muted)', marginTop: '2px' }}>{k.sub}</div>
+                    <div
+                      key={idx}
+                      style={{
+                        padding: '10px 12px',
+                        borderRadius: 10,
+                        background: '#f8fafc',
+                        border: '1px solid #e2e8f0',
+                        borderTop: `3px solid ${k.accent}`,
+                        transition: 'transform 0.18s ease, box-shadow 0.18s ease',
+                      }}
+                    >
+                      <div style={{ fontSize: 11, color: '#64748b', fontWeight: 700 }}>{k.label}</div>
+                      <div style={{ fontSize: 18, fontWeight: 800, marginTop: 3, color: k.accent }}>{k.val}</div>
+                      <div style={{ fontSize: 10.5, color: '#64748b', marginTop: 2 }}>{k.sub}</div>
                     </div>
                   ))}
                 </div>
 
-                {/* Total HR Payroll Credited Hours Banner */}
+                {/* Total HR Payroll Credited Hours Strip */}
                 <div
                   className="flex-between"
                   style={{
-                    padding: '12px 16px',
-                    borderRadius: '10px',
-                    background: 'rgba(255, 107, 0, 0.08)',
-                    border: '1px solid rgba(255, 107, 0, 0.25)',
-                    marginBottom: '16px',
+                    padding: '10px 14px',
+                    borderRadius: 10,
+                    background: 'linear-gradient(90deg, rgba(255,107,0,0.08), rgba(255,107,0,0.02))',
+                    border: '1px solid rgba(255,107,0,0.22)',
+                    marginBottom: biViewMode === 'compact' ? 0 : 14,
                     flexWrap: 'wrap',
-                    gap: '10px',
+                    gap: 10,
                   }}
                 >
                   <div>
-                    <strong style={{ fontSize: '0.9rem' }}>Total HR Monthly Credited Hours (Worked + Urlaub 8h + Krankheit 8h):</strong>
-                    <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
-                      {biSummary.total_hours}h worked + {biSummary.leave_credited_hours || 0}h Urlaub + {biSummary.sick_credited_hours || 0}h Krankheit • Total Überstunden: <strong>{biSummary.total_overtime_hours || 0}h</strong>
+                    <strong style={{ fontSize: 13, color: '#0f172a' }}>Total HR Monthly Credited Hours</strong>
+                    <div style={{ fontSize: 11.5, color: '#64748b' }}>
+                      {biSummary.total_hours}h gearbeitet + {biSummary.leave_credited_hours || 0}h Urlaub + {biSummary.sick_credited_hours || 0}h Krankheit
                     </div>
                   </div>
-                  <div style={{ fontSize: '1.45rem', fontWeight: 800, color: 'var(--accent)' }}>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: '#FF6B00' }}>
                     {biSummary.total_credited_hours_with_absences ?? biSummary.total_hours} h
                   </div>
                 </div>
 
-                {/* Color Legend for Daily 1st–31st Chart */}
-                <div style={{ display: 'flex', gap: '16px', fontSize: '0.74rem', fontWeight: 600, marginBottom: '8px', flexWrap: 'wrap' }}>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                    <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#16a34a' }} /> Approved Worked Hours
-                  </span>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                    <span style={{ width: 10, height: 10, borderRadius: '50%', background: 'var(--accent)' }} /> Pending Worked Hours
-                  </span>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                    <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#eab308' }} /> Urlaub (+8h HR Credit)
-                  </span>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                    <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#ef4444' }} /> Krankheit (+8h HR Credit)
-                  </span>
-                </div>
+                {biViewMode !== 'compact' && (
+                  <div key={biViewMode} style={{ animation: 'hrTabFade 0.22s ease' }}>
+                    <div style={{ display: 'flex', gap: 14, fontSize: 11, fontWeight: 600, marginBottom: 8, flexWrap: 'wrap', color: '#475569' }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                        <span style={{ width: 9, height: 9, borderRadius: '50%', background: '#16a34a' }} /> Approved
+                      </span>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                        <span style={{ width: 9, height: 9, borderRadius: '50%', background: '#FF6B00' }} /> Pending
+                      </span>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                        <span style={{ width: 9, height: 9, borderRadius: '50%', background: '#eab308' }} /> Urlaub (+8h)
+                      </span>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                        <span style={{ width: 9, height: 9, borderRadius: '50%', background: '#ef4444' }} /> Krankheit (+8h)
+                      </span>
+                    </div>
 
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: `repeat(${biSummary.daily_breakdown.length}, minmax(18px, 1fr))`,
-                    gap: '4px',
-                    alignItems: 'end',
-                    height: '115px',
-                    padding: '12px 8px 4px',
-                    borderRadius: '10px',
-                    background: 'var(--surface-2)',
-                    border: '1px solid var(--border)',
-                    marginBottom: '18px',
-                  }}
-                >
-                  {biSummary.daily_breakdown.map(d => {
-                    const eff = d.effective_hours ?? d.hours;
-                    const pct = Math.min((eff / 10) * 100, 100);
-                    const barColor =
-                      d.sick_hours > 0
-                        ? '#ef4444'
-                        : d.leave_hours > 0
-                        ? '#eab308'
-                        : d.approved_hours > 0
-                        ? '#16a34a'
-                        : d.hours > 0
-                        ? 'var(--accent)'
-                        : 'var(--border)';
-                    return (
+                    {biViewMode === 'bars' && (
                       <div
-                        key={d.day}
-                        style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}
-                        title={`${d.date}: Worked ${d.hours}h | Urlaub +${d.leave_hours || 0}h | Krankheit +${d.sick_hours || 0}h | Total: ${eff}h`}
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: `repeat(${biSummary.daily_breakdown.length}, minmax(16px, 1fr))`,
+                          gap: 4,
+                          alignItems: 'end',
+                          height: 120,
+                          padding: '12px 10px 6px',
+                          borderRadius: 10,
+                          background: '#f8fafc',
+                          border: '1px solid #e2e8f0',
+                          marginBottom: 16,
+                        }}
                       >
-                        <div style={{ fontSize: '0.58rem', fontWeight: 700, color: 'var(--text-muted)' }}>
-                          {eff > 0 ? eff : ''}
-                        </div>
-                        <div
-                          style={{
-                            width: '100%',
-                            height: `${Math.max(pct, 4)}px`,
-                            borderRadius: '4px',
-                            background: barColor,
-                          }}
-                        />
-                        <div style={{ fontSize: '0.62rem', fontWeight: 600, color: 'var(--text-muted)' }}>
-                          {String(d.day).padStart(2, '0')}
-                        </div>
+                        {biSummary.daily_breakdown.map((d) => {
+                          const eff = d.effective_hours ?? d.hours;
+                          const pct = Math.min((eff / 10) * 100, 100);
+                          const barColor =
+                            d.sick_hours > 0
+                              ? '#ef4444'
+                              : d.leave_hours > 0
+                              ? '#eab308'
+                              : d.approved_hours > 0
+                              ? '#16a34a'
+                              : d.hours > 0
+                              ? '#FF6B00'
+                              : '#e2e8f0';
+                          return (
+                            <div
+                              key={d.day}
+                              style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}
+                              title={`${d.date}: Worked ${d.hours}h | Urlaub +${d.leave_hours || 0}h | Krankheit +${d.sick_hours || 0}h | Total: ${eff}h`}
+                            >
+                              <div style={{ fontSize: 9.5, fontWeight: 700, color: '#64748b' }}>
+                                {eff > 0 ? eff : ''}
+                              </div>
+                              <div
+                                style={{
+                                  width: '100%',
+                                  height: `${Math.max(pct, 4)}px`,
+                                  borderRadius: '4px 4px 2px 2px',
+                                  background: barColor,
+                                  transition: 'height 0.35s cubic-bezier(0.22, 1, 0.36, 1)',
+                                }}
+                              />
+                              <div style={{ fontSize: 10, fontWeight: 600, color: '#64748b' }}>
+                                {String(d.day).padStart(2, '0')}
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
-                    );
-                  })}
-                </div>
+                    )}
+
+                    {biViewMode === 'calendar' && (
+                      <div
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: 'repeat(auto-fill, minmax(72px, 1fr))',
+                          gap: 6,
+                          padding: 10,
+                          borderRadius: 10,
+                          background: '#f8fafc',
+                          border: '1px solid #e2e8f0',
+                          marginBottom: 16,
+                        }}
+                      >
+                        {biSummary.daily_breakdown.map((d) => {
+                          const eff = d.effective_hours ?? d.hours;
+                          const bg =
+                            d.sick_hours > 0
+                              ? '#fef2f2'
+                              : d.leave_hours > 0
+                              ? '#fefce8'
+                              : d.approved_hours > 0
+                              ? '#f0fdf4'
+                              : d.hours > 0
+                              ? '#fff7ed'
+                              : '#ffffff';
+                          const col =
+                            d.sick_hours > 0
+                              ? '#dc2626'
+                              : d.leave_hours > 0
+                              ? '#ca8a04'
+                              : d.approved_hours > 0
+                              ? '#15803d'
+                              : d.hours > 0
+                              ? '#ea580c'
+                              : '#94a3b8';
+                          return (
+                            <div
+                              key={d.day}
+                              style={{
+                                padding: '6px 8px',
+                                borderRadius: 7,
+                                background: bg,
+                                border: '1px solid #e2e8f0',
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                              }}
+                              title={`${d.date}: ${eff}h`}
+                            >
+                              <span style={{ fontSize: 11, fontWeight: 700, color: '#475569' }}>{String(d.day).padStart(2, '0')}</span>
+                              <span style={{ fontSize: 11.5, fontWeight: 800, color: col }}>{eff > 0 ? `${eff}h` : '—'}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Per-Employee Monthly Working Time + Urlaub (8h) + Krankheit (8h) + Weekly Alert + Cost Control Breakdown Table */}
                 {(biSummary.employee_breakdown || []).length > 0 && (
@@ -4533,12 +4880,15 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
             )}
           </div>
 
-          <div className="glass-panel">
-            <div className="toolbar" style={{ marginBottom: 16 }}>
-              <p>
-                {timeLogs.filter((t) => !t.check_out_time).length} live shift(s) right now • Management can add, change projects, edit dates/times/breaks, approve & delete any working hours entry
-              </p>
-              <button className="btn-secondary" style={{ marginLeft: 'auto' }} onClick={() => downloadCsv({
+          <div className="glass-panel" style={{ padding: '14px 16px', borderRadius: 12, background: '#fff', border: '1px solid #e2e8f0' }}>
+            <div className="toolbar" style={{ marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>
+                Mitarbeiter-Arbeitszeiten ({employees.filter(emp => !biEmpFilter || emp.id === biEmpFilter).length})
+                <span style={{ fontSize: 11.5, fontWeight: 500, color: '#64748b', marginLeft: 8 }}>
+                  {timeLogs.filter((t) => !t.check_out_time).length} aktiv · Klick auf Mitarbeiter öffnet Monatsliste, Kalender &amp; Freigabe
+                </span>
+              </div>
+              <button className="btn-secondary btn-sm" style={{ marginLeft: 'auto' }} onClick={() => downloadCsv({
                 rows: timeLogs,
                 columns: [
                   { key: 'id', label: 'Log-ID' },
@@ -4560,125 +4910,99 @@ Leave a field as empty string if you cannot find it. Do not guess. Only return J
                   { key: 'created_at', label: 'Erstellt am' },
                 ],
               }, `bruenel_arbeitszeiten_${new Date().toISOString().slice(0,10)}.csv`)}>
-              📥 Arbeitszeiten CSV exportieren
-            </button>
+                📥 CSV exportieren
+              </button>
             </div>
-            <table style={{ width: '100%', textAlign: 'left', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
-              <thead>
-                <tr style={{ borderBottom: '1px solid var(--border)', color: 'var(--text-muted)' }}>
-                  <th style={{ padding: '10px 8px' }}>Date</th>
-                  <th style={{ padding: '10px 8px' }}>Employee</th>
-                  <th style={{ padding: '10px 8px' }}>Project</th>
-                  <th style={{ padding: '10px 8px' }}>Start / Finish</th>
-                  <th style={{ padding: '10px 8px' }}>Break (min)</th>
-                  <th style={{ padding: '10px 8px' }}>Net Hours</th>
-                  <th style={{ padding: '10px 8px' }}>Status</th>
-                  <th style={{ padding: '10px 8px' }}>Management Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {timeLogs
-                  .filter(l => {
-                    if (biEmpFilter && l.employee_id !== biEmpFilter) return false;
-                    if (timeSearchQuery.trim()) {
-                      return smartSearchedEmployees.some(emp => emp.id === l.employee_id) ||
-                        (l.employee_name || '').toLowerCase().includes(timeSearchQuery.trim().toLowerCase());
-                    }
-                    return true;
-                  })
-                  .map(l => {
-                    const isEditing = editingLogId === l.id;
-                    return (
-                      <tr key={l.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                        <td style={{ padding: '10px 8px', fontWeight: 600 }}>
-                          {isEditing ? (
-                            <DateInput
-                              
-                              value={editLogForm.date}
-                              onChange={e => setEditLogForm({ ...editLogForm, date: e.target.value })}
-                              style={{ width: '135px', padding: '4px 6px' }}
-                            />
-                          ) : (
-                            formatDate(l.date)
-                          )}
-                        </td>
-                        <td style={{ padding: '10px 8px', fontWeight: 600 }}>{l.employee_name}</td>
-                        <td style={{ padding: '10px 8px' }}>
-                          {isEditing ? (
-                            <select
-                              value={editLogForm.project_id}
-                              onChange={e => setEditLogForm({ ...editLogForm, project_id: e.target.value })}
-                              style={{ width: '180px', padding: '4px 6px' }}
-                            >
-                              <option value="">— Allgemein / Kein Projekt —</option>
-                              {projects.map(p => (
-                                <option key={p.id} value={p.id}>{p.name}</option>
-                              ))}
-                            </select>
-                          ) : (
-                            l.project_name
-                          )}
-                        </td>
-                        <td style={{ padding: '10px 8px', fontSize: '0.8rem' }}>
-                          {isEditing ? (
-                            <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                              <TimeInput  value={editLogForm.check_in_time} onChange={e => setEditLogForm({ ...editLogForm, check_in_time: e.target.value })} style={{ width: '105px', padding: '4px 6px' }} />
-                              <span>→</span>
-                              <TimeInput  value={editLogForm.check_out_time} onChange={e => setEditLogForm({ ...editLogForm, check_out_time: e.target.value })} style={{ width: '105px', padding: '4px 6px' }} />
-                            </div>
-                          ) : (
-                            <>
-                              In: {fmtTimeInput(l.check_in_time) || '—'} • Out: {fmtTimeInput(l.check_out_time) || 'Active'}
-                            </>
-                          )}
-                        </td>
-                        <td style={{ padding: '10px 8px' }}>
-                          {isEditing ? (
-                            <input type="number" min="0" value={editLogForm.break_minutes} onChange={e => setEditLogForm({ ...editLogForm, break_minutes: e.target.value })} style={{ width: '75px', padding: '4px 6px' }} />
-                          ) : (
-                            `${l.break_minutes || 0} min`
-                          )}
-                        </td>
-                        <td style={{ padding: '10px 8px', fontWeight: 700 }}>{l.total_hours != null ? `${l.total_hours} h` : 'Running'}</td>
-                        <td style={{ padding: '10px 8px' }}>
-                          <span className="badge" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', background: l.status === 'Approved' ? 'rgba(34,197,94,0.16)' : undefined, color: l.status === 'Approved' ? '#16a34a' : undefined }}>
-                            {l.status === 'Approved' && <Lock size={11} />}
-                            {l.status}
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {employees
+                .filter((emp) => {
+                  if (biEmpFilter && emp.id !== biEmpFilter) return false;
+                  if (timeSearchQuery.trim()) {
+                    const q = timeSearchQuery.trim().toLowerCase();
+                    return `${emp.full_name} ${emp.role || ''} ${emp.employment_type || ''}`.toLowerCase().includes(q);
+                  }
+                  return true;
+                })
+                .map((emp) => {
+                  const empAll = timeLogs.filter((l) => l.employee_id === emp.id);
+                  const empMonth = empAll.filter((l) => String(l.date || '').startsWith(biMonth));
+                  const monthHours = empMonth.reduce((s, l) => s + Number(l.net_hours ?? l.total_hours ?? 0), 0);
+                  const quota = Number(emp.attributes?.monthly_contract_hours || 160);
+                  const overtime = Math.max(0, Number((monthHours - quota).toFixed(1)));
+                  const pendingLogs = empAll.filter((l) => l.status !== 'Approved' && Boolean(l.check_out_time));
+                  const pendingHours = pendingLogs.reduce((s, l) => s + Number(l.net_hours ?? l.total_hours ?? 0), 0);
+
+                  return (
+                    <div
+                      key={emp.id}
+                      onClick={() => {
+                        openEditEmployeeModal(emp);
+                        setEmpCardTab('hours');
+                      }}
+                      style={{
+                        padding: '10px 14px',
+                        borderRadius: 8,
+                        border: `1px solid ${pendingLogs.length > 0 ? '#fcd34d' : '#e2e8f0'}`,
+                        background: '#ffffff',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        flexWrap: 'wrap',
+                        gap: 10,
+                        cursor: 'pointer',
+                        transition: 'background 0.16s ease, border-color 0.16s ease',
+                      }}
+                      onMouseEnter={(e) => { e.currentTarget.style.background = '#f8fafc'; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = '#ffffff'; }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                        <strong style={{ fontSize: 13.5, color: '#0f172a' }}>{emp.full_name}</strong>
+                        <span style={{ fontSize: 11.5, color: '#64748b' }}>
+                          {emp.role} · {emp.employment_type}
+                        </span>
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: '#0f172a' }}>
+                          {monthHours.toFixed(1)} / {quota} h
+                        </span>
+                        {overtime > 0 && (
+                          <span style={{ fontSize: 11, fontWeight: 700, color: '#ea580c', background: '#fff7ed', padding: '2px 7px', borderRadius: 999 }}>
+                            +{overtime}h ÜS
                           </span>
-                        </td>
-                        <td style={{ padding: '10px 8px' }}>
-                          <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
-                            {isEditing ? (
-                              <>
-                                <button className="btn-primary" style={{ padding: '4px 10px', fontSize: '0.75rem' }} onClick={() => saveEditLog(l)}>
-                                  <Check size={12} /> Save
-                                </button>
-                                <button className="btn-secondary" style={{ padding: '4px 8px', fontSize: '0.75rem' }} onClick={() => setEditingLogId(null)}>
-                                  <X size={12} />
-                                </button>
-                              </>
-                            ) : (
-                              <>
-                                {l.status !== 'Approved' && l.check_out_time && (
-                                  <button className="btn-primary" style={{ padding: '4px 10px', fontSize: '0.75rem' }} onClick={() => handleApproveTimeLog(l.id)}>
-                                    <Check size={12} /> Approve & Lock
-                                  </button>
-                                )}
-                                <button className="btn-secondary" style={{ padding: '4px 10px', fontSize: '0.75rem' }} onClick={() => startEditLog(l)}>
-                                  <Edit3 size={12} /> Edit Date/Time/Project
-                                </button>
-                                <button className="btn-secondary" style={{ padding: '4px 8px', fontSize: '0.75rem', color: '#dc2626' }} onClick={() => handleDeleteTimeLog(l.id)} title="Delete Working Hours Entry">
-                                  <Trash2 size={12} />
-                                </button>
-                              </>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-              </tbody>
-            </table>
+                        )}
+                        {pendingLogs.length > 0 ? (
+                          <span style={{ padding: '2px 8px', borderRadius: 999, background: '#fef3c7', color: '#b45309', fontSize: 11, fontWeight: 700 }}>
+                            {pendingLogs.length} offen ({pendingHours.toFixed(1)}h)
+                          </span>
+                        ) : (
+                          <span style={{ padding: '2px 8px', borderRadius: 999, background: '#dcfce7', color: '#15803d', fontSize: 11, fontWeight: 700 }}>
+                            ✓ Freigegeben
+                          </span>
+                        )}
+                        {pendingLogs.length > 0 && (
+                          <button
+                            type="button"
+                            className="btn-primary btn-sm"
+                            style={{ fontSize: 11, padding: '4px 9px', background: '#059669', borderColor: '#047857' }}
+                            disabled={approvingAllEmpId === emp.id}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleApproveAllEmployeeHours(emp.id);
+                            }}
+                          >
+                            <Check size={12} /> {approvingAllEmpId === emp.id ? 'Lädt…' : `Alle freigeben (${pendingLogs.length})`}
+                          </button>
+                        )}
+                        <span style={{ fontSize: 11.5, fontWeight: 700, color: '#FF6B00', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                          Öffnen <ArrowRight size={12} />
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
           </div>
         </div>
       )}
