@@ -424,6 +424,7 @@ class ProtocolConfirmRequest(BaseModel):
     datum: str = Field(default="")
     hausbegeher: str = Field(default="")
     team: Optional[str] = Field(default="")
+    team_allocations: Optional[Dict[str, Any]] = Field(default=None)
     building_status: Optional[str] = Field(default="Ausbau terminiert")
     is_priority: Optional[bool] = Field(default=False)
     ausbau_typ: Optional[str] = Field(default="Metalkanal")

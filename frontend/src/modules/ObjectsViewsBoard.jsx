@@ -2250,13 +2250,35 @@ export function ObjectsWhiteboardView({
             <div style={{ padding: 8, borderRadius: 7, background: '#f8fafc', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: 6 }}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 5 }}>
                 <div>
-                  <label style={{ fontSize: 9.5, fontWeight: 700, color: '#64748b', display: 'block', marginBottom: 2 }}>Team zuweisen</label>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+                    <label style={{ fontSize: 9.5, fontWeight: 700, color: '#64748b' }}>Team zuweisen</label>
+                    <button
+                      type="button"
+                      onClick={() => setWbSplitModalAddr(addr)}
+                      style={{
+                        fontSize: 9,
+                        fontWeight: 800,
+                        padding: '1px 5px',
+                        borderRadius: 4,
+                        border: '1px solid #fdba74',
+                        background: '#fff7ed',
+                        color: '#c2410c',
+                        cursor: 'pointer',
+                      }}
+                      title="2+ Teams (% oder Aufgaben) zuweisen"
+                    >
+                      2+ Teams / %
+                    </button>
+                  </div>
                   <select
                     value={addr.team || ''}
-                    onChange={(e) => onPatchBuilding(addr.id, { team: e.target.value })}
+                    onChange={(e) => onPatchBuilding(addr.id, { team: e.target.value, team_allocations: {} })}
                     style={{ width: '100%', padding: '4px 6px', fontSize: 11, borderRadius: 5, border: '1px solid #cbd5e1', background: '#fff' }}
                   >
                     <option value="">Kein Team</option>
+                    {addr.team && !fieldTeams.some((t) => t.name === addr.team) && (
+                      <option value={addr.team}>{addr.team}</option>
+                    )}
                     {fieldTeams.map((t) => (
                       <option key={t.name} value={t.name}>{t.name}</option>
                     ))}
@@ -3376,6 +3398,7 @@ function ObjectQuickEditModal({
   onOpenDetail,
   onClose,
 }) {
+  const [showSplitModal, setShowSplitModal] = useState(false);
   const core = getRemainingCoreWorks(addr, calcBuildingProgress);
   return (
     <div
@@ -3469,13 +3492,34 @@ function ObjectQuickEditModal({
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
           <div>
-            <label style={{ fontSize: 11, fontWeight: 700, color: '#475569', display: 'block', marginBottom: 4 }}>Ausbau Team</label>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+              <label style={{ fontSize: 11, fontWeight: 700, color: '#475569' }}>Ausbau Team</label>
+              <button
+                type="button"
+                onClick={() => setShowSplitModal(true)}
+                style={{
+                  fontSize: 10,
+                  fontWeight: 800,
+                  padding: '2px 7px',
+                  borderRadius: 5,
+                  border: '1px solid #fdba74',
+                  background: '#fff7ed',
+                  color: '#c2410c',
+                  cursor: 'pointer',
+                }}
+              >
+                2+ Teams / % &amp; Tasks
+              </button>
+            </div>
             <select
               value={addr.team || ''}
-              onChange={(e) => onPatchBuilding(addr.id, { team: e.target.value })}
+              onChange={(e) => onPatchBuilding(addr.id, { team: e.target.value, team_allocations: {} })}
               style={{ width: '100%', padding: '6px 8px', fontSize: 12, borderRadius: 7, border: '1px solid #cbd5e1', background: '#fff' }}
             >
               <option value="">Kein Team</option>
+              {addr.team && !fieldTeams.some((t) => t.name === addr.team) && (
+                <option value={addr.team}>{addr.team}</option>
+              )}
               {fieldTeams.map((t) => (
                 <option key={t.name} value={t.name}>{t.name}</option>
               ))}
@@ -3520,6 +3564,17 @@ function ObjectQuickEditModal({
           </button>
         </div>
       </div>
+
+      {showSplitModal && (
+        <TeamSplitModal
+          addr={addr}
+          fieldTeams={fieldTeams}
+          onSave={(teamLabel, alloc) => {
+            onPatchBuilding(addr.id, { team: teamLabel, team_allocations: alloc });
+          }}
+          onClose={() => setShowSplitModal(false)}
+        />
+      )}
     </div>
   );
 }

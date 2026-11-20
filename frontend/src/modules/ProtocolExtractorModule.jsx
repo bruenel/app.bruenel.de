@@ -1338,6 +1338,7 @@ export const ProtocolVerificationModal = ({
     project_id: initialData?.project_id || null,
     project_name: initialData?.project_name || 'UGG',
     team: defaultTeam,
+    team_allocations: initialData?.team_allocations || {},
     building_status: initialData?.building_status || 'Ausbau terminiert',
     is_priority: Boolean(initialData?.is_priority),
     ausbau_typ: initialData?.ausbau_typ || initialData?.loesungsoption || 'Metalkanal',
@@ -1401,6 +1402,7 @@ export const ProtocolVerificationModal = ({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [conflictDetected, setConflictDetected] = useState(false);
+  const [showModalTeamSplit, setShowModalTeamSplit] = useState(false);
 
   const teamChoices = useMemo(() => {
     const names = new Set();
@@ -1713,10 +1715,32 @@ export const ProtocolVerificationModal = ({
             </div>
 
             <div>
-              <label>Ausbau Team (Field Teams)</label>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                <label style={{ margin: 0 }}>Ausbau Team (Field Teams)</label>
+                <button
+                  type="button"
+                  onClick={() => setShowModalTeamSplit(true)}
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 800,
+                    padding: '2px 7px',
+                    borderRadius: 5,
+                    border: '1px solid #fdba74',
+                    background: '#fff7ed',
+                    color: '#c2410c',
+                    cursor: 'pointer',
+                  }}
+                  title="Mehrere Teams (% oder nach Aufgaben) zuweisen"
+                >
+                  2+ Teams / % &amp; Tasks
+                </button>
+              </div>
               <select
                 value={form.team}
-                onChange={(e) => updateField('team', e.target.value)}
+                onChange={(e) => {
+                  updateField('team', e.target.value);
+                  updateField('team_allocations', {});
+                }}
                 style={{ fontWeight: 600, padding: '7px 10px' }}
               >
                 <option value="">— Team wählen —</option>
@@ -2038,6 +2062,25 @@ export const ProtocolVerificationModal = ({
           </div>
         </div>
       </div>
+
+      {showModalTeamSplit && (
+        <TeamSplitModal
+          addr={{
+            ...form,
+            anzahl_we: form.total_we,
+            we_units: (form.units || []).map((u) => ({
+              ...u,
+              ta_status: u.ta_installiert || u.we_ausbau_art === 'TA Installation' ? 'TA installiert' : 'Offen',
+            })),
+          }}
+          fieldTeams={fieldTeams}
+          onSave={(teamSummaryLabel, alloc) => {
+            updateField('team', teamSummaryLabel);
+            updateField('team_allocations', alloc);
+          }}
+          onClose={() => setShowModalTeamSplit(false)}
+        />
+      )}
     </div>
   );
 };
@@ -2065,6 +2108,7 @@ export const BuildingDetailView = ({
   const [commentText, setCommentText] = useState('');
   const [submittingComment, setSubmittingComment] = useState(false);
   const [showPdfPreview, setShowPdfPreview] = useState(false);
+  const [showDetailTeamSplit, setShowDetailTeamSplit] = useState(false);
   const [uploadingPdf, setUploadingPdf] = useState(false);
   const [adressIdDraft, setAdressIdDraft] = useState(building.adress_id || '');
   const [unitSortBy, setUnitSortBy] = useState('unit_id');
@@ -2448,10 +2492,29 @@ export const BuildingDetailView = ({
           </div>
 
           <div>
-            <label style={{ fontSize: 11 }}>Ausbau Team (Field Teams)</label>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+              <label style={{ fontSize: 11, margin: 0 }}>Ausbau Team (Field Teams)</label>
+              <button
+                type="button"
+                onClick={() => setShowDetailTeamSplit(true)}
+                style={{
+                  fontSize: 10,
+                  fontWeight: 800,
+                  padding: '2px 7px',
+                  borderRadius: 5,
+                  border: '1px solid #fdba74',
+                  background: '#fff7ed',
+                  color: '#c2410c',
+                  cursor: 'pointer',
+                }}
+                title="2+ Teams (% oder Aufgaben) zuweisen"
+              >
+                2+ Teams / % &amp; Tasks
+              </button>
+            </div>
             <select
               value={building.team || ''}
-              onChange={(e) => onPatchBuilding(building.id, { team: e.target.value })}
+              onChange={(e) => onPatchBuilding(building.id, { team: e.target.value, team_allocations: {} })}
               style={{ padding: '6px 10px', fontSize: 12.5, fontWeight: 600 }}
             >
               <option value="">— Team wählen —</option>
@@ -2875,6 +2938,17 @@ export const BuildingDetailView = ({
           )}
         </div>
       </div>
+
+      {showDetailTeamSplit && (
+        <TeamSplitModal
+          addr={building}
+          fieldTeams={fieldTeams}
+          onSave={(teamSummaryLabel, alloc) => {
+            onPatchBuilding(building.id, { team: teamSummaryLabel, team_allocations: alloc });
+          }}
+          onClose={() => setShowDetailTeamSplit(false)}
+        />
+      )}
     </div>
   );
 };
@@ -2885,7 +2959,7 @@ export const BuildingDetailView = ({
 const ProjectsSubNav = ({ activeTab, objectsCount = 0, invoicesCount = 0, teamsCount = 0, projectsCount = 0, navigate }) => {
   const tabs = [
     { id: 'objects', label: 'Objects & Properties', to: '/projects/objects', count: objectsCount },
-    { id: 'abrechnung', label: 'Abrechnung', to: '/projects/abrechnung', count: invoicesCount },
+    { id: 'abrechnung', label: 'Cost Management', to: '/projects/abrechnung', count: invoicesCount },
     { id: 'tasks', label: 'Task Calendar & Assignments', to: '/projects/tasks' },
     { id: 'teams', label: 'Field Teams', to: '/projects/teams', count: teamsCount },
     { id: 'projects', label: 'Projects & Regions', to: '/projects/projects', count: projectsCount },

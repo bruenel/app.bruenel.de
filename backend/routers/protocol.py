@@ -2117,6 +2117,8 @@ def confirm_and_save_protocol(
         existing.datum = format_date_dd_mm_yyyy(payload.datum)
         existing.hausbegeher = ""
         existing.team = (payload.team or "").strip()
+        if payload.team_allocations is not None:
+            existing.team_allocations = payload.team_allocations
         existing.building_status = (payload.building_status or "Ausbau terminiert").strip()
         existing.is_priority = bool(payload.is_priority)
         existing.ausbau_typ = ausbau_typ_val
@@ -2180,6 +2182,7 @@ def confirm_and_save_protocol(
         datum=format_date_dd_mm_yyyy(payload.datum),
         hausbegeher="",
         team=(payload.team or "").strip(),
+        team_allocations=payload.team_allocations or {},
         building_status=(payload.building_status or "Ausbau terminiert").strip(),
         is_priority=bool(payload.is_priority),
         ausbau_typ=ausbau_typ_val,
@@ -2324,6 +2327,8 @@ def update_protocol_address(
         address_record.project_name = payload.project_name.strip() or "UGG"
     if payload.team is not None:
         address_record.team = payload.team.strip()
+    if payload.team_allocations is not None:
+        address_record.team_allocations = payload.team_allocations
     if payload.building_status is not None:
         address_record.building_status = payload.building_status.strip()
     if payload.is_priority is not None:
