@@ -1073,7 +1073,40 @@ export function ObjectsWhiteboardView({
   const [dragOverGroupId, setDragOverGroupId] = useState(null);
 
   const canvasRef = useRef(null);
+  const viewportRef = useRef(null);
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
   const saveTimerRef = useRef(null);
+
+  // Alt + Mouse Scroll (and Ctrl + Scroll) to smoothly zoom in/out toward cursor
+  useEffect(() => {
+    const vp = viewportRef.current;
+    if (!vp) return;
+    const handleWheel = (e) => {
+      if (!e.altKey && !e.ctrlKey) return;
+      e.preventDefault();
+      const prevZoom = zoomRef.current;
+      const step = e.deltaY < 0 ? 0.08 : -0.08;
+      const nextZoom = Math.min(1.75, Math.max(0.45, Number((prevZoom + step).toFixed(2))));
+      if (nextZoom === prevZoom) return;
+
+      const rect = vp.getBoundingClientRect();
+      const cursorX = e.clientX - rect.left;
+      const cursorY = e.clientY - rect.top;
+      const worldX = (vp.scrollLeft + cursorX) / prevZoom;
+      const worldY = (vp.scrollTop + cursorY) / prevZoom;
+
+      zoomRef.current = nextZoom;
+      setZoom(nextZoom);
+
+      requestAnimationFrame(() => {
+        vp.scrollLeft = Math.max(0, worldX * nextZoom - cursorX);
+        vp.scrollTop = Math.max(0, worldY * nextZoom - cursorY);
+      });
+    };
+    vp.addEventListener('wheel', handleWheel, { passive: false });
+    return () => vp.removeEventListener('wheel', handleWheel);
+  }, []);
 
   // Load saved whiteboard state from backend (with localStorage fallback)
   useEffect(() => {
@@ -2258,18 +2291,25 @@ export function ObjectsWhiteboardView({
             <span style={{ fontSize: 11, color: saveState === 'saving' ? '#ea580c' : '#16a34a', fontWeight: 700 }}>
               {saveState === 'saving' ? 'Speichert…' : 'Gespeichert ✓'}
             </span>
-            <button type="button" className="btn-secondary btn-sm" style={{ padding: '4px 7px' }} onClick={() => setZoom((z) => Math.max(0.7, Number((z - 0.1).toFixed(2))))}>
+            <button type="button" className="btn-secondary btn-sm" style={{ padding: '4px 7px' }} onClick={() => setZoom((z) => Math.max(0.45, Number((z - 0.1).toFixed(2))))} title="Herauszoomen (Alt + Mausrad)">
               <ZoomOut size={13} />
             </button>
-            <span style={{ fontSize: 11, fontWeight: 700, minWidth: 38, textAlign: 'center' }}>{Math.round(zoom * 100)}%</span>
-            <button type="button" className="btn-secondary btn-sm" style={{ padding: '4px 7px' }} onClick={() => setZoom((z) => Math.min(1.25, Number((z + 0.1).toFixed(2))))}>
+            <button
+              type="button"
+              onClick={() => setZoom(1)}
+              style={{ border: 'none', background: 'transparent', fontSize: 11, fontWeight: 700, minWidth: 42, textAlign: 'center', cursor: 'pointer', color: '#0f172a' }}
+              title="Auf 100% zurücksetzen (Alt + Mausrad zum Zoomen)"
+            >
+              {Math.round(zoom * 100)}%
+            </button>
+            <button type="button" className="btn-secondary btn-sm" style={{ padding: '4px 7px' }} onClick={() => setZoom((z) => Math.min(1.75, Number((z + 0.1).toFixed(2))))} title="Hineinzoomen (Alt + Mausrad)">
               <ZoomIn size={13} />
             </button>
           </div>
         </div>
 
-        {/* Scrollable Dot-Grid Whiteboard Canvas */}
-        <div style={{ flex: 1, overflow: 'auto', position: 'relative' }}>
+        {/* Scrollable Dot-Grid Whiteboard Canvas (Alt + Scroll to Zoom) */}
+        <div ref={viewportRef} style={{ flex: 1, overflow: 'auto', position: 'relative' }}>
           <div
             ref={canvasRef}
             onDragOver={(e) => e.preventDefault()}
