@@ -6716,7 +6716,7 @@ export const ProjectsObjectsModule = () => {
 
       <SubTabs base="/projects" active={tab} items={[
         { id: 'objects', label: 'Objects & Properties', count: objects.length },
-        { id: 'abrechnung', label: 'Abrechnung' },
+        { id: 'abrechnung', label: 'Cost Management' },
         { id: 'tasks', label: 'Task Calendar & Assignments', count: assignments.length },
         { id: 'teams', label: 'Field Teams', count: teams.length },
         { id: 'projects', label: 'Projects & Regions', count: projects.length },

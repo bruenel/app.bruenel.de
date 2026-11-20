@@ -1,0 +1,1243 @@
+import React, { useState, useMemo } from 'react';
+import {
+  Receipt,
+  TrendingUp,
+  Building2,
+  Layers,
+  Columns,
+  Search,
+  SlidersHorizontal,
+  ArrowUpDown,
+  ChevronDown,
+  CheckCircle2,
+  Clock,
+  FileText,
+  Plus,
+  X,
+  ArrowUpRight,
+  Settings,
+  RefreshCw,
+  Wallet,
+} from 'lucide-react';
+import { isCoreArbeitCompleted, getObjectBillingStage } from './ObjectsViewsBoard';
+
+const RATES_STORAGE_KEY = 'bruenel_cost_mgmt_rates_v1';
+
+export const DEFAULT_TA_RATES = {
+  metalkanalRate: 162.5,
+  flexKaminRate: 122.5,
+  estimatedCostPerTa: 65.0,
+};
+
+export function loadSavedTaRates() {
+  try {
+    const raw = localStorage.getItem(RATES_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return {
+        metalkanalRate: Number(parsed.metalkanalRate) > 0 ? Number(parsed.metalkanalRate) : 162.5,
+        flexKaminRate: Number(parsed.flexKaminRate) > 0 ? Number(parsed.flexKaminRate) : 122.5,
+        estimatedCostPerTa: Number(parsed.estimatedCostPerTa) >= 0 ? Number(parsed.estimatedCostPerTa) : 65.0,
+      };
+    }
+  } catch {
+    // fallback
+  }
+  return { ...DEFAULT_TA_RATES };
+}
+
+/**
+ * Determines whether an object uses the Metalkabelkanal rate (162,50 € / TA)
+ * or the Flexrohr / Kaminkanal rate (122,50 € / TA), and computes its revenue & cost metrics.
+ */
+export function calcObjectFinancials(addr, calcBuildingProgress, rates = DEFAULT_TA_RATES) {
+  const prog = calcBuildingProgress(addr);
+  const rawTyp = String(addr?.ausbau_typ || addr?.loesungsoption || 'Metalkanal').trim();
+  const lowerTyp = rawTyp.toLowerCase();
+
+  const isFlexKamin =
+    lowerTyp.includes('kamin') ||
+    lowerTyp.includes('leerrohr') ||
+    lowerTyp.includes('flex') ||
+    (!lowerTyp.includes('metal') && Boolean(addr?.flexrohr) && !addr?.metalkanal_installiert);
+
+  const categoryKey = isFlexKamin ? 'flex_kamin' : 'metalkanal';
+  const categoryLabel = isFlexKamin ? 'Flexrohr / Kaminkanal' : 'Metalkabelkanal';
+  const ratePerTa = isFlexKamin ? Number(rates.flexKaminRate || 122.5) : Number(rates.metalkanalRate || 162.5);
+  const costPerTa = Number(rates.estimatedCostPerTa || 0);
+
+  const taCount = prog.taCount;
+  const totalWe = prog.totalWe;
+
+  // Installed TA revenue (exact current progression)
+  const installedTaRevenue = Number((taCount * ratePerTa).toFixed(2));
+  // Max potential if 100% of WE get a TA
+  const maxWePotentialRevenue = Number((totalWe * ratePerTa).toFixed(2));
+  // Effective planned/estimated amount (uses installed TAs if > 0, otherwise planned WE potential for scheduled buildings)
+  const effectiveEstimatedRevenue = taCount > 0 ? installedTaRevenue : maxWePotentialRevenue;
+
+  const estimatedCost = Number((taCount * costPerTa).toFixed(2));
+  const estimatedProfit = Number((installedTaRevenue - estimatedCost).toFixed(2));
+
+  // Detailed 5-stage classification synced with Objects & Properties
+  const billingStage = getObjectBillingStage(addr, calcBuildingProgress);
+  const bStatus = addr?.building_status || 'Ausbau terminiert';
+  let stage = billingStage; // 'open' | 'completed_unbilled' | 'invoiced' | 'paid'
+  if (billingStage === 'open' && bStatus === 'Ausbau terminiert') {
+    stage = 'planned';
+  }
+
+  return {
+    categoryKey,
+    categoryLabel,
+    ratePerTa,
+    taCount,
+    totalWe,
+    reserveCount: prog.reserveCount,
+    ohneCount: prog.ohneCount,
+    pct: prog.pct,
+    installedTaRevenue,
+    maxWePotentialRevenue,
+    effectiveEstimatedRevenue,
+    estimatedCost,
+    estimatedProfit,
+    stage,
+    billingStage,
+  };
+}
+
+export function formatEur(val) {
+  const num = Number(val || 0);
+  return num.toLocaleString('de-DE', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }) + ' €';
+}
+
+/* =============================================================================
+   MAIN COST MANAGEMENT COMPONENT
+   Includes:
+   1. Overview & Projekt-Kalkulation (Animated BI Dashboard)
+   2. Objekt-Kalkulation (Per-Building Revenue & Progression Table)
+   3. Finanz-Pipeline (Stage Board: Geplant -> Offen -> Bereit f. RE -> RE erstellt -> RE erhalten)
+   4. Abrechnung (Rechnungen erstellen & verwalten)
+============================================================================= */
+export function CostManagementView({
+  addresses,
+  invoices,
+  projects,
+  fieldTeams,
+  loading,
+  calcBuildingProgress,
+  normalizeGemeinde,
+  onRefresh,
+  onPatchBuilding,
+  onOpenBuilding,
+  renderAbrechnungInvoicesView,
+  onQuickCreateInvoiceForAddresses,
+}) {
+  const [subView, setSubView] = useState('overview'); // overview | objects | pipeline | abrechnung
+  const [activeDrawer, setActiveDrawer] = useState(null); // null | 'filter' | 'sort' | 'rates'
+  const [rates, setRates] = useState(() => loadSavedTaRates());
+
+  // Filters
+  const [search, setSearch] = useState('');
+  const [projectFilter, setProjectFilter] = useState('ALL');
+  const [ortFilter, setOrtFilter] = useState('ALL');
+  const [categoryFilter, setCategoryFilter] = useState('ALL'); // ALL | metalkanal | flex_kamin
+  const [stageFilter, setStageFilter] = useState('ALL'); // ALL | planned | open | completed_unbilled | invoiced | paid
+  const [teamFilter, setTeamFilter] = useState('ALL');
+
+  // Sorting for objects calculation table
+  const [sortBy, setSortBy] = useState('installed_revenue');
+  const [sortDir, setSortDir] = useState('desc');
+
+  const updateRate = (key, value) => {
+    const num = Number(value);
+    setRates((prev) => {
+      const next = { ...prev, [key]: Number.isNaN(num) ? 0 : num };
+      try {
+        localStorage.setItem(RATES_STORAGE_KEY, JSON.stringify(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  };
+
+  // Available filter options
+  const filterOptions = useMemo(() => {
+    const projSet = new Set(['UGG']);
+    const ortSet = new Set();
+    const teamSet = new Set();
+
+    (projects || []).forEach((p) => p?.name && projSet.add(p.name.trim()));
+    (addresses || []).forEach((a) => {
+      if (a?.project_name) projSet.add(a.project_name.trim());
+      const city = normalizeGemeinde ? normalizeGemeinde(a.ort, a.plz) : a.ort;
+      if (city) ortSet.add(city);
+      if (a?.team) teamSet.add(a.team.trim());
+    });
+    (fieldTeams || []).forEach((t) => t?.name && teamSet.add(t.name.trim()));
+
+    return {
+      projects: Array.from(projSet).sort(),
+      orte: Array.from(ortSet).sort(),
+      teams: Array.from(teamSet).sort(),
+    };
+  }, [projects, addresses, fieldTeams, normalizeGemeinde]);
+
+  // Enrich & filter all building objects with live financial calculation
+  const enrichedObjects = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const list = (addresses || [])
+      .map((addr) => {
+        const fin = calcObjectFinancials(addr, calcBuildingProgress, rates);
+        const city = (normalizeGemeinde ? normalizeGemeinde(addr.ort, addr.plz) : addr.ort) || addr.ort || '—';
+        return { addr, fin, city };
+      })
+      .filter(({ addr, fin, city }) => {
+        const proj = addr.project_name || 'UGG';
+        if (projectFilter !== 'ALL' && proj !== projectFilter) return false;
+        if (ortFilter !== 'ALL' && city.toLowerCase() !== ortFilter.toLowerCase()) return false;
+        if (categoryFilter !== 'ALL' && fin.categoryKey !== categoryFilter) return false;
+        if (stageFilter !== 'ALL' && fin.stage !== stageFilter) return false;
+        if (teamFilter !== 'ALL' && (addr.team || '') !== teamFilter) return false;
+        if (q) {
+          const hay = `${addr.strasse || ''} ${addr.hausnummer || ''} ${city} ${addr.plz || ''} ${addr.adress_id || ''} ${addr.projektnummer || ''} ${proj} ${addr.team || ''} ${fin.categoryLabel}`.toLowerCase();
+          if (!hay.includes(q)) return false;
+        }
+        return true;
+      });
+
+    const dir = sortDir === 'asc' ? 1 : -1;
+    return [...list].sort((a, b) => {
+      if (sortBy === 'installed_revenue') return (a.fin.installedTaRevenue - b.fin.installedTaRevenue) * dir;
+      if (sortBy === 'potential_revenue') return (a.fin.maxWePotentialRevenue - b.fin.maxWePotentialRevenue) * dir;
+      if (sortBy === 'ta_count') return (a.fin.taCount - b.fin.taCount) * dir;
+      if (sortBy === 'total_we') return (a.fin.totalWe - b.fin.totalWe) * dir;
+      if (sortBy === 'rate') return (a.fin.ratePerTa - b.fin.ratePerTa) * dir;
+      if (sortBy === 'ort') return a.city.localeCompare(b.city, 'de') * dir;
+      if (sortBy === 'project') return String(a.addr.project_name || 'UGG').localeCompare(String(b.addr.project_name || 'UGG'), 'de') * dir;
+      return `${a.addr.strasse || ''} ${a.addr.hausnummer || ''}`.localeCompare(`${b.addr.strasse || ''} ${b.addr.hausnummer || ''}`, 'de', { numeric: true }) * dir;
+    });
+  }, [addresses, calcBuildingProgress, rates, normalizeGemeinde, search, projectFilter, ortFilter, categoryFilter, stageFilter, teamFilter, sortBy, sortDir]);
+
+  // Aggregate financial KPIs across filtered objects
+  const summary = useMemo(() => {
+    const initBucket = () => ({ count: 0, taCount: 0, totalWe: 0, installedRev: 0, potentialRev: 0, effectiveRev: 0 });
+    const stages = {
+      planned: initBucket(),
+      open: initBucket(),
+      completed_unbilled: initBucket(),
+      invoiced: initBucket(),
+      paid: initBucket(),
+    };
+    const categories = {
+      metalkanal: initBucket(),
+      flex_kamin: initBucket(),
+    };
+    const byProject = new Map();
+    const byOrt = new Map();
+
+    let totalInstalledRev = 0;
+    let totalPotentialRev = 0;
+    let totalEffectiveRev = 0;
+    let totalEstimatedCost = 0;
+    let totalEstimatedProfit = 0;
+    let totalTa = 0;
+    let totalWe = 0;
+
+    enrichedObjects.forEach(({ addr, fin, city }) => {
+      const stBucket = stages[fin.stage] || stages.open;
+      stBucket.count += 1;
+      stBucket.taCount += fin.taCount;
+      stBucket.totalWe += fin.totalWe;
+      stBucket.installedRev += fin.installedTaRevenue;
+      stBucket.potentialRev += fin.maxWePotentialRevenue;
+      stBucket.effectiveRev += fin.effectiveEstimatedRevenue;
+
+      const catBucket = categories[fin.categoryKey] || categories.metalkanal;
+      catBucket.count += 1;
+      catBucket.taCount += fin.taCount;
+      catBucket.totalWe += fin.totalWe;
+      catBucket.installedRev += fin.installedTaRevenue;
+      catBucket.potentialRev += fin.maxWePotentialRevenue;
+      catBucket.effectiveRev += fin.effectiveEstimatedRevenue;
+
+      totalInstalledRev += fin.installedTaRevenue;
+      totalPotentialRev += fin.maxWePotentialRevenue;
+      totalEffectiveRev += fin.effectiveEstimatedRevenue;
+      totalEstimatedCost += fin.estimatedCost;
+      totalEstimatedProfit += fin.estimatedProfit;
+      totalTa += fin.taCount;
+      totalWe += fin.totalWe;
+
+      // Per-project aggregation
+      const pName = addr.project_name || 'UGG';
+      if (!byProject.has(pName)) {
+        byProject.set(pName, {
+          name: pName,
+          count: 0,
+          taCount: 0,
+          totalWe: 0,
+          metalkanalCount: 0,
+          metalkanalTa: 0,
+          metalkanalRev: 0,
+          flexKaminCount: 0,
+          flexKaminTa: 0,
+          flexKaminRev: 0,
+          plannedRev: 0,
+          openRev: 0,
+          readyRev: 0,
+          invoicedRev: 0,
+          paidRev: 0,
+          totalInstalledRev: 0,
+          totalPotentialRev: 0,
+        });
+      }
+      const p = byProject.get(pName);
+      p.count += 1;
+      p.taCount += fin.taCount;
+      p.totalWe += fin.totalWe;
+      p.totalInstalledRev += fin.installedTaRevenue;
+      p.totalPotentialRev += fin.maxWePotentialRevenue;
+      if (fin.categoryKey === 'flex_kamin') {
+        p.flexKaminCount += 1;
+        p.flexKaminTa += fin.taCount;
+        p.flexKaminRev += fin.installedTaRevenue;
+      } else {
+        p.metalkanalCount += 1;
+        p.metalkanalTa += fin.taCount;
+        p.metalkanalRev += fin.installedTaRevenue;
+      }
+      if (fin.stage === 'planned') p.plannedRev += fin.effectiveEstimatedRevenue;
+      else if (fin.stage === 'open') p.openRev += fin.installedTaRevenue;
+      else if (fin.stage === 'completed_unbilled') p.readyRev += fin.installedTaRevenue;
+      else if (fin.stage === 'invoiced') p.invoicedRev += fin.installedTaRevenue;
+      else if (fin.stage === 'paid') p.paidRev += fin.installedTaRevenue;
+
+      // Per-Gemeinde aggregation
+      if (!byOrt.has(city)) {
+        byOrt.set(city, { name: city, count: 0, taCount: 0, totalWe: 0, installedRev: 0, invoicedOrPaidRev: 0 });
+      }
+      const o = byOrt.get(city);
+      o.count += 1;
+      o.taCount += fin.taCount;
+      o.totalWe += fin.totalWe;
+      o.installedRev += fin.installedTaRevenue;
+      if (fin.stage === 'invoiced' || fin.stage === 'paid') {
+        o.invoicedOrPaidRev += fin.installedTaRevenue;
+      }
+    });
+
+    return {
+      stages,
+      categories,
+      totalInstalledRev,
+      totalPotentialRev,
+      totalEffectiveRev,
+      totalEstimatedCost,
+      totalEstimatedProfit,
+      totalTa,
+      totalWe,
+      projectsList: Array.from(byProject.values()).sort((a, b) => b.totalInstalledRev - a.totalInstalledRev),
+      orteList: Array.from(byOrt.values()).sort((a, b) => b.installedRev - a.installedRev),
+    };
+  }, [enrichedObjects]);
+
+  const activeFilterCount = [
+    projectFilter !== 'ALL',
+    ortFilter !== 'ALL',
+    categoryFilter !== 'ALL',
+    stageFilter !== 'ALL',
+    teamFilter !== 'ALL',
+  ].filter(Boolean).length;
+
+  const resetFilters = () => {
+    setSearch('');
+    setProjectFilter('ALL');
+    setOrtFilter('ALL');
+    setCategoryFilter('ALL');
+    setStageFilter('ALL');
+    setTeamFilter('ALL');
+  };
+
+  const stageLabelMap = {
+    planned: { label: '📅 Geplant (Terminiert)', bg: '#f8fafc', color: '#334155', border: '#cbd5e1' },
+    open: { label: '🔧 Offen / In Bau', bg: '#fff7ed', color: '#c2410c', border: '#fdba74' },
+    completed_unbilled: { label: '✓ Fertig (Bereit f. RE)', bg: '#f0fdf4', color: '#15803d', border: '#86efac' },
+    invoiced: { label: '📄 Rechnung erstellt', bg: '#eff6ff', color: '#1d4ed8', border: '#93c5fd' },
+    paid: { label: '💰 Rechnung erhalten', bg: '#ecfdf5', color: '#047857', border: '#6ee7b7' },
+  };
+
+  const selectStyle = (isActive) => ({
+    width: '100%',
+    padding: '7px 10px',
+    fontSize: 12,
+    fontWeight: isActive ? 700 : 500,
+    background: isActive ? '#fff7ed' : '#ffffff',
+    border: `1px solid ${isActive ? '#FF6B00' : '#cbd5e1'}`,
+    color: isActive ? '#9a3412' : '#0f172a',
+    borderRadius: 8,
+  });
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, width: '100%' }}>
+      {/* =====================================================================
+          1. TOP HEADER BAR: COST MANAGEMENT TITLE + TARIF BADGES + "+ RECHNUNG"
+         ===================================================================== */}
+      <div
+        className="glass-panel"
+        style={{
+          padding: '12px 16px',
+          borderRadius: 12,
+          background: '#ffffff',
+          border: '1px solid #e2e8f0',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: 12,
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <div
+            style={{
+              width: 36,
+              height: 36,
+              borderRadius: 9,
+              background: 'rgba(255, 107, 0, 0.12)',
+              color: '#FF6B00',
+              display: 'grid',
+              placeItems: 'center',
+            }}
+          >
+            <Wallet size={19} />
+          </div>
+          <div>
+            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: '#0f172a' }}>
+              Cost Management &amp; Projekt-Kalkulation
+            </h3>
+            <div style={{ fontSize: 11.5, color: '#64748b' }}>
+              Live synchronisiert mit Objects &amp; Properties · UGG Metalkabelkanal: <strong>{formatEur(rates.metalkanalRate)}/TA</strong> · Flexrohr/Kaminkanal: <strong>{formatEur(rates.flexKaminRate)}/TA</strong>
+            </div>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <span
+            style={{
+              padding: '5px 10px',
+              borderRadius: 8,
+              background: '#fff7ed',
+              border: '1px solid #fdba74',
+              fontSize: 11.5,
+              fontWeight: 700,
+              color: '#9a3412',
+            }}
+          >
+            Metalkabelkanal: {formatEur(rates.metalkanalRate)} / TA
+          </span>
+          <span
+            style={{
+              padding: '5px 10px',
+              borderRadius: 8,
+              background: '#eff6ff',
+              border: '1px solid #93c5fd',
+              fontSize: 11.5,
+              fontWeight: 700,
+              color: '#1e40af',
+            }}
+          >
+            Flexrohr / Kaminkanal: {formatEur(rates.flexKaminRate)} / TA
+          </span>
+          <button
+            type="button"
+            className="btn-primary btn-sm"
+            onClick={() => {
+              setSubView('abrechnung');
+              onQuickCreateInvoiceForAddresses?.();
+            }}
+            style={{
+              padding: '7px 13px',
+              fontSize: 12,
+              fontWeight: 700,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+            }}
+          >
+            <Plus size={14} />
+            <span>+ Rechnung erstellen (Abrechnung)</span>
+          </button>
+        </div>
+      </div>
+
+      {/* =====================================================================
+          2. CLEAN ANIMATED VIEW / SEARCH / FILTER / SORT / TARIFE BAR
+         ===================================================================== */}
+      <div className="glass-panel" style={{ padding: 0, borderRadius: 12, background: '#ffffff', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+        <div
+          style={{
+            padding: '10px 14px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: 10,
+            borderBottom: '1px solid #e2e8f0',
+          }}
+        >
+          {/* Segmented Sub-View Switcher */}
+          <div
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+              padding: 4,
+              borderRadius: 10,
+              background: '#f1f5f9',
+              border: '1px solid #e2e8f0',
+              flexWrap: 'wrap',
+            }}
+          >
+            {[
+              { id: 'overview', label: 'Overview & Kalkulation', icon: TrendingUp },
+              { id: 'objects', label: `Objekt-Kalkulation (${enrichedObjects.length})`, icon: Building2 },
+              { id: 'pipeline', label: 'Finanz-Pipeline (Board)', icon: Columns },
+              { id: 'abrechnung', label: `Abrechnung & Rechnungen (${invoices.length})`, icon: Receipt },
+            ].map((v) => {
+              const IconComp = v.icon;
+              const active = subView === v.id;
+              return (
+                <button
+                  key={v.id}
+                  type="button"
+                  onClick={() => setSubView(v.id)}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '6px 12px',
+                    borderRadius: 7,
+                    fontSize: 12,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    border: 'none',
+                    transition: 'all 0.2s cubic-bezier(0.22, 1, 0.36, 1)',
+                    background: active ? '#ffffff' : 'transparent',
+                    color: active ? '#FF6B00' : '#475569',
+                    boxShadow: active ? '0 1px 4px rgba(15, 23, 42, 0.1)' : 'none',
+                  }}
+                >
+                  <IconComp size={14} />
+                  <span>{v.label}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Search + Animated Drawer Toggles */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', flex: '1 1 300px', justifyContent: 'flex-end' }}>
+            <div style={{ position: 'relative', flex: '1 1 190px', maxWidth: 260 }}>
+              <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Projekt, Straße, Ort, ID suchen…"
+                style={{
+                  width: '100%',
+                  padding: '7px 26px 7px 30px',
+                  fontSize: 12,
+                  background: '#f8fafc',
+                  border: `1px solid ${search ? '#FF6B00' : '#cbd5e1'}`,
+                  borderRadius: 8,
+                }}
+              />
+              {search && (
+                <button
+                  type="button"
+                  onClick={() => setSearch('')}
+                  style={{ position: 'absolute', right: 7, top: '50%', transform: 'translateY(-50%)', border: 'none', background: 'transparent', color: '#64748b', cursor: 'pointer' }}
+                >
+                  <X size={13} />
+                </button>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setActiveDrawer((p) => (p === 'filter' ? null : 'filter'))}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '7px 12px',
+                borderRadius: 8,
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: 'pointer',
+                border: activeDrawer === 'filter' || activeFilterCount > 0 ? '1px solid #FF6B00' : '1px solid #cbd5e1',
+                background: activeDrawer === 'filter' ? '#FF6B00' : activeFilterCount > 0 ? '#fff7ed' : '#ffffff',
+                color: activeDrawer === 'filter' ? '#ffffff' : activeFilterCount > 0 ? '#c2410c' : '#334155',
+              }}
+            >
+              <SlidersHorizontal size={13} />
+              <span>Filter</span>
+              {activeFilterCount > 0 && (
+                <span style={{ fontSize: 10.5, fontWeight: 800, padding: '1px 6px', borderRadius: 999, background: activeDrawer === 'filter' ? 'rgba(255,255,255,0.24)' : '#FF6B00', color: '#fff' }}>
+                  {activeFilterCount}
+                </span>
+              )}
+              <ChevronDown size={13} style={{ transition: 'transform 0.2s ease', transform: activeDrawer === 'filter' ? 'rotate(180deg)' : 'rotate(0deg)' }} />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveDrawer((p) => (p === 'rates' ? null : 'rates'))}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '7px 12px',
+                borderRadius: 8,
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: 'pointer',
+                border: activeDrawer === 'rates' ? '1px solid #0f172a' : '1px solid #cbd5e1',
+                background: activeDrawer === 'rates' ? '#0f172a' : '#ffffff',
+                color: activeDrawer === 'rates' ? '#ffffff' : '#334155',
+              }}
+              title="TA-Vergütungssätze & Kosten-Parameter anpassen"
+            >
+              <Settings size={13} />
+              <span>Tarife (€/TA)</span>
+              <ChevronDown size={13} style={{ transition: 'transform 0.2s ease', transform: activeDrawer === 'rates' ? 'rotate(180deg)' : 'rotate(0deg)' }} />
+            </button>
+
+            <button type="button" className="btn-secondary btn-sm" style={{ padding: '7px 9px' }} onClick={onRefresh} title="Aktualisieren">
+              <RefreshCw size={13} />
+            </button>
+          </div>
+        </div>
+
+        {/* ANIMATED FILTER DRAWER */}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateRows: activeDrawer === 'filter' ? '1fr' : '0fr',
+            opacity: activeDrawer === 'filter' ? 1 : 0,
+            transition: 'grid-template-rows 0.24s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.2s ease',
+            background: '#f8fafc',
+            borderBottom: activeDrawer === 'filter' ? '1px solid #e2e8f0' : 'none',
+          }}
+        >
+          <div style={{ overflow: 'hidden' }}>
+            <div style={{ padding: '14px 16px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(185px, 1fr))', gap: 10, alignItems: 'end' }}>
+              <div>
+                <label style={{ fontSize: 10.5, fontWeight: 800, color: '#64748b', textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Projekt</label>
+                <select value={projectFilter} onChange={(e) => setProjectFilter(e.target.value)} style={selectStyle(projectFilter !== 'ALL')}>
+                  <option value="ALL">Alle Projekte</option>
+                  {filterOptions.projects.map((p) => (
+                    <option key={p} value={p}>{p}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: 10.5, fontWeight: 800, color: '#64748b', textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Gemeinde / Ort</label>
+                <select value={ortFilter} onChange={(e) => setOrtFilter(e.target.value)} style={selectStyle(ortFilter !== 'ALL')}>
+                  <option value="ALL">Alle Gemeinden</option>
+                  {filterOptions.orte.map((o) => (
+                    <option key={o} value={o}>{o}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: 10.5, fontWeight: 800, color: '#64748b', textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Ausbau-Tarif</label>
+                <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} style={selectStyle(categoryFilter !== 'ALL')}>
+                  <option value="ALL">Alle Tarife</option>
+                  <option value="metalkanal">Metalkabelkanal ({formatEur(rates.metalkanalRate)}/TA)</option>
+                  <option value="flex_kamin">Flexrohr / Kaminkanal ({formatEur(rates.flexKaminRate)}/TA)</option>
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: 10.5, fontWeight: 800, color: '#64748b', textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Abrechnungs-Phase</label>
+                <select value={stageFilter} onChange={(e) => setStageFilter(e.target.value)} style={selectStyle(stageFilter !== 'ALL')}>
+                  <option value="ALL">Alle Phasen</option>
+                  <option value="planned">📅 Geplant (Terminiert)</option>
+                  <option value="open">🔧 Offen / In Bau</option>
+                  <option value="completed_unbilled">✓ Fertig (Bereit f. RE)</option>
+                  <option value="invoiced">📄 Rechnung erstellt (Offen)</option>
+                  <option value="paid">💰 Rechnung erhalten (Bezahlt)</option>
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: 10.5, fontWeight: 800, color: '#64748b', textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Ausbau Team</label>
+                <select value={teamFilter} onChange={(e) => setTeamFilter(e.target.value)} style={selectStyle(teamFilter !== 'ALL')}>
+                  <option value="ALL">Alle Teams</option>
+                  {filterOptions.teams.map((t) => (
+                    <option key={t} value={t}>{t}</option>
+                  ))}
+                </select>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  onClick={resetFilters}
+                  className="btn-secondary btn-sm"
+                  style={{ padding: '7px 12px', fontSize: 11.5, color: '#dc2626', borderColor: '#fecaca', background: '#fef2f2' }}
+                >
+                  Filter zurücksetzen
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* ANIMATED RATES CONFIGURATION DRAWER */}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateRows: activeDrawer === 'rates' ? '1fr' : '0fr',
+            opacity: activeDrawer === 'rates' ? 1 : 0,
+            transition: 'grid-template-rows 0.24s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.2s ease',
+            background: '#f8fafc',
+            borderBottom: activeDrawer === 'rates' ? '1px solid #e2e8f0' : 'none',
+          }}
+        >
+          <div style={{ overflow: 'hidden' }}>
+            <div style={{ padding: '14px 16px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, alignItems: 'end' }}>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 700, color: '#0f172a', display: 'block', marginBottom: 4 }}>
+                  UGG Metalkabelkanal Vergütung (€ pro installierter TA)
+                </label>
+                <input
+                  type="number"
+                  step="0.5"
+                  value={rates.metalkanalRate}
+                  onChange={(e) => updateRate('metalkanalRate', e.target.value)}
+                  style={{ width: '100%', padding: '7px 10px', fontSize: 12.5, fontWeight: 700, borderRadius: 8, border: '1px solid #cbd5e1', background: '#fff' }}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 700, color: '#0f172a', display: 'block', marginBottom: 4 }}>
+                  UGG Flexrohr / Kaminkanal Vergütung (€ pro installierter TA)
+                </label>
+                <input
+                  type="number"
+                  step="0.5"
+                  value={rates.flexKaminRate}
+                  onChange={(e) => updateRate('flexKaminRate', e.target.value)}
+                  style={{ width: '100%', padding: '7px 10px', fontSize: 12.5, fontWeight: 700, borderRadius: 8, border: '1px solid #cbd5e1', background: '#fff' }}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 700, color: '#0f172a', display: 'block', marginBottom: 4 }}>
+                  Kalkulierte Eigen-/Sub-Kosten (€ pro TA, optional)
+                </label>
+                <input
+                  type="number"
+                  step="1"
+                  value={rates.estimatedCostPerTa}
+                  onChange={(e) => updateRate('estimatedCostPerTa', e.target.value)}
+                  style={{ width: '100%', padding: '7px 10px', fontSize: 12.5, fontWeight: 700, borderRadius: 8, border: '1px solid #cbd5e1', background: '#fff' }}
+                />
+              </div>
+              <div>
+                <button
+                  type="button"
+                  className="btn-secondary btn-sm"
+                  onClick={() => {
+                    setRates({ ...DEFAULT_TA_RATES });
+                    localStorage.setItem(RATES_STORAGE_KEY, JSON.stringify(DEFAULT_TA_RATES));
+                  }}
+                >
+                  Standard wiederherstellen (162,50 € / 122,50 €)
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* ===================================================================
+            VIEW 1: OVERVIEW & PROJEKT-KALKULATION (ANIMATED BI DASHBOARD)
+           =================================================================== */}
+        {subView === 'overview' && (
+          <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {/* Top 5 Financial Stage KPI Cards (Clickable to filter by Stage!) */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 12 }}>
+              {[
+                {
+                  id: 'ALL',
+                  title: 'Gesamt-Volumen (Erfasste TA)',
+                  amount: summary.totalInstalledRev,
+                  sub: `Max. WE-Potenzial (100%): ${formatEur(summary.totalPotentialRev)}`,
+                  meta: `${enrichedObjects.length} Objekte · ${summary.totalTa} / ${summary.totalWe} TA`,
+                  accent: '#0f172a',
+                  bg: '#f8fafc',
+                },
+                {
+                  id: 'planned',
+                  title: '📅 Geplant (Terminiert)',
+                  amount: summary.stages.planned.effectiveRev,
+                  sub: `Erfasste TA: ${formatEur(summary.stages.planned.installedRev)}`,
+                  meta: `${summary.stages.planned.count} Objekte · ${summary.stages.planned.taCount}/${summary.stages.planned.totalWe} TA`,
+                  accent: '#475569',
+                  bg: '#ffffff',
+                },
+                {
+                  id: 'open',
+                  title: '🔧 Offen / In Arbeit (Restarbeiten)',
+                  amount: summary.stages.open.installedRev,
+                  sub: `Potenzial: ${formatEur(summary.stages.open.potentialRev)}`,
+                  meta: `${summary.stages.open.count} Objekte · ${summary.stages.open.taCount} TA`,
+                  accent: '#f97316',
+                  bg: '#fff7ed',
+                },
+                {
+                  id: 'completed_unbilled',
+                  title: '✓ Fertig (Bereit f. Abrechnung)',
+                  amount: summary.stages.completed_unbilled.installedRev,
+                  sub: 'Sofort abrechenbar (TA·Flex·HÜP·Spl ✓)',
+                  meta: `${summary.stages.completed_unbilled.count} Objekte · ${summary.stages.completed_unbilled.taCount} TA`,
+                  accent: '#16a34a',
+                  bg: '#f0fdf4',
+                },
+                {
+                  id: 'invoiced',
+                  title: '📄 Rechnung erstellt (Offen)',
+                  amount: summary.stages.invoiced.installedRev,
+                  sub: 'Abgerechnet · Zahlung ausstehend',
+                  meta: `${summary.stages.invoiced.count} Objekte · ${summary.stages.invoiced.taCount} TA`,
+                  accent: '#2563eb',
+                  bg: '#eff6ff',
+                },
+                {
+                  id: 'paid',
+                  title: '💰 Rechnung erhalten (Bezahlt)',
+                  amount: summary.stages.paid.installedRev,
+                  sub: 'Bezahlter Umsatz',
+                  meta: `${summary.stages.paid.count} Objekte · ${summary.stages.paid.taCount} TA`,
+                  accent: '#059669',
+                  bg: '#ecfdf5',
+                },
+              ].map((card) => {
+                const isSelected = stageFilter === card.id;
+                return (
+                  <div
+                    key={card.id}
+                    onClick={() => setStageFilter((prev) => (prev === card.id ? 'ALL' : card.id))}
+                    style={{
+                      padding: '12px 14px',
+                      borderRadius: 11,
+                      background: card.bg,
+                      border: isSelected ? `2px solid ${card.accent}` : '1px solid #e2e8f0',
+                      borderLeft: `4px solid ${card.accent}`,
+                      cursor: 'pointer',
+                      transition: 'transform 0.18s ease, box-shadow 0.18s ease',
+                      boxShadow: isSelected ? '0 6px 18px rgba(15,23,42,0.08)' : '0 1px 3px rgba(15,23,42,0.03)',
+                    }}
+                    title="Klicken, um nach dieser Phase zu filtern"
+                  >
+                    <div style={{ fontSize: 11, fontWeight: 800, color: '#475569' }}>{card.title}</div>
+                    <div style={{ fontSize: 19, fontWeight: 900, color: '#0f172a', marginTop: 4, fontFamily: 'monospace' }}>
+                      {formatEur(card.amount)}
+                    </div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: card.accent, marginTop: 3 }}>{card.meta}</div>
+                    <div style={{ fontSize: 10.5, color: '#64748b', marginTop: 2 }}>{card.sub}</div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Animated Visual Progression & Revenue Pipeline Bar */}
+            <div style={{ padding: '14px 16px', borderRadius: 11, background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+                <strong style={{ fontSize: 12.5, color: '#0f172a' }}>
+                  Umsatz- &amp; Ausbau-Progression (Erfasste TA: {formatEur(summary.totalInstalledRev)} · Kalkulierter Deckungsbeitrag: {formatEur(summary.totalEstimatedProfit)})
+                </strong>
+                <span style={{ fontSize: 11.5, color: '#64748b', fontWeight: 600 }}>
+                  Metalkabelkanal: {formatEur(summary.categories.metalkanal.installedRev)} ({summary.categories.metalkanal.taCount} TA) · Flexrohr/Kaminkanal: {formatEur(summary.categories.flex_kamin.installedRev)} ({summary.categories.flex_kamin.taCount} TA)
+                </span>
+              </div>
+
+              {(() => {
+                const denom = Math.max(1, summary.totalEffectiveRev);
+                const segments = [
+                  { label: 'Bezahlt', val: summary.stages.paid.installedRev, color: '#059669' },
+                  { label: 'RE erstellt', val: summary.stages.invoiced.installedRev, color: '#2563eb' },
+                  { label: 'Bereit f. RE', val: summary.stages.completed_unbilled.installedRev, color: '#16a34a' },
+                  { label: 'Offen / In Bau', val: summary.stages.open.installedRev, color: '#f97316' },
+                  { label: 'Geplant', val: summary.stages.planned.effectiveRev, color: '#94a3b8' },
+                ];
+                return (
+                  <>
+                    <div style={{ height: 14, borderRadius: 999, background: '#e2e8f0', overflow: 'hidden', display: 'flex' }}>
+                      {segments.map((seg) => {
+                        const pct = Math.max(0, (seg.val / denom) * 100);
+                        if (pct <= 0) return null;
+                        return (
+                          <div
+                            key={seg.label}
+                            style={{
+                              width: `${pct}%`,
+                              background: seg.color,
+                              transition: 'width 0.4s cubic-bezier(0.22, 1, 0.36, 1)',
+                            }}
+                            title={`${seg.label}: ${formatEur(seg.val)} (${pct.toFixed(1)}%)`}
+                          />
+                        );
+                      })}
+                    </div>
+                    <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 8 }}>
+                      {segments.map((seg) => (
+                        <div key={seg.label} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 700, color: '#334155' }}>
+                          <span style={{ width: 9, height: 9, borderRadius: 999, background: seg.color }} />
+                          <span>{seg.label}: {formatEur(seg.val)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+
+            {/* Per-Project Financial Breakdown Cards */}
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                <strong style={{ fontSize: 13.5, color: '#0f172a' }}>
+                  Projekt-Finanzübersicht &amp; Tarif-Aufschlüsselung ({summary.projectsList.length} Projekte)
+                </strong>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 12 }}>
+                {summary.projectsList.map((proj) => (
+                  <div
+                    key={proj.name}
+                    style={{
+                      padding: 14,
+                      borderRadius: 12,
+                      background: '#ffffff',
+                      border: '1px solid #e2e8f0',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 10,
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                      <div>
+                        <span style={{ fontSize: 11, fontWeight: 800, padding: '2px 8px', borderRadius: 6, background: '#faf5ff', color: '#6b21a8', border: '1px solid #d8b4fe' }}>
+                          Projekt: {proj.name}
+                        </span>
+                        <div style={{ fontSize: 11.5, color: '#64748b', marginTop: 4 }}>
+                          {proj.count} Objekte · {proj.taCount} installierte TA von {proj.totalWe} WE
+                        </div>
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontSize: 17, fontWeight: 900, color: '#0f172a', fontFamily: 'monospace' }}>
+                          {formatEur(proj.totalInstalledRev)}
+                        </div>
+                        <div style={{ fontSize: 10.5, color: '#64748b' }}>
+                          Max. WE-Potenzial: {formatEur(proj.totalPotentialRev)}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Metalkabelkanal vs Flexrohr/Kaminkanal Breakdown inside Project */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                      <div style={{ padding: '8px 10px', borderRadius: 8, background: '#fff7ed', border: '1px solid #fed7aa' }}>
+                        <div style={{ fontSize: 10.5, fontWeight: 800, color: '#9a3412' }}>
+                          Metalkabelkanal ({formatEur(rates.metalkanalRate)}/TA)
+                        </div>
+                        <div style={{ fontSize: 14, fontWeight: 900, color: '#0f172a', fontFamily: 'monospace', marginTop: 2 }}>
+                          {formatEur(proj.metalkanalRev)}
+                        </div>
+                        <div style={{ fontSize: 10.5, color: '#c2410c' }}>
+                          {proj.metalkanalCount} Häuser · {proj.metalkanalTa} TA
+                        </div>
+                      </div>
+
+                      <div style={{ padding: '8px 10px', borderRadius: 8, background: '#eff6ff', border: '1px solid #bfdbfe' }}>
+                        <div style={{ fontSize: 10.5, fontWeight: 800, color: '#1e40af' }}>
+                          Flexrohr/Kaminkanal ({formatEur(rates.flexKaminRate)}/TA)
+                        </div>
+                        <div style={{ fontSize: 14, fontWeight: 900, color: '#0f172a', fontFamily: 'monospace', marginTop: 2 }}>
+                          {formatEur(proj.flexKaminRev)}
+                        </div>
+                        <div style={{ fontSize: 10.5, color: '#1d4ed8' }}>
+                          {proj.flexKaminCount} Häuser · {proj.flexKaminTa} TA
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Stage Amounts inside Project */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 4, paddingTop: 6, borderTop: '1px solid #f1f5f9', fontSize: 10.5 }}>
+                      <div>
+                        <div style={{ color: '#64748b', fontWeight: 600 }}>Geplant</div>
+                        <strong style={{ color: '#334155', fontFamily: 'monospace' }}>{formatEur(proj.plannedRev)}</strong>
+                      </div>
+                      <div>
+                        <div style={{ color: '#c2410c', fontWeight: 600 }}>Offen</div>
+                        <strong style={{ color: '#c2410c', fontFamily: 'monospace' }}>{formatEur(proj.openRev)}</strong>
+                      </div>
+                      <div>
+                        <div style={{ color: '#15803d', fontWeight: 600 }}>Bereit f. RE</div>
+                        <strong style={{ color: '#15803d', fontFamily: 'monospace' }}>{formatEur(proj.readyRev)}</strong>
+                      </div>
+                      <div>
+                        <div style={{ color: '#1d4ed8', fontWeight: 600 }}>RE erstellt</div>
+                        <strong style={{ color: '#1d4ed8', fontFamily: 'monospace' }}>{formatEur(proj.invoicedRev)}</strong>
+                      </div>
+                      <div>
+                        <div style={{ color: '#047857', fontWeight: 600 }}>RE erhalten</div>
+                        <strong style={{ color: '#047857', fontFamily: 'monospace' }}>{formatEur(proj.paidRev)}</strong>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Per-Gemeinde Revenue Distribution */}
+            {summary.orteList.length > 0 && (
+              <div style={{ padding: 14, borderRadius: 12, background: '#ffffff', border: '1px solid #e2e8f0' }}>
+                <strong style={{ fontSize: 13, color: '#0f172a', display: 'block', marginBottom: 10 }}>
+                  Umsatz-Verteilung nach Gemeinde / Ort
+                </strong>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: 10 }}>
+                  {summary.orteList.map((o) => {
+                    const maxOrtRev = Math.max(1, summary.orteList[0]?.installedRev || 1);
+                    const widthPct = Math.min(100, Math.round((o.installedRev / maxOrtRev) * 100));
+                    return (
+                      <div
+                        key={o.name}
+                        onClick={() => setOrtFilter((prev) => (prev === o.name ? 'ALL' : o.name))}
+                        style={{
+                          padding: '9px 11px',
+                          borderRadius: 8,
+                          background: ortFilter === o.name ? '#fff7ed' : '#f8fafc',
+                          border: `1px solid ${ortFilter === o.name ? '#FF6B00' : '#e2e8f0'}`,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12 }}>
+                          <strong style={{ color: '#0f172a' }}>{o.name}</strong>
+                          <strong style={{ color: '#0f172a', fontFamily: 'monospace' }}>{formatEur(o.installedRev)}</strong>
+                        </div>
+                        <div style={{ fontSize: 10.5, color: '#64748b', marginTop: 2 }}>
+                          {o.count} Objekte · {o.taCount}/{o.totalWe} TA · Abgerechnet: {formatEur(o.invoicedOrPaidRev)}
+                        </div>
+                        <div style={{ height: 5, borderRadius: 999, background: '#e2e8f0', marginTop: 6, overflow: 'hidden' }}>
+                          <div style={{ width: `${widthPct}%`, height: '100%', background: '#FF6B00', transition: 'width 0.35s ease' }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ===================================================================
+            VIEW 2: OBJEKT-KALKULATION (PER-BUILDING FINANCIAL TABLE)
+           =================================================================== */}
+        {subView === 'objects' && (
+          <div style={{ padding: '12px 14px' }}>
+            <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: 10 }}>
+              <table className="no-min-width" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                <thead>
+                  <tr style={{ background: '#f1f5f9', color: '#475569', textAlign: 'left', borderBottom: '1px solid #e2e8f0', fontSize: 11, textTransform: 'uppercase' }}>
+                    <th style={{ padding: '9px 10px', cursor: 'pointer' }} onClick={() => { setSortBy('project'); setSortDir((d) => (d === 'asc' ? 'desc' : 'asc')); }}>Projekt</th>
+                    <th style={{ padding: '9px 10px', cursor: 'pointer' }} onClick={() => { setSortBy('ort'); setSortDir((d) => (d === 'asc' ? 'desc' : 'asc')); }}>Adresse &amp; Gemeinde</th>
+                    <th style={{ padding: '9px 10px' }}>Ausbau-Typ &amp; Tarif (€/TA)</th>
+                    <th style={{ padding: '9px 10px', cursor: 'pointer', textAlign: 'center' }} onClick={() => { setSortBy('ta_count'); setSortDir((d) => (d === 'asc' ? 'desc' : 'asc')); }}>TA / WE</th>
+                    <th style={{ padding: '9px 10px', cursor: 'pointer', textAlign: 'right' }} onClick={() => { setSortBy('installed_revenue'); setSortDir((d) => (d === 'asc' ? 'desc' : 'asc')); }}>Erfasster TA-Betrag</th>
+                    <th style={{ padding: '9px 10px', cursor: 'pointer', textAlign: 'right' }} onClick={() => { setSortBy('potential_revenue'); setSortDir((d) => (d === 'asc' ? 'desc' : 'asc')); }}>Max. WE-Potenzial</th>
+                    <th style={{ padding: '9px 10px' }}>Phase / Abrechnungs-Status</th>
+                    <th style={{ padding: '9px 10px', textAlign: 'right' }}>Aktion</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {enrichedObjects.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} style={{ padding: 28, textAlign: 'center', color: '#64748b' }}>
+                        Keine Objekte für die aktuellen Filter gefunden.
+                      </td>
+                    </tr>
+                  ) : (
+                    enrichedObjects.map(({ addr, fin, city }) => {
+                      const stBadge = stageLabelMap[fin.stage] || stageLabelMap.open;
+                      return (
+                        <tr key={addr.id} style={{ borderBottom: '1px solid #f1f5f9', background: '#ffffff' }}>
+                          <td style={{ padding: '9px 10px', fontWeight: 700, color: '#6b21a8' }}>
+                            {addr.project_name || 'UGG'}
+                          </td>
+                          <td style={{ padding: '9px 10px' }}>
+                            <div style={{ fontWeight: 700, color: '#0f172a' }}>
+                              {addr.strasse} {addr.hausnummer}
+                            </div>
+                            <div style={{ fontSize: 11, color: '#64748b' }}>
+                              {addr.plz} {city} · ID: {addr.adress_id || addr.projektnummer || '—'}
+                            </div>
+                          </td>
+                          <td style={{ padding: '9px 10px' }}>
+                            <span
+                              style={{
+                                display: 'inline-block',
+                                padding: '3px 8px',
+                                borderRadius: 6,
+                                fontSize: 11,
+                                fontWeight: 700,
+                                background: fin.categoryKey === 'flex_kamin' ? '#eff6ff' : '#fff7ed',
+                                color: fin.categoryKey === 'flex_kamin' ? '#1d4ed8' : '#9a3412',
+                                border: `1px solid ${fin.categoryKey === 'flex_kamin' ? '#93c5fd' : '#fdba74'}`,
+                              }}
+                            >
+                              {fin.categoryLabel} · {formatEur(fin.ratePerTa)}/TA
+                            </span>
+                          </td>
+                          <td style={{ padding: '9px 10px', textAlign: 'center', fontWeight: 700 }}>
+                            <span style={{ color: fin.taCount > 0 ? '#15803d' : '#64748b' }}>{fin.taCount}</span> / {fin.totalWe} TA
+                          </td>
+                          <td style={{ padding: '9px 10px', textAlign: 'right', fontFamily: 'monospace', fontWeight: 800, fontSize: 13, color: '#0f172a' }}>
+                            {formatEur(fin.installedTaRevenue)}
+                          </td>
+                          <td style={{ padding: '9px 10px', textAlign: 'right', fontFamily: 'monospace', color: '#64748b' }}>
+                            {formatEur(fin.maxWePotentialRevenue)}
+                          </td>
+                          <td style={{ padding: '9px 10px' }}>
+                            <span
+                              style={{
+                                display: 'inline-block',
+                                padding: '3px 8px',
+                                borderRadius: 999,
+                                fontSize: 11,
+                                fontWeight: 700,
+                                background: stBadge.bg,
+                                color: stBadge.color,
+                                border: `1px solid ${stBadge.border}`,
+                              }}
+                            >
+                              {stBadge.label}
+                            </span>
+                          </td>
+                          <td style={{ padding: '9px 10px', textAlign: 'right' }}>
+                            <button
+                              type="button"
+                              className="btn-secondary btn-sm"
+                              style={{ padding: '4px 8px', fontSize: 11 }}
+                              onClick={() => onOpenBuilding?.(addr.id)}
+                            >
+                              Objekt →
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* ===================================================================
+            VIEW 3: FINANZ-PIPELINE (5-COLUMN FINANCIAL STAGE BOARD)
+           =================================================================== */}
+        {subView === 'pipeline' && (
+          <div style={{ padding: '12px 14px', display: 'grid', gridTemplateColumns: 'repeat(5, minmax(235px, 1fr))', gap: 10, overflowX: 'auto' }}>
+            {[
+              { key: 'planned', title: '📅 Geplant (Terminiert)', bg: '#f8fafc', border: '#cbd5e1', text: '#334155' },
+              { key: 'open', title: '🔧 Offen / In Bau', bg: '#fff7ed', border: '#fdba74', text: '#9a3412' },
+              { key: 'completed_unbilled', title: '✓ Fertig (Bereit f. RE)', bg: '#f0fdf4', border: '#86efac', text: '#14532d' },
+              { key: 'invoiced', title: '📄 Rechnung erstellt', bg: '#eff6ff', border: '#93c5fd', text: '#1e3a8a' },
+              { key: 'paid', title: '💰 Rechnung erhalten', bg: '#ecfdf5', border: '#6ee7b7', text: '#065f46' },
+            ].map((col) => {
+              const items = enrichedObjects.filter((x) => x.fin.stage === col.key);
+              const colSum = items.reduce((acc, x) => acc + (col.key === 'planned' ? x.fin.effectiveEstimatedRevenue : x.fin.installedTaRevenue), 0);
+              const colTa = items.reduce((acc, x) => acc + x.fin.taCount, 0);
+
+              return (
+                <div
+                  key={col.key}
+                  style={{
+                    background: col.bg,
+                    border: `1.5px solid ${col.border}`,
+                    borderRadius: 11,
+                    padding: 10,
+                    minHeight: 460,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 8,
+                  }}
+                >
+                  <div style={{ paddingBottom: 8, borderBottom: `1px solid ${col.border}` }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <strong style={{ fontSize: 12, color: col.text }}>{col.title}</strong>
+                      <span style={{ fontSize: 11, fontWeight: 800, padding: '1px 7px', borderRadius: 999, background: '#fff', color: col.text, border: `1px solid ${col.border}` }}>
+                        {items.length}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 16, fontWeight: 900, color: '#0f172a', fontFamily: 'monospace', marginTop: 4 }}>
+                      {formatEur(colSum)}
+                    </div>
+                    <div style={{ fontSize: 10.5, color: col.text, opacity: 0.85 }}>
+                      {colTa} installierte TA
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 7, maxHeight: 560, overflowY: 'auto' }}>
+                    {items.map(({ addr, fin, city }) => (
+                      <div
+                        key={addr.id}
+                        style={{
+                          padding: '9px 10px',
+                          borderRadius: 8,
+                          background: '#ffffff',
+                          border: '1px solid #e2e8f0',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: 4,
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 6 }}>
+                          <strong style={{ fontSize: 12, color: '#0f172a' }}>
+                            {addr.strasse} {addr.hausnummer}
+                          </strong>
+                          <button
+                            type="button"
+                            onClick={() => onOpenBuilding?.(addr.id)}
+                            style={{ border: 'none', background: 'transparent', color: '#64748b', cursor: 'pointer', padding: 0 }}
+                          >
+                            <ArrowUpRight size={13} />
+                          </button>
+                        </div>
+                        <div style={{ fontSize: 10.5, color: '#64748b' }}>
+                          {city} · {addr.project_name || 'UGG'}
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 3, paddingTop: 4, borderTop: '1px solid #f1f5f9' }}>
+                          <span style={{ fontSize: 10, fontWeight: 700, color: fin.categoryKey === 'flex_kamin' ? '#1d4ed8' : '#9a3412' }}>
+                            {fin.taCount}/{fin.totalWe} TA × {formatEur(fin.ratePerTa)}
+                          </span>
+                          <strong style={{ fontSize: 12, fontFamily: 'monospace', color: '#0f172a' }}>
+                            {formatEur(col.key === 'planned' ? fin.effectiveEstimatedRevenue : fin.installedTaRevenue)}
+                          </strong>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* =====================================================================
+          VIEW 4: ABRECHNUNG & RECHNUNGEN (INVOICE CREATION & MANAGEMENT)
+         ===================================================================== */}
+      {subView === 'abrechnung' && renderAbrechnungInvoicesView?.()}
+    </div>
+  );
+}

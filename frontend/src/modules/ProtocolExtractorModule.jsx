@@ -46,9 +46,16 @@ import {
   isCoreArbeitCompleted,
   getObjectBillingStage,
 } from './ObjectsViewsBoard';
+import {
+  CostManagementView,
+  calcObjectFinancials,
+  loadSavedTaRates,
+  formatEur,
+} from './CostManagementView';
 
 export const AUSBAU_TYP_OPTIONS = [
   'Metalkanal',
+  'Flexrohr / Kaminkanal',
   'Leerrohr-Kamin',
   'Kabelkanal',
   'Fassade',
@@ -2954,6 +2961,7 @@ export const AbrechnungView = ({
   onPatchInvoice,
   onDeleteInvoice,
   onOpenBuilding,
+  autoOpenCreateTrigger = 0,
 }) => {
   const [search, setSearch] = useState('');
   const [projectFilter, setProjectFilter] = useState('ALL');
@@ -2990,9 +2998,23 @@ export const AbrechnungView = ({
   const [savingInv, setSavingInv] = useState(false);
   const [modalError, setModalError] = useState('');
 
-  // All buildings that have status === "Abgeschlossen"
+  // All buildings that have status === "Abgeschlossen" OR have TA + Flex + HÜP + Spleißen completed
   const completedBuildings = useMemo(
-    () => addresses.filter((a) => (a.building_status || '') === 'Abgeschlossen'),
+    () =>
+      addresses.filter(
+        (a) => (a.building_status || '') === 'Abgeschlossen' || isCoreArbeitCompleted(a, calcBuildingProgress)
+      ),
+    [addresses]
+  );
+
+  const calcSumForAddressIds = useCallback(
+    (ids) => {
+      const currentRates = loadSavedTaRates();
+      const sum = addresses
+        .filter((a) => ids.includes(a.id))
+        .reduce((acc, a) => acc + calcObjectFinancials(a, calcBuildingProgress, currentRates).installedTaRevenue, 0);
+      return Number(sum.toFixed(2));
+    },
     [addresses]
   );
 
@@ -3171,9 +3193,11 @@ export const AbrechnungView = ({
     }
   };
 
-  const openNewRechnungModal = () => {
+  const openNewRechnungModal = useCallback(() => {
     const nextNum = `RE-${new Date().getFullYear()}-${String(invoices.length + 1).padStart(3, '0')}`;
     const unbilledCompleted = completedBuildings.filter((b) => !b.rechnung_erstellt);
+    const defaultIds = unbilledCompleted.map((b) => b.id);
+    const autoNetto = calcSumForAddressIds(defaultIds);
     setNewInv({
       rechnungsnummer: nextNum,
       titel: `UGG Ausbau Abrechnung (${todayStr})`,
@@ -3181,13 +3205,19 @@ export const AbrechnungView = ({
       gemeinde: '',
       rechnungsdatum: todayStr,
       faelligkeitsdatum: '',
-      betrag_netto: '',
+      betrag_netto: autoNetto > 0 ? String(autoNetto) : '',
       notes: '',
-      selectedAddressIds: unbilledCompleted.map((b) => b.id),
+      selectedAddressIds: defaultIds,
     });
     setModalError('');
     setShowCreateModal(true);
-  };
+  }, [invoices.length, completedBuildings, calcSumForAddressIds, todayStr]);
+
+  useEffect(() => {
+    if (autoOpenCreateTrigger > 0) {
+      openNewRechnungModal();
+    }
+  }, [autoOpenCreateTrigger, openNewRechnungModal]);
 
   const toggleSelectBuilding = (id) => {
     setNewInv((prev) => {
@@ -3195,7 +3225,12 @@ export const AbrechnungView = ({
       const nextIds = exists
         ? prev.selectedAddressIds.filter((x) => x !== id)
         : [...prev.selectedAddressIds, id];
-      return { ...prev, selectedAddressIds: nextIds };
+      const nextAutoSum = calcSumForAddressIds(nextIds);
+      return {
+        ...prev,
+        selectedAddressIds: nextIds,
+        betrag_netto: nextAutoSum > 0 ? String(nextAutoSum) : prev.betrag_netto,
+      };
     });
   };
 
@@ -4196,7 +4231,10 @@ export const AbrechnungView = ({
                                 {b.strasse} {b.hausnummer}, {b.plz} {city}
                               </td>
                               <td style={{ padding: '7px 10px' }}>
-                                {taCount}/{totalWe} TA ({totalWe} WE)
+                                <div>{taCount}/{totalWe} TA ({totalWe} WE)</div>
+                                <div style={{ fontSize: 10.5, fontWeight: 700, color: '#0f172a', fontFamily: 'monospace' }}>
+                                  {formatEur(calcObjectFinancials(b, calcBuildingProgress, loadSavedTaRates()).installedTaRevenue)}
+                                </div>
                               </td>
                               <td style={{ padding: '7px 10px', fontFamily: 'monospace' }}>
                                 {toDdMmYyyy(b.abgeschlossen_datum) || '—'}
@@ -4271,7 +4309,12 @@ export function ProtocolExtractorModule({ user, mode = 'objects' }) {
   const navigate = useNavigate();
   const location = useLocation();
   const activeMode =
-    mode === 'abrechnung' || location.pathname.includes('/abrechnung') ? 'abrechnung' : 'objects';
+    mode === 'abrechnung' ||
+    location.pathname.includes('/abrechnung') ||
+    location.pathname.includes('/cost-management')
+      ? 'abrechnung'
+      : 'objects';
+  const [autoOpenInvoiceModalTrigger, setAutoOpenInvoiceModalTrigger] = useState(0);
 
   const [addresses, setAddresses] = useState([]);
   const [fieldTeams, setFieldTeams] = useState([]);
@@ -5128,16 +5171,32 @@ export function ProtocolExtractorModule({ user, mode = 'objects' }) {
           </div>
         )}
 
-        <AbrechnungView
+        <CostManagementView
           addresses={addresses}
           invoices={invoices}
           projects={projects}
+          fieldTeams={fieldTeams}
           loading={loading}
+          calcBuildingProgress={calcBuildingProgress}
+          normalizeGemeinde={normalizeGemeinde}
           onRefresh={loadAddressesAndTeams}
-          onCreateInvoice={handleCreateInvoice}
-          onPatchInvoice={handlePatchInvoice}
-          onDeleteInvoice={handleDeleteInvoice}
+          onPatchBuilding={handlePatchBuilding}
           onOpenBuilding={(id) => setSelectedBuildingId(id)}
+          onQuickCreateInvoiceForAddresses={() => setAutoOpenInvoiceModalTrigger((c) => c + 1)}
+          renderAbrechnungInvoicesView={() => (
+            <AbrechnungView
+              addresses={addresses}
+              invoices={invoices}
+              projects={projects}
+              loading={loading}
+              onRefresh={loadAddressesAndTeams}
+              onCreateInvoice={handleCreateInvoice}
+              onPatchInvoice={handlePatchInvoice}
+              onDeleteInvoice={handleDeleteInvoice}
+              onOpenBuilding={(id) => setSelectedBuildingId(id)}
+              autoOpenCreateTrigger={autoOpenInvoiceModalTrigger}
+            />
+          )}
         />
       </div>
     );

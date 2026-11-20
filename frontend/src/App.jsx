@@ -40,7 +40,7 @@ export const NAV = [
     id: 'projects', label: 'Projects & Objects', icon: Building2, base: '/projects', activeBases: ['/projects', '/protocol'], mod: 'mod_projects',
     children: [
       { to: '/projects/objects', label: 'Objects & Properties' },
-      { to: '/projects/abrechnung', label: 'Abrechnung' },
+      { to: '/projects/abrechnung', label: 'Cost Management' },
       { to: '/projects/tasks', label: 'Task Calendar & Assignments' },
       { to: '/projects/teams', label: 'Field Teams' },
       { to: '/projects/projects', label: 'Projects & Regions' },
@@ -136,7 +136,7 @@ export const NAV = [
 const QUICK_ACTIONS = [
   { label: 'Arbeitszeiten erfassen', icon: Clock, href: 'https://www.bruenel.de/timenet', mod: null },
   { label: 'Objects & Properties', icon: Building2, to: '/projects/objects', action: 'upload-protocol', mod: 'mod_projects' },
-  { label: 'Abrechnung (Rechnungen)', icon: Receipt, to: '/projects/abrechnung', action: 'abrechnung', mod: 'mod_projects' },
+  { label: 'Cost Management (Abrechnung)', icon: Receipt, to: '/projects/abrechnung', action: 'abrechnung', mod: 'mod_projects' },
   { label: 'New Employee', icon: UserPlus, to: '/hr/employees', action: 'add-employee', mod: 'mod_hr' },
   { label: 'Assign Task', icon: ClipboardList, to: '/projects/tasks', action: 'add-task', mod: 'mod_projects' },
   { label: 'Material Buchen / Schwund', icon: ArrowRightLeft, to: '/inventory/stock', action: 'buchen', mod: 'mod_inventory' },
@@ -678,6 +678,7 @@ export default function App() {
           <Route path="/projects/objects" element={<ProtocolExtractorModule user={user} mode="objects" />} />
           <Route path="/projects/protocol" element={<ProtocolExtractorModule user={user} mode="objects" />} />
           <Route path="/projects/abrechnung" element={<ProtocolExtractorModule user={user} mode="abrechnung" />} />
+          <Route path="/projects/cost-management" element={<ProtocolExtractorModule user={user} mode="abrechnung" />} />
           <Route path="/projects/:section" element={<ProjectsObjectsModule user={user} />} />
           <Route path="/protocol/:section?" element={<ProtocolExtractorModule user={user} mode="objects" />} />
           <Route path="/hr/:section?" element={<HRManagementModule user={user} />} />
