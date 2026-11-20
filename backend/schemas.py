@@ -222,6 +222,9 @@ class TeamCreate(BaseModel):
     name: str
     leader_id: Optional[str] = None
     member_ids: List[str] = []
+    external_members: List[str] = []
+    cost_center: Optional[str] = ""
+    is_external: Optional[bool] = False
     project_id: Optional[str] = None
     notes: Optional[str] = None
 
@@ -460,6 +463,7 @@ class AddressPatchRequest(BaseModel):
     datum: Optional[str] = None
     hausbegeher: Optional[str] = None
     team: Optional[str] = None
+    team_allocations: Optional[Dict[str, Any]] = None
     building_status: Optional[str] = None
     is_priority: Optional[bool] = None
     ausbau_typ: Optional[str] = None
@@ -530,6 +534,7 @@ class AddressOut(BaseModel):
     datum: str
     hausbegeher: Optional[str] = ""
     team: Optional[str] = ""
+    team_allocations: Optional[Dict[str, Any]] = {}
     building_status: Optional[str] = "Ausbau terminiert"
     is_priority: Optional[bool] = False
     ausbau_typ: Optional[str] = "Metalkanal"

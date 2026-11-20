@@ -20,6 +20,7 @@ import {
   Wallet,
 } from 'lucide-react';
 import { isCoreArbeitCompleted, getObjectBillingStage } from './ObjectsViewsBoard';
+import { getObjectTeamShares } from './TeamSplitHelper';
 
 const RATES_STORAGE_KEY = 'bruenel_cost_mgmt_rates_v1';
 
@@ -143,6 +144,7 @@ export function CostManagementView({
   // Filters
   const [search, setSearch] = useState('');
   const [projectFilter, setProjectFilter] = useState('ALL');
+  const [costCenterFilter, setCostCenterFilter] = useState('ALL');
   const [ortFilter, setOrtFilter] = useState('ALL');
   const [categoryFilter, setCategoryFilter] = useState('ALL'); // ALL | metalkanal | flex_kamin
   const [stageFilter, setStageFilter] = useState('ALL'); // ALL | planned | open | completed_unbilled | invoiced | paid
@@ -170,41 +172,79 @@ export function CostManagementView({
     const projSet = new Set(['UGG']);
     const ortSet = new Set();
     const teamSet = new Set();
+    const ccSet = new Set();
 
     (projects || []).forEach((p) => p?.name && projSet.add(p.name.trim()));
+    (fieldTeams || []).forEach((t) => {
+      if (t?.name) teamSet.add(t.name.trim());
+      if (t?.cost_center) ccSet.add(String(t.cost_center).trim());
+    });
     (addresses || []).forEach((a) => {
       if (a?.project_name) projSet.add(a.project_name.trim());
       const city = normalizeGemeinde ? normalizeGemeinde(a.ort, a.plz) : a.ort;
       if (city) ortSet.add(city);
       if (a?.team) teamSet.add(a.team.trim());
+      getObjectTeamShares(a, fieldTeams).forEach((sh) => {
+        if (sh.cost_center) ccSet.add(sh.cost_center);
+        if (sh.team && sh.team !== 'Nicht zugewiesen') teamSet.add(sh.team);
+      });
     });
-    (fieldTeams || []).forEach((t) => t?.name && teamSet.add(t.name.trim()));
 
     return {
       projects: Array.from(projSet).sort(),
       orte: Array.from(ortSet).sort(),
       teams: Array.from(teamSet).sort(),
+      costCenters: Array.from(ccSet).sort(),
     };
   }, [projects, addresses, fieldTeams, normalizeGemeinde]);
 
-  // Enrich & filter all building objects with live financial calculation
+  // Enrich & filter all building objects with live financial calculation + Cost Center shares
   const enrichedObjects = useMemo(() => {
     const q = search.trim().toLowerCase();
     const list = (addresses || [])
       .map((addr) => {
-        const fin = calcObjectFinancials(addr, calcBuildingProgress, rates);
+        const baseFin = calcObjectFinancials(addr, calcBuildingProgress, rates);
+        const shares = getObjectTeamShares(addr, fieldTeams);
         const city = (normalizeGemeinde ? normalizeGemeinde(addr.ort, addr.plz) : addr.ort) || addr.ort || '—';
-        return { addr, fin, city };
+
+        // Compute proportional share fraction if filtering by a specific Cost Center or Team
+        let activeFraction = 1;
+        if (costCenterFilter !== 'ALL') {
+          activeFraction = shares
+            .filter((sh) => sh.cost_center === costCenterFilter)
+            .reduce((acc, sh) => acc + sh.fraction, 0);
+        } else if (teamFilter !== 'ALL') {
+          activeFraction = shares
+            .filter((sh) => sh.team === teamFilter)
+            .reduce((acc, sh) => acc + sh.fraction, 0);
+        }
+
+        const fin =
+          activeFraction < 0.999 && activeFraction > 0
+            ? {
+                ...baseFin,
+                installedTaRevenue: Number((baseFin.installedTaRevenue * activeFraction).toFixed(2)),
+                maxWePotentialRevenue: Number((baseFin.maxWePotentialRevenue * activeFraction).toFixed(2)),
+                effectiveEstimatedRevenue: Number((baseFin.effectiveEstimatedRevenue * activeFraction).toFixed(2)),
+                estimatedCost: Number((baseFin.estimatedCost * activeFraction).toFixed(2)),
+                estimatedProfit: Number((baseFin.estimatedProfit * activeFraction).toFixed(2)),
+                sharePercent: Number((activeFraction * 100).toFixed(1)),
+              }
+            : { ...baseFin, sharePercent: 100 };
+
+        return { addr, fin, baseFin, shares, activeFraction, city };
       })
-      .filter(({ addr, fin, city }) => {
+      .filter(({ addr, fin, shares, activeFraction, city }) => {
         const proj = addr.project_name || 'UGG';
         if (projectFilter !== 'ALL' && proj !== projectFilter) return false;
         if (ortFilter !== 'ALL' && city.toLowerCase() !== ortFilter.toLowerCase()) return false;
         if (categoryFilter !== 'ALL' && fin.categoryKey !== categoryFilter) return false;
         if (stageFilter !== 'ALL' && fin.stage !== stageFilter) return false;
-        if (teamFilter !== 'ALL' && (addr.team || '') !== teamFilter) return false;
+        if (costCenterFilter !== 'ALL' && activeFraction <= 0) return false;
+        if (teamFilter !== 'ALL' && activeFraction <= 0 && (addr.team || '') !== teamFilter) return false;
         if (q) {
-          const hay = `${addr.strasse || ''} ${addr.hausnummer || ''} ${city} ${addr.plz || ''} ${addr.adress_id || ''} ${addr.projektnummer || ''} ${proj} ${addr.team || ''} ${fin.categoryLabel}`.toLowerCase();
+          const shareText = shares.map((s) => `${s.team} ${s.cost_center}`).join(' ');
+          const hay = `${addr.strasse || ''} ${addr.hausnummer || ''} ${city} ${addr.plz || ''} ${addr.adress_id || ''} ${addr.projektnummer || ''} ${proj} ${addr.team || ''} ${shareText} ${fin.categoryLabel}`.toLowerCase();
           if (!hay.includes(q)) return false;
         }
         return true;
@@ -221,7 +261,7 @@ export function CostManagementView({
       if (sortBy === 'project') return String(a.addr.project_name || 'UGG').localeCompare(String(b.addr.project_name || 'UGG'), 'de') * dir;
       return `${a.addr.strasse || ''} ${a.addr.hausnummer || ''}`.localeCompare(`${b.addr.strasse || ''} ${b.addr.hausnummer || ''}`, 'de', { numeric: true }) * dir;
     });
-  }, [addresses, calcBuildingProgress, rates, normalizeGemeinde, search, projectFilter, ortFilter, categoryFilter, stageFilter, teamFilter, sortBy, sortDir]);
+  }, [addresses, fieldTeams, calcBuildingProgress, rates, normalizeGemeinde, search, projectFilter, costCenterFilter, ortFilter, categoryFilter, stageFilter, teamFilter, sortBy, sortDir]);
 
   // Aggregate financial KPIs across filtered objects
   const summary = useMemo(() => {
@@ -239,6 +279,7 @@ export function CostManagementView({
     };
     const byProject = new Map();
     const byOrt = new Map();
+    const byCostCenter = new Map();
 
     let totalInstalledRev = 0;
     let totalPotentialRev = 0;
@@ -248,7 +289,7 @@ export function CostManagementView({
     let totalTa = 0;
     let totalWe = 0;
 
-    enrichedObjects.forEach(({ addr, fin, city }) => {
+    enrichedObjects.forEach(({ addr, fin, baseFin, shares, city }) => {
       const stBucket = stages[fin.stage] || stages.open;
       stBucket.count += 1;
       stBucket.taCount += fin.taCount;
@@ -329,6 +370,42 @@ export function CostManagementView({
       if (fin.stage === 'invoiced' || fin.stage === 'paid') {
         o.invoicedOrPaidRev += fin.installedTaRevenue;
       }
+      // Per-Cost Center proportional aggregation (splits shared 2+ team objects accurately!)
+      (shares || []).forEach((sh) => {
+        const ccName = sh.cost_center || 'Allgemein / Intern';
+        if (costCenterFilter !== 'ALL' && ccName !== costCenterFilter) return;
+        if (!byCostCenter.has(ccName)) {
+          byCostCenter.set(ccName, {
+            name: ccName,
+            fullObjects: 0,
+            splitObjects: 0,
+            teams: new Set(),
+            plannedRev: 0,
+            openRev: 0,
+            readyRev: 0,
+            invoicedRev: 0,
+            paidRev: 0,
+            totalInstalledRev: 0,
+            totalPotentialRev: 0,
+          });
+        }
+        const cc = byCostCenter.get(ccName);
+        if (sh.fraction >= 0.999) cc.fullObjects += 1;
+        else cc.splitObjects += 1;
+        if (sh.team && sh.team !== 'Nicht zugewiesen') cc.teams.add(sh.team);
+
+        const shareInstalled = baseFin.installedTaRevenue * sh.fraction;
+        const sharePotential = baseFin.maxWePotentialRevenue * sh.fraction;
+        const shareEffective = baseFin.effectiveEstimatedRevenue * sh.fraction;
+
+        cc.totalInstalledRev += shareInstalled;
+        cc.totalPotentialRev += sharePotential;
+        if (baseFin.stage === 'planned') cc.plannedRev += shareEffective;
+        else if (baseFin.stage === 'open') cc.openRev += shareInstalled;
+        else if (baseFin.stage === 'completed_unbilled') cc.readyRev += shareInstalled;
+        else if (baseFin.stage === 'invoiced') cc.invoicedRev += shareInstalled;
+        else if (baseFin.stage === 'paid') cc.paidRev += shareInstalled;
+      });
     });
 
     return {
@@ -343,11 +420,15 @@ export function CostManagementView({
       totalWe,
       projectsList: Array.from(byProject.values()).sort((a, b) => b.totalInstalledRev - a.totalInstalledRev),
       orteList: Array.from(byOrt.values()).sort((a, b) => b.installedRev - a.installedRev),
+      costCentersList: Array.from(byCostCenter.values())
+        .map((c) => ({ ...c, teamsList: Array.from(c.teams) }))
+        .sort((a, b) => b.totalInstalledRev - a.totalInstalledRev),
     };
-  }, [enrichedObjects]);
+  }, [enrichedObjects, costCenterFilter]);
 
   const activeFilterCount = [
     projectFilter !== 'ALL',
+    costCenterFilter !== 'ALL',
     ortFilter !== 'ALL',
     categoryFilter !== 'ALL',
     stageFilter !== 'ALL',
@@ -357,6 +438,7 @@ export function CostManagementView({
   const resetFilters = () => {
     setSearch('');
     setProjectFilter('ALL');
+    setCostCenterFilter('ALL');
     setOrtFilter('ALL');
     setCategoryFilter('ALL');
     setStageFilter('ALL');
@@ -645,6 +727,15 @@ export function CostManagementView({
                 </select>
               </div>
               <div>
+                <label style={{ fontSize: 10.5, fontWeight: 800, color: '#64748b', textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Cost Center / Kostenstelle</label>
+                <select value={costCenterFilter} onChange={(e) => setCostCenterFilter(e.target.value)} style={selectStyle(costCenterFilter !== 'ALL')}>
+                  <option value="ALL">Alle Cost Center</option>
+                  {filterOptions.costCenters.map((cc) => (
+                    <option key={cc} value={cc}>KST: {cc}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
                 <label style={{ fontSize: 10.5, fontWeight: 800, color: '#64748b', textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Gemeinde / Ort</label>
                 <select value={ortFilter} onChange={(e) => setOrtFilter(e.target.value)} style={selectStyle(ortFilter !== 'ALL')}>
                   <option value="ALL">Alle Gemeinden</option>
@@ -903,6 +994,85 @@ export function CostManagementView({
               })()}
             </div>
 
+            {/* Cost Center / Kostenstellen Abrechnung (Separated by Cost Center incl. 2+ Team Splits) */}
+            {summary.costCentersList.length > 0 && (
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
+                  <strong style={{ fontSize: 13.5, color: '#0f172a' }}>
+                    Cost Center / Kostenstellen Abrechnung ({summary.costCentersList.length})
+                  </strong>
+                  <span style={{ fontSize: 11, color: '#64748b' }}>
+                    Geteilte Objekte (2+ Teams / Arbeitsschritte) werden automatisch anteilig berechnet · Klicken zum Filtern
+                  </span>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(310px, 1fr))', gap: 12 }}>
+                  {summary.costCentersList.map((cc) => {
+                    const isSelected = costCenterFilter === cc.name;
+                    return (
+                      <div
+                        key={cc.name}
+                        onClick={() => setCostCenterFilter((prev) => (prev === cc.name ? 'ALL' : cc.name))}
+                        style={{
+                          padding: 14,
+                          borderRadius: 12,
+                          background: isSelected ? '#fff7ed' : '#ffffff',
+                          border: isSelected ? '2px solid #FF6B00' : '1px solid #e2e8f0',
+                          borderLeft: '4px solid #FF6B00',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: 8,
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                          <div>
+                            <span style={{ fontSize: 11.5, fontWeight: 800, padding: '2px 9px', borderRadius: 999, background: '#ffedd5', color: '#9a3412', border: '1px solid #fdba74' }}>
+                              KST: {cc.name}
+                            </span>
+                            <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>
+                              {cc.fullObjects} ganze Objekte{cc.splitObjects > 0 ? ` · ${cc.splitObjects} geteilt (%)` : ''}
+                              {cc.teamsList.length > 0 ? ` · Teams: ${cc.teamsList.join(', ')}` : ''}
+                            </div>
+                          </div>
+                          <div style={{ textAlign: 'right' }}>
+                            <div style={{ fontSize: 16.5, fontWeight: 900, color: '#0f172a', fontFamily: 'monospace' }}>
+                              {formatEur(cc.totalInstalledRev)}
+                            </div>
+                            <div style={{ fontSize: 10, color: '#64748b' }}>
+                              Potenzial: {formatEur(cc.totalPotentialRev)}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 4, paddingTop: 6, borderTop: '1px solid #f1f5f9', fontSize: 10.5 }}>
+                          <div>
+                            <div style={{ color: '#64748b', fontWeight: 600 }}>Geplant</div>
+                            <strong style={{ color: '#334155', fontFamily: 'monospace' }}>{formatEur(cc.plannedRev)}</strong>
+                          </div>
+                          <div>
+                            <div style={{ color: '#c2410c', fontWeight: 600 }}>Offen</div>
+                            <strong style={{ color: '#c2410c', fontFamily: 'monospace' }}>{formatEur(cc.openRev)}</strong>
+                          </div>
+                          <div>
+                            <div style={{ color: '#15803d', fontWeight: 600 }}>Bereit f. RE</div>
+                            <strong style={{ color: '#15803d', fontFamily: 'monospace' }}>{formatEur(cc.readyRev)}</strong>
+                          </div>
+                          <div>
+                            <div style={{ color: '#1d4ed8', fontWeight: 600 }}>RE erstellt</div>
+                            <strong style={{ color: '#1d4ed8', fontFamily: 'monospace' }}>{formatEur(cc.invoicedRev)}</strong>
+                          </div>
+                          <div>
+                            <div style={{ color: '#047857', fontWeight: 600 }}>RE erhalten</div>
+                            <strong style={{ color: '#047857', fontFamily: 'monospace' }}>{formatEur(cc.paidRev)}</strong>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {/* Per-Project Financial Breakdown Cards */}
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
@@ -1066,12 +1236,22 @@ export function CostManagementView({
                       </td>
                     </tr>
                   ) : (
-                    enrichedObjects.map(({ addr, fin, city }) => {
+                    enrichedObjects.map(({ addr, fin, shares, city }) => {
                       const stBadge = stageLabelMap[fin.stage] || stageLabelMap.open;
                       return (
                         <tr key={addr.id} style={{ borderBottom: '1px solid #f1f5f9', background: '#ffffff' }}>
                           <td style={{ padding: '9px 10px', fontWeight: 700, color: '#6b21a8' }}>
-                            {addr.project_name || 'UGG'}
+                            <div>{addr.project_name || 'UGG'}</div>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginTop: 3 }}>
+                              {(shares || []).map((sh) => (
+                                <span
+                                  key={`${sh.team}-${sh.cost_center}`}
+                                  style={{ fontSize: 9.5, fontWeight: 700, padding: '1px 5px', borderRadius: 4, background: '#fff7ed', color: '#9a3412', border: '1px solid #fed7aa' }}
+                                >
+                                  {sh.cost_center}{shares.length > 1 ? ` ${sh.percent}%` : ''}
+                                </span>
+                              ))}
+                            </div>
                           </td>
                           <td style={{ padding: '9px 10px' }}>
                             <div style={{ fontWeight: 700, color: '#0f172a' }}>

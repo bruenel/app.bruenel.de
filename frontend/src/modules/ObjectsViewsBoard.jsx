@@ -27,6 +27,7 @@ import {
   MapPin,
 } from 'lucide-react';
 import { fetchWithToken } from '../core/api';
+import { TeamSplitModal } from './TeamSplitHelper';
 
 /* =============================================================================
    CORE COMPLETION HELPER: TA, Flex, HÜP, Spleißen
@@ -549,6 +550,7 @@ export function ObjectsKanbanAndCardsView({
 }) {
   const [subView, setSubView] = useState('kanban'); // kanban | grid
   const [dragOverStatus, setDragOverStatus] = useState(null);
+  const [splitModalAddr, setSplitModalAddr] = useState(null);
 
   const handleDropOnStatus = (e, targetStatus) => {
     e.preventDefault();
@@ -690,18 +692,38 @@ export function ObjectsKanbanAndCardsView({
           </button>
         </div>
 
-        {/* Quick Team + Ausbau Datum */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, alignItems: 'center' }}>
+        {/* Quick Team + Split + Ausbau Datum */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', gap: 5, alignItems: 'center' }}>
           <select
             value={addr.team || ''}
-            onChange={(e) => onPatchBuilding(addr.id, { team: e.target.value })}
-            style={{ padding: '4px 6px', fontSize: 11, borderRadius: 6, border: '1px solid #cbd5e1', background: '#fff' }}
+            onChange={(e) => onPatchBuilding(addr.id, { team: e.target.value, team_allocations: {} })}
+            style={{ padding: '4px 6px', fontSize: 11, borderRadius: 6, border: '1px solid #cbd5e1', background: '#fff', minWidth: 0 }}
           >
             <option value="">Kein Team</option>
+            {addr.team && !fieldTeams.some((t) => t.name === addr.team) && (
+              <option value={addr.team}>{addr.team}</option>
+            )}
             {fieldTeams.map((t) => (
-              <option key={t.name} value={t.name}>{t.name}</option>
+              <option key={t.name} value={t.name}>{t.name}{t.cost_center ? ` (${t.cost_center})` : ''}</option>
             ))}
           </select>
+          <button
+            type="button"
+            onClick={() => setSplitModalAddr(addr)}
+            style={{
+              padding: '4px 6px',
+              fontSize: 10,
+              fontWeight: 800,
+              borderRadius: 6,
+              cursor: 'pointer',
+              border: addr.team_allocations?.mode ? '1px solid #FF6B00' : '1px solid #cbd5e1',
+              background: addr.team_allocations?.mode ? '#fff7ed' : '#f8fafc',
+              color: addr.team_allocations?.mode ? '#c2410c' : '#475569',
+            }}
+            title="Auf 2+ Teams aufteilen (% oder nach Arbeitsschritt)"
+          >
+            %
+          </button>
           <MinimalDatePicker
             value={addr.ausbautermin || ''}
             onChange={(val) => onPatchBuilding(addr.id, { ausbautermin: val })}
@@ -1001,6 +1023,17 @@ export function ObjectsKanbanAndCardsView({
         </div>
         );
       })()}
+      {splitModalAddr && (
+        <TeamSplitModal
+          addr={splitModalAddr}
+          fieldTeams={fieldTeams}
+          onSave={(teamLabel, alloc) => {
+            onPatchBuilding(splitModalAddr.id, { team: teamLabel, team_allocations: alloc });
+            showToast?.('Team-Aufteilung & Cost Center gespeichert');
+          }}
+          onClose={() => setSplitModalAddr(null)}
+        />
+      )}
     </div>
   );
 }
@@ -1071,6 +1104,7 @@ export function ObjectsWhiteboardView({
   const [cardNoteDrafts, setCardNoteDrafts] = useState({});
   const [editingGroupId, setEditingGroupId] = useState(null);
   const [dragOverGroupId, setDragOverGroupId] = useState(null);
+  const [wbSplitModalAddr, setWbSplitModalAddr] = useState(null);
 
   // Multi-selection, Marquee box selection & Spacebar panning states
   const [selectedIds, setSelectedIds] = useState([]);
@@ -2121,13 +2155,36 @@ export function ObjectsWhiteboardView({
             ))}
           </div>
 
-          {/* Compact Meta Row: Team & Restarbeit Termin */}
+          {/* Compact Meta Row: Team (with 2+ Teams Split button) & Restarbeit Termin */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, fontSize: 10.5, color: '#475569' }}>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontWeight: 600 }}>
-              <Users size={11} style={{ color: '#64748b' }} />
-              {addr.team || 'Kein Team'}
-            </span>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontWeight: 600, color: addr.restarbeit_termin ? '#c2410c' : '#94a3b8' }}>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setWbSplitModalAddr(addr);
+              }}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 3,
+                fontWeight: 700,
+                border: addr.team_allocations?.mode ? '1px solid #fdba74' : '1px solid transparent',
+                background: addr.team_allocations?.mode ? '#fff7ed' : 'transparent',
+                color: addr.team_allocations?.mode ? '#c2410c' : '#475569',
+                borderRadius: 5,
+                padding: '1px 5px',
+                cursor: 'pointer',
+                maxWidth: 165,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+              title="Klicken, um Team zuzuweisen oder auf 2+ Teams (% / Arbeitsschritt) aufzuteilen"
+            >
+              <Users size={11} style={{ color: addr.team_allocations?.mode ? '#FF6B00' : '#64748b', flexShrink: 0 }} />
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{addr.team || 'Kein Team'}</span>
+            </button>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontWeight: 600, color: addr.restarbeit_termin ? '#c2410c' : '#94a3b8', flexShrink: 0 }}>
               <Clock size={11} />
               {addr.restarbeit_termin ? `Rest: ${addr.restarbeit_termin}` : 'Kein Rest-Termin'}
             </span>
@@ -3289,6 +3346,18 @@ export function ObjectsWhiteboardView({
           </div>
         </div>
       </div>
+
+      {wbSplitModalAddr && (
+        <TeamSplitModal
+          addr={wbSplitModalAddr}
+          fieldTeams={fieldTeams}
+          onSave={(teamLabel, alloc) => {
+            onPatchBuilding(wbSplitModalAddr.id, { team: teamLabel, team_allocations: alloc });
+            showToast?.('Team-Aufteilung & Cost Center gespeichert');
+          }}
+          onClose={() => setWbSplitModalAddr(null)}
+        />
+      )}
     </div>
   );
 }

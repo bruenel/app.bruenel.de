@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 from typing import Optional
 from datetime import datetime, date
@@ -455,11 +456,34 @@ def task_status_color(status: str) -> str:
     return "#3b82f6"      # Blue (Planned / To Do)
 
 
+_TEAM_SCHEMA_CHECKED = False
+
+
+def _ensure_team_columns() -> None:
+    global _TEAM_SCHEMA_CHECKED
+    if _TEAM_SCHEMA_CHECKED or database.engine is None:
+        return
+    try:
+        insp = inspect(database.engine)
+        if insp.has_table("teams"):
+            table_obj = models.Base.metadata.tables["teams"]
+            existing_cols = {c["name"] for c in insp.get_columns("teams")}
+            for col in table_obj.columns:
+                if col.name not in existing_cols:
+                    col_type = col.type.compile(database.engine.dialect)
+                    with database.engine.begin() as conn:
+                        conn.execute(text(f'ALTER TABLE "teams" ADD COLUMN "{col.name}" {col_type}'))
+        _TEAM_SCHEMA_CHECKED = True
+    except Exception as exc:
+        print(f"Team schema check note: {exc}")
+
+
 @router.get("/teams")
 def list_teams(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(get_current_user),
 ):
+    _ensure_team_columns()
     emp_objs = {e.id: e for e in db.query(models.Employee).all()}
     proj_map = {p.id: p.name for p in db.query(models.Project).all()}
     teams = db.query(models.Team).order_by(models.Team.created_at.desc()).all()
@@ -477,14 +501,32 @@ def list_teams(
                     "name": f"{e.first_name} {e.last_name}",
                     "role": e.role,
                     "employee_number": e.employee_number,
+                    "is_external": False,
                 })
+        ext_members = [str(n).strip() for n in (getattr(t, "external_members", None) or []) if str(n).strip()]
+        for ext_name in ext_members:
+            members.append({
+                "id": f"ext:{ext_name}",
+                "name": ext_name,
+                "role": "Extern / Partner",
+                "employee_number": "",
+                "is_external": True,
+            })
         leader = emp_objs.get(t.leader_id)
+        leader_label = (
+            f"{leader.first_name} {leader.last_name}"
+            if leader
+            else (ext_members[0] if ext_members else "Unassigned")
+        )
         results.append({
             "id": t.id,
             "name": t.name,
             "leader_id": t.leader_id,
-            "leader_name": f"{leader.first_name} {leader.last_name}" if leader else "Unassigned",
+            "leader_name": leader_label,
             "member_ids": m_ids,
+            "external_members": ext_members,
+            "cost_center": (getattr(t, "cost_center", None) or "").strip(),
+            "is_external": bool(getattr(t, "is_external", False) or (len(ext_members) > 0 and len(m_ids) == 0)),
             "members": members,
             "project_id": t.project_id,
             "project_name": proj_map.get(t.project_id, "All Projects"),
@@ -501,21 +543,36 @@ def create_team(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    leader_id = payload.leader_id or current_user.employee_id
-    m_ids = list(dict.fromkeys(([leader_id] if leader_id else []) + (payload.member_ids or [])))
+    _ensure_team_columns()
+    ext_members = [str(n).strip() for n in (payload.external_members or []) if str(n).strip()]
+    is_ext = bool(payload.is_external or (len(ext_members) > 0 and not payload.leader_id and len(payload.member_ids or []) == 0))
+    leader_id = clean_fk(payload.leader_id)
+    if not leader_id and not is_ext and len(ext_members) == 0:
+        leader_id = current_user.employee_id
+    m_ids = list(dict.fromkeys(([leader_id] if leader_id else []) + [m for m in (payload.member_ids or []) if m]))
     t = models.Team(
         id=str(uuid.uuid4()),
-        name=payload.name,
+        name=payload.name.strip(),
         leader_id=leader_id,
         member_ids=m_ids,
-        project_id=payload.project_id,
+        external_members=ext_members,
+        cost_center=(payload.cost_center or "").strip(),
+        is_external=is_ext,
+        project_id=clean_fk(payload.project_id),
         notes=payload.notes,
     )
     db.add(t)
     db.commit()
     db.refresh(t)
-    log_audit(db, "teams", "INSERT", t.id, current_user.email, None, {"name": t.name, "member_ids": m_ids})
-    return {"id": t.id, "name": t.name, "member_ids": m_ids}
+    log_audit(db, "teams", "INSERT", t.id, current_user.email, None, {"name": t.name, "cost_center": t.cost_center, "member_ids": m_ids, "external_members": ext_members})
+    return {
+        "id": t.id,
+        "name": t.name,
+        "cost_center": t.cost_center,
+        "member_ids": m_ids,
+        "external_members": ext_members,
+        "is_external": t.is_external,
+    }
 
 
 @router.put("/teams/{team_id}")
@@ -525,22 +582,36 @@ def update_team(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(get_current_user),
 ):
+    _ensure_team_columns()
     t = db.query(models.Team).filter(models.Team.id == team_id).first()
     if not t:
         raise HTTPException(status_code=404, detail="Team not found")
     if "name" in payload and payload["name"]:
-        t.name = payload["name"]
+        t.name = str(payload["name"]).strip()
     if "leader_id" in payload:
-        t.leader_id = payload["leader_id"]
+        t.leader_id = clean_fk(payload["leader_id"])
     if "member_ids" in payload and isinstance(payload["member_ids"], list):
         leader = t.leader_id
-        t.member_ids = list(dict.fromkeys(([leader] if leader else []) + payload["member_ids"]))
+        t.member_ids = list(dict.fromkeys(([leader] if leader else []) + [m for m in payload["member_ids"] if m]))
+    if "external_members" in payload and isinstance(payload["external_members"], list):
+        t.external_members = [str(n).strip() for n in payload["external_members"] if str(n).strip()]
+    if "cost_center" in payload:
+        t.cost_center = str(payload["cost_center"] or "").strip()
+    if "is_external" in payload:
+        t.is_external = bool(payload["is_external"])
     if "project_id" in payload:
-        t.project_id = payload["project_id"]
+        t.project_id = clean_fk(payload["project_id"])
     if "notes" in payload:
         t.notes = payload["notes"]
     db.commit()
-    return {"id": t.id, "name": t.name, "member_ids": t.member_ids}
+    return {
+        "id": t.id,
+        "name": t.name,
+        "cost_center": t.cost_center,
+        "member_ids": t.member_ids,
+        "external_members": t.external_members or [],
+        "is_external": bool(t.is_external),
+    }
 
 
 @router.delete("/teams/{team_id}")

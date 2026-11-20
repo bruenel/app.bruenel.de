@@ -52,6 +52,7 @@ import {
   loadSavedTaRates,
   formatEur,
 } from './CostManagementView';
+import { TeamSplitModal } from './TeamSplitHelper';
 
 export const AUSBAU_TYP_OPTIONS = [
   'Metalkanal',
@@ -4331,6 +4332,7 @@ export function ProtocolExtractorModule({ user, mode = 'objects' }) {
   const [quickCommentBuilding, setQuickCommentBuilding] = useState(null);
   const [quickCommentText, setQuickCommentText] = useState('');
   const [quickPdfBuilding, setQuickPdfBuilding] = useState(null);
+  const [listSplitModalAddr, setListSplitModalAddr] = useState(null);
 
   // Filters
   const [globalSearch, setGlobalSearch] = useState('');
@@ -6196,18 +6198,41 @@ export function ProtocolExtractorModule({ user, mode = 'objects' }) {
 
                             <div>
                               <div style={{ fontSize: 10, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: 3 }}>
-                                Ausbau Team
+                                Ausbau Team / Aufteilung
                               </div>
-                              <select
-                                value={addr.team || ''}
-                                onChange={(e) => handlePatchBuilding(addr.id, { team: e.target.value })}
-                                style={{ padding: '5px 8px', borderRadius: 6, fontSize: 11.5, fontWeight: 600, background: '#fff', color: '#334155', border: '1px solid #cbd5e1', width: '100%' }}
-                              >
-                                <option value="">— Team —</option>
-                                {filterOptions.teams.map((tName) => (
-                                  <option key={tName} value={tName}>{tName}</option>
-                                ))}
-                              </select>
+                              <div style={{ display: 'flex', gap: 4 }}>
+                                <select
+                                  value={addr.team || ''}
+                                  onChange={(e) => handlePatchBuilding(addr.id, { team: e.target.value, team_allocations: {} })}
+                                  style={{ padding: '5px 8px', borderRadius: 6, fontSize: 11.5, fontWeight: 600, background: '#fff', color: '#334155', border: '1px solid #cbd5e1', flex: 1, minWidth: 0 }}
+                                >
+                                  <option value="">— Team —</option>
+                                  {addr.team && !filterOptions.teams.includes(addr.team) && (
+                                    <option value={addr.team}>{addr.team}</option>
+                                  )}
+                                  {filterOptions.teams.map((tName) => (
+                                    <option key={tName} value={tName}>{tName}</option>
+                                  ))}
+                                </select>
+                                <button
+                                  type="button"
+                                  onClick={() => setListSplitModalAddr(addr)}
+                                  style={{
+                                    padding: '4px 8px',
+                                    borderRadius: 6,
+                                    fontSize: 11,
+                                    fontWeight: 800,
+                                    cursor: 'pointer',
+                                    border: addr.team_allocations?.mode ? '1px solid #FF6B00' : '1px solid #cbd5e1',
+                                    background: addr.team_allocations?.mode ? '#fff7ed' : '#f8fafc',
+                                    color: addr.team_allocations?.mode ? '#c2410c' : '#475569',
+                                    flexShrink: 0,
+                                  }}
+                                  title="Auf 2+ Teams aufteilen (% oder nach Arbeitsschritt)"
+                                >
+                                  2+ Teams (%)
+                                </button>
+                              </div>
                             </div>
 
                             <div>
@@ -6582,6 +6607,19 @@ export function ProtocolExtractorModule({ user, mode = 'objects' }) {
         </>
         )}
       </div>
+
+      {/* Team Split Modal from List View */}
+      {listSplitModalAddr && (
+        <TeamSplitModal
+          addr={listSplitModalAddr}
+          fieldTeams={fieldTeams}
+          onSave={(teamLabel, alloc) => {
+            handlePatchBuilding(listSplitModalAddr.id, { team: teamLabel, team_allocations: alloc });
+            showToast('Team-Aufteilung & Cost Center gespeichert');
+          }}
+          onClose={() => setListSplitModalAddr(null)}
+        />
+      )}
 
       {/* Quick Comments Modal */}
       {quickCommentBuilding && (

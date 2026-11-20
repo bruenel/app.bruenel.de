@@ -449,7 +449,7 @@ def _ensure_protocol_columns() -> None:
             checkfirst=True,
         )
         insp = inspect(database.engine)
-        for table_name in ("addresses", "units", "protocol_invoices"):
+        for table_name in ("addresses", "units", "protocol_invoices", "teams"):
             if table_name in models.Base.metadata.tables and insp.has_table(table_name):
                 table_obj = models.Base.metadata.tables[table_name]
                 existing_cols = {c["name"] for c in insp.get_columns(table_name)}
@@ -507,6 +507,7 @@ def _serialize_address(addr: models.Address) -> schemas.AddressOut:
         datum=format_date_dd_mm_yyyy(addr.datum),
         hausbegeher="",
         team=getattr(addr, "team", "") or "",
+        team_allocations=getattr(addr, "team_allocations", None) or {},
         building_status=getattr(addr, "building_status", None) or "Ausbau terminiert",
         is_priority=bool(getattr(addr, "is_priority", False)),
         ausbau_typ=ausbau_typ,
@@ -1981,6 +1982,7 @@ def list_field_teams_for_protocol(
 ):
     """Returns all Field Teams defined in the Projects & Objects module (`teams` table)."""
     try:
+        _ensure_protocol_columns()
         noisy_teams = (
             db.query(models.Team)
             .filter(models.Team.name.ilike("Techno(%"))
@@ -2006,12 +2008,16 @@ def list_field_teams_for_protocol(
             db.add(t)
             db.commit()
             teams = db.query(models.Team).order_by(models.Team.name.asc()).all()
+        _ensure_protocol_columns()
         return [
             {
                 "id": t.id,
                 "name": t.name,
                 "leader_id": t.leader_id,
                 "member_ids": t.member_ids or [],
+                "external_members": getattr(t, "external_members", None) or [],
+                "cost_center": (getattr(t, "cost_center", None) or "").strip(),
+                "is_external": bool(getattr(t, "is_external", False)),
             }
             for t in teams
         ]

@@ -6308,7 +6308,17 @@ export const ProjectsObjectsModule = () => {
     end_date: '',
   });
   const [newDel, setNewDel] = useState({ delegator_id: '', delegatee_id: '', start_date: new Date().toISOString().split('T')[0], end_date: new Date().toISOString().split('T')[0], scope_note: '' });
-  const [teamForm, setTeamForm] = useState({ id: '', name: '', leader_id: '', member_ids: [], notes: '' });
+  const [teamForm, setTeamForm] = useState({
+    id: '',
+    name: '',
+    cost_center: '',
+    is_external: false,
+    leader_id: '',
+    member_ids: [],
+    external_members: [],
+    notes: '',
+  });
+  const [extMemberInput, setExtMemberInput] = useState('');
 
   const loadData = () => {
     Promise.all([
@@ -6461,13 +6471,24 @@ export const ProjectsObjectsModule = () => {
   const handleSaveTeam = async (e) => {
     e.preventDefault();
     if (!teamForm.name.trim()) return;
+    const pendingExt = extMemberInput.trim();
+    const finalExternalMembers = pendingExt
+      ? Array.from(new Set([...(teamForm.external_members || []), pendingExt]))
+      : (teamForm.external_members || []);
+    const payload = {
+      ...teamForm,
+      name: teamForm.name.trim(),
+      cost_center: (teamForm.cost_center || '').trim(),
+      external_members: finalExternalMembers,
+    };
     try {
       if (teamForm.id) {
-        await fetchWithToken(`/api/v1/teams/${teamForm.id}`, { method: 'PUT', body: JSON.stringify(teamForm) });
+        await fetchWithToken(`/api/v1/teams/${teamForm.id}`, { method: 'PUT', body: JSON.stringify(payload) });
       } else {
-        await fetchWithToken('/api/v1/teams', { method: 'POST', body: JSON.stringify(teamForm) });
+        await fetchWithToken('/api/v1/teams', { method: 'POST', body: JSON.stringify(payload) });
       }
-      setTeamForm({ id: '', name: '', leader_id: '', member_ids: [], notes: '' });
+      setTeamForm({ id: '', name: '', cost_center: '', is_external: false, leader_id: '', member_ids: [], external_members: [], notes: '' });
+      setExtMemberInput('');
       loadData();
     } catch (err) {
       alert(err.message);
@@ -7350,18 +7371,157 @@ export const ProjectsObjectsModule = () => {
         </div>
       )}
 
-      {tab === 'teams' && (
+      {tab === 'teams' && (() => {
+        const existingCostCenters = Array.from(new Set(teams.map((t) => (t.cost_center || '').trim()).filter(Boolean)));
+        const addExtMember = () => {
+          const val = extMemberInput.trim();
+          if (!val) return;
+          setTeamForm((prev) => ({
+            ...prev,
+            external_members: Array.from(new Set([...(prev.external_members || []), val])),
+          }));
+          setExtMemberInput('');
+        };
+        return (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: '16px' }}>
           <div className="glass-panel">
-            <h3 style={{ marginBottom: '12px' }}>Create or Edit Field Team</h3>
+            <div className="flex-between" style={{ marginBottom: '12px' }}>
+              <h3 style={{ margin: 0 }}>{teamForm.id ? 'Edit Field Team' : 'Create Field Team (Internal or External)'}</h3>
+              {teamForm.id && (
+                <button
+                  type="button"
+                  className="btn-secondary btn-sm"
+                  onClick={() => {
+                    setTeamForm({ id: '', name: '', cost_center: '', is_external: false, leader_id: '', member_ids: [], external_members: [], notes: '' });
+                    setExtMemberInput('');
+                  }}
+                >
+                  + Neu
+                </button>
+              )}
+            </div>
             <form onSubmit={handleSaveTeam} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <input required placeholder="Team Name (e.g. Team Alpha — FTTH)" value={teamForm.name} onChange={e => setTeamForm({ ...teamForm, name: e.target.value })} />
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  type="button"
+                  onClick={() => setTeamForm((p) => ({ ...p, is_external: false }))}
+                  style={{
+                    flex: 1,
+                    padding: '7px 10px',
+                    borderRadius: 8,
+                    fontSize: '0.78rem',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    border: !teamForm.is_external ? '1.5px solid #FF6B00' : '1px solid var(--border)',
+                    background: !teamForm.is_external ? '#fff7ed' : 'var(--surface-2)',
+                    color: !teamForm.is_external ? '#c2410c' : 'var(--text-main)',
+                  }}
+                >
+                  Internes Team
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTeamForm((p) => ({ ...p, is_external: true }))}
+                  style={{
+                    flex: 1,
+                    padding: '7px 10px',
+                    borderRadius: 8,
+                    fontSize: '0.78rem',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    border: teamForm.is_external ? '1.5px solid #2563eb' : '1px solid var(--border)',
+                    background: teamForm.is_external ? '#eff6ff' : 'var(--surface-2)',
+                    color: teamForm.is_external ? '#1d4ed8' : 'var(--text-main)',
+                  }}
+                >
+                  Externes / Partner-Team
+                </button>
+              </div>
+
+              <input required placeholder="Team Name (z. B. Team Pejman — Spleiß / Team Alpha)" value={teamForm.name} onChange={e => setTeamForm({ ...teamForm, name: e.target.value })} />
+
+              <div>
+                <label style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
+                  Cost Center / Kostenstelle (z. B. Pejman, Brünel Intern)
+                </label>
+                <input
+                  list="team-cost-centers-list"
+                  placeholder="Cost Center eingeben (z. B. Pejman)"
+                  value={teamForm.cost_center || ''}
+                  onChange={e => setTeamForm({ ...teamForm, cost_center: e.target.value })}
+                />
+                <datalist id="team-cost-centers-list">
+                  <option value="Brünel Intern" />
+                  <option value="Pejman" />
+                  {existingCostCenters.map((cc) => <option key={cc} value={cc} />)}
+                </datalist>
+              </div>
+
+              {/* Manual / External Member Names (Non-Employees) */}
+              <div style={{ padding: '10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface-2)' }}>
+                <label style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-main)', display: 'block', marginBottom: '6px' }}>
+                  Manuelle / Externe Mitglieder (Nicht-Mitarbeiter)
+                </label>
+                <div style={{ display: 'flex', gap: '6px', marginBottom: '8px' }}>
+                  <input
+                    placeholder="Name eingeben (z. B. Ali, Reza) & Enter…"
+                    value={extMemberInput}
+                    onChange={(e) => setExtMemberInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        addExtMember();
+                      }
+                    }}
+                  />
+                  <button type="button" className="btn-secondary btn-sm" onClick={addExtMember}>
+                    + Add
+                  </button>
+                </div>
+                {(teamForm.external_members || []).length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                    {(teamForm.external_members || []).map((name) => (
+                      <span
+                        key={name}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 5,
+                          padding: '4px 9px',
+                          fontSize: '0.75rem',
+                          fontWeight: 700,
+                          borderRadius: '999px',
+                          background: '#eff6ff',
+                          border: '1px solid #93c5fd',
+                          color: '#1d4ed8',
+                        }}
+                      >
+                        {name}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setTeamForm((prev) => ({
+                              ...prev,
+                              external_members: (prev.external_members || []).filter((x) => x !== name),
+                            }))
+                          }
+                          style={{ border: 'none', background: 'transparent', color: '#1d4ed8', cursor: 'pointer', padding: 0, fontWeight: 800 }}
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               <select value={teamForm.leader_id} onChange={e => setTeamForm({ ...teamForm, leader_id: e.target.value })}>
-                <option value="">Select Team Lead...</option>
+                <option value="">Interner Team Lead (optional)...</option>
                 {employees.map(emp => <option key={emp.id} value={emp.id}>{emp.full_name}</option>)}
               </select>
+
               <div>
-                <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '6px' }}>Team Members</label>
+                <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '6px' }}>Interne Mitarbeiter (optional)</label>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
                   {employees.map(emp => {
                     const on = teamForm.member_ids.includes(emp.id);
@@ -7388,7 +7548,7 @@ export const ProjectsObjectsModule = () => {
                 </div>
               </div>
               <textarea placeholder="Team notes..." value={teamForm.notes} onChange={e => setTeamForm({ ...teamForm, notes: e.target.value })} />
-              <button type="submit" className="btn-primary">Save Team</button>
+              <button type="submit" className="btn-primary">{teamForm.id ? 'Update Team' : 'Save Team'}</button>
             </form>
           </div>
 
@@ -7397,10 +7557,37 @@ export const ProjectsObjectsModule = () => {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               {teams.map(tm => (
                 <div key={tm.id} style={{ padding: '12px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--surface-2)' }}>
-                  <div className="flex-between">
-                    <strong>{tm.name}</strong>
+                  <div className="flex-between" style={{ gap: 8, flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                      <strong>{tm.name}</strong>
+                      {tm.cost_center && (
+                        <span style={{ fontSize: '0.7rem', fontWeight: 800, padding: '2px 8px', borderRadius: 999, background: '#fff7ed', color: '#c2410c', border: '1px solid #fdba74' }}>
+                          KST: {tm.cost_center}
+                        </span>
+                      )}
+                      {tm.is_external && (
+                        <span style={{ fontSize: '0.7rem', fontWeight: 700, padding: '2px 7px', borderRadius: 999, background: '#eff6ff', color: '#1d4ed8', border: '1px solid #93c5fd' }}>
+                          Extern
+                        </span>
+                      )}
+                    </div>
                     <div style={{ display: 'flex', gap: '6px' }}>
-                      <button className="btn-secondary btn-sm" onClick={() => setTeamForm({ id: tm.id, name: tm.name, leader_id: tm.leader_id || '', member_ids: tm.member_ids || [], notes: tm.notes || '' })}>
+                      <button
+                        className="btn-secondary btn-sm"
+                        onClick={() => {
+                          setTeamForm({
+                            id: tm.id,
+                            name: tm.name,
+                            cost_center: tm.cost_center || '',
+                            is_external: Boolean(tm.is_external),
+                            leader_id: tm.leader_id || '',
+                            member_ids: tm.member_ids || [],
+                            external_members: tm.external_members || [],
+                            notes: tm.notes || '',
+                          });
+                          setExtMemberInput('');
+                        }}
+                      >
                         <Edit3 size={12} /> Edit
                       </button>
                       <button
@@ -7415,14 +7602,15 @@ export const ProjectsObjectsModule = () => {
                     </div>
                   </div>
                   <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '4px' }}>
-                    Lead: <strong>{tm.leader_name}</strong> • Members: {(tm.members || []).map(m => m.name).join(', ')}
+                    Lead: <strong>{tm.leader_name}</strong> • Members: {(tm.members || []).map(m => m.name).join(', ') || '—'}
                   </div>
                 </div>
               ))}
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {tab === 'projects' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>

@@ -248,6 +248,9 @@ class Team(Base):
     name = Column(String(150), nullable=False)
     leader_id = Column(String(36), ForeignKey("employees.id", ondelete="SET NULL"), nullable=True)
     member_ids = Column(JSON, default=list)  # List of employee UUIDs in this team
+    external_members = Column(JSON, default=list)  # Manual/external member names (non-employees)
+    cost_center = Column(String(150), nullable=True, default="")  # Cost Center / Kostenstelle (e.g. "Pejman")
+    is_external = Column(Boolean, default=False)  # True for external/partner helper teams
     project_id = Column(String(36), ForeignKey("projects.id", ondelete="SET NULL"), nullable=True)
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -549,6 +552,7 @@ class Address(Base):
     datum = Column(String(100), nullable=False)                                  # HBG Datum/Uhrzeit
     hausbegeher = Column(String(150), nullable=True)
     team = Column(String(150), nullable=True, default="")                        # e.g., "Team Lorch"
+    team_allocations = Column(JSON, nullable=True, default=dict)                 # Multi-team % splits or per-step assignments
     building_status = Column(String(100), nullable=True, default="Ausbau terminiert")  # Building Status
     is_priority = Column(Boolean, nullable=True, default=False)                  # Priority Star
     ausbau_typ = Column(String(100), nullable=True, default="Metalkanal")        # Metalkanal, Leerrohr-Kamin, etc.
