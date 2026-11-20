@@ -42,6 +42,7 @@ import {
   ObjectsWhiteboardView,
   getRemainingCoreWorks,
   isCoreArbeitCompleted,
+  getObjectBillingStage,
 } from './ObjectsViewsBoard';
 
 export const AUSBAU_TYP_OPTIONS = [
@@ -4305,9 +4306,11 @@ export function ProtocolExtractorModule({ user, mode = 'objects' }) {
   const [colHausBis, setColHausBis] = useState('');
   const [colDateSearch, setColDateSearch] = useState('');
 
-  // View switcher & separated completed group toggle
+  // View switcher & separated group toggles
   const [objectViewMode, setObjectViewMode] = useState('list'); // list | calendar | board | whiteboard
   const [completedGroupOpen, setCompletedGroupOpen] = useState(true);
+  const [invoicedGroupOpen, setInvoicedGroupOpen] = useState(true);
+  const [paidGroupOpen, setPaidGroupOpen] = useState(true);
 
   // Sorting state for main Objects & Properties overview
   const [sortBy, setSortBy] = useState('ausbautermin');
@@ -4687,6 +4690,9 @@ export function ProtocolExtractorModule({ user, mode = 'objects' }) {
     let totalOhneAll = 0;
     let completedObjCount = 0;
     let completedCoreCount = 0;
+    let completedUnbilledCount = 0;
+    let invoicedCount = 0;
+    let paidCount = 0;
 
     addresses.forEach((a) => {
       const { totalWe, taCount, reserveCount, ohneCount } = calcBuildingProgress(a);
@@ -4700,6 +4706,10 @@ export function ProtocolExtractorModule({ user, mode = 'objects' }) {
       if (isCoreArbeitCompleted(a, calcBuildingProgress)) {
         completedCoreCount += 1;
       }
+      const stage = getObjectBillingStage(a, calcBuildingProgress);
+      if (stage === 'completed_unbilled') completedUnbilledCount += 1;
+      else if (stage === 'invoiced') invoicedCount += 1;
+      else if (stage === 'paid') paidCount += 1;
     });
 
     return {
@@ -4711,6 +4721,9 @@ export function ProtocolExtractorModule({ user, mode = 'objects' }) {
       totalOhneAll,
       completedObjCount,
       completedCoreCount,
+      completedUnbilledCount,
+      invoicedCount,
+      paidCount,
     };
   }, [addresses, filteredAddresses]);
 
@@ -5723,39 +5736,17 @@ export function ProtocolExtractorModule({ user, mode = 'objects' }) {
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-            <span
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 5,
-                padding: '5px 10px',
-                borderRadius: 8,
-                fontSize: 11.5,
-                fontWeight: 700,
-                border: '1px solid #fdba74',
-                background: '#fff7ed',
-                color: '#c2410c',
-              }}
-            >
-              Offen (Restarbeiten): {Math.max(0, addresses.length - overviewStats.completedCoreCount)}
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 9px', borderRadius: 7, fontSize: 11, fontWeight: 700, border: '1px solid #fdba74', background: '#fff7ed', color: '#c2410c' }}>
+              Offen: {Math.max(0, addresses.length - overviewStats.completedUnbilledCount - overviewStats.invoicedCount - overviewStats.paidCount)}
             </span>
-            <span
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 5,
-                padding: '5px 10px',
-                borderRadius: 8,
-                fontSize: 11.5,
-                fontWeight: 700,
-                border: '1px solid #86efac',
-                background: '#f0fdf4',
-                color: '#15803d',
-              }}
-              title="Objekte mit abgeschlossenem TA, Flex, HÜP & Spleißen werden in allen Ansichten in einer eigenen Gruppe / Spalte geführt"
-            >
-              <CheckCircle2 size={13} />
-              Abgeschlossen (TA·Flex·HÜP·Spl): {overviewStats.completedCoreCount}
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 9px', borderRadius: 7, fontSize: 11, fontWeight: 700, border: '1px solid #86efac', background: '#f0fdf4', color: '#15803d' }}>
+              ✓ Bereit f. RE: {overviewStats.completedUnbilledCount}
+            </span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 9px', borderRadius: 7, fontSize: 11, fontWeight: 700, border: '1px solid #93c5fd', background: '#eff6ff', color: '#1d4ed8' }}>
+              📄 RE erstellt: {overviewStats.invoicedCount}
+            </span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 9px', borderRadius: 7, fontSize: 11, fontWeight: 700, border: '1px solid #6ee7b7', background: '#ecfdf5', color: '#047857' }}>
+              💰 RE erhalten: {overviewStats.paidCount}
             </span>
           </div>
         </div>
@@ -5824,8 +5815,10 @@ export function ProtocolExtractorModule({ user, mode = 'objects' }) {
               <strong style={{ color: '#FF6B00' }}>„+ New“</strong>.
             </div>
           ) : (() => {
-            const openListAddresses = filteredAddresses.filter((a) => !isCoreArbeitCompleted(a, calcBuildingProgress));
-            const completedListAddresses = filteredAddresses.filter((a) => isCoreArbeitCompleted(a, calcBuildingProgress));
+            const openListAddresses = filteredAddresses.filter((a) => getObjectBillingStage(a, calcBuildingProgress) === 'open');
+            const completedListAddresses = filteredAddresses.filter((a) => getObjectBillingStage(a, calcBuildingProgress) === 'completed_unbilled');
+            const invoicedListAddresses = filteredAddresses.filter((a) => getObjectBillingStage(a, calcBuildingProgress) === 'invoiced');
+            const paidListAddresses = filteredAddresses.filter((a) => getObjectBillingStage(a, calcBuildingProgress) === 'paid');
 
             const renderDesktopAccordionRow = (addr) => {
                 const commentsCount = (addr.comments || []).length;
@@ -6243,7 +6236,7 @@ export function ProtocolExtractorModule({ user, mode = 'objects' }) {
                   )}
                 </div>
 
-                {/* Group 2: Separated Group for Abgeschlossene Objekte (TA, Flex, HÜP, Spleißen komplett) */}
+                {/* Group 2: Abgeschlossen — Bereit zur Abrechnung */}
                 {completedListAddresses.length > 0 && (
                   <div style={{ border: '1px solid #86efac', borderRadius: 10, background: '#f0fdf4', overflow: 'hidden' }}>
                     <div
@@ -6261,7 +6254,7 @@ export function ProtocolExtractorModule({ user, mode = 'objects' }) {
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         <CheckCircle2 size={15} style={{ color: '#15803d' }} />
                         <strong style={{ fontSize: 12.5, color: '#14532d' }}>
-                          Abgeschlossene Objekte — TA · Flex · HÜP · Spleißen komplett ({completedListAddresses.length})
+                          Abgeschlossen — Bereit zur Abrechnung (TA · Flex · HÜP · Spleißen komplett) ({completedListAddresses.length})
                         </strong>
                       </div>
                       <span style={{ fontSize: 11.5, fontWeight: 700, color: '#15803d' }}>
@@ -6271,6 +6264,66 @@ export function ProtocolExtractorModule({ user, mode = 'objects' }) {
                     {completedGroupOpen && (
                       <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
                         {completedListAddresses.map(renderDesktopAccordionRow)}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Group 3: Rechnung erstellt — Zahlung ausstehend */}
+                {invoicedListAddresses.length > 0 && (
+                  <div style={{ border: '1px solid #93c5fd', borderRadius: 10, background: '#eff6ff', overflow: 'hidden' }}>
+                    <div
+                      onClick={() => setInvoicedGroupOpen((v) => !v)}
+                      style={{
+                        padding: '10px 14px',
+                        background: '#dbeafe',
+                        borderBottom: invoicedGroupOpen ? '1px solid #93c5fd' : 'none',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <strong style={{ fontSize: 12.5, color: '#1e3a8a' }}>
+                        📄 Rechnung erstellt — Abgerechnet, Zahlung ausstehend ({invoicedListAddresses.length})
+                      </strong>
+                      <span style={{ fontSize: 11.5, fontWeight: 700, color: '#1d4ed8' }}>
+                        {invoicedGroupOpen ? '▲ Einklappen' : '▼ Anzeigen'}
+                      </span>
+                    </div>
+                    {invoicedGroupOpen && (
+                      <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        {invoicedListAddresses.map(renderDesktopAccordionRow)}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Group 4: Rechnung erhalten / bezahlt */}
+                {paidListAddresses.length > 0 && (
+                  <div style={{ border: '1px solid #6ee7b7', borderRadius: 10, background: '#ecfdf5', overflow: 'hidden' }}>
+                    <div
+                      onClick={() => setPaidGroupOpen((v) => !v)}
+                      style={{
+                        padding: '10px 14px',
+                        background: '#d1fae5',
+                        borderBottom: paidGroupOpen ? '1px solid #6ee7b7' : 'none',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <strong style={{ fontSize: 12.5, color: '#065f46' }}>
+                        💰 Rechnung erhalten / bezahlt ({paidListAddresses.length})
+                      </strong>
+                      <span style={{ fontSize: 11.5, fontWeight: 700, color: '#047857' }}>
+                        {paidGroupOpen ? '▲ Einklappen' : '▼ Anzeigen'}
+                      </span>
+                    </div>
+                    {paidGroupOpen && (
+                      <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        {paidListAddresses.map(renderDesktopAccordionRow)}
                       </div>
                     )}
                   </div>

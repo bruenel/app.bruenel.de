@@ -62,6 +62,20 @@ export function isCoreArbeitCompleted(addr, calcBuildingProgress) {
   return getRemainingCoreWorks(addr, calcBuildingProgress).isCompleted;
 }
 
+/**
+ * Classifies an object into its operational & billing stage:
+ * - 'paid'               : Rechnung erhalten / bezahlt
+ * - 'invoiced'           : Rechnung erstellt (abgerechnet, Zahlung ausstehend)
+ * - 'completed_unbilled' : TA, Flex, HÜP & Spleißen komplett, noch nicht abgerechnet
+ * - 'open'               : Offene Restarbeiten (TA / Flex / HÜP / Spleißen)
+ */
+export function getObjectBillingStage(addr, calcBuildingProgress) {
+  if (addr?.rechnung_bezahlt) return 'paid';
+  if (addr?.rechnung_erstellt) return 'invoiced';
+  if (isCoreArbeitCompleted(addr, calcBuildingProgress)) return 'completed_unbilled';
+  return 'open';
+}
+
 function formatDateDdMmYyyy(dateObj) {
   if (!dateObj || Number.isNaN(dateObj.getTime())) return '';
   const dd = String(dateObj.getDate()).padStart(2, '0');
@@ -628,6 +642,54 @@ export function ObjectsKanbanAndCardsView({
           ))}
         </div>
 
+        {/* Billing Status Chips: Rechnung erstellt & Rechnung erhalten (Clickable In-Place) */}
+        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            onClick={() =>
+              onPatchBuilding(addr.id, {
+                rechnung_erstellt: !addr.rechnung_erstellt,
+                ...(addr.rechnung_erstellt ? { rechnung_bezahlt: false } : {}),
+              })
+            }
+            style={{
+              fontSize: 10,
+              fontWeight: 700,
+              padding: '2px 7px',
+              borderRadius: 5,
+              cursor: 'pointer',
+              background: addr.rechnung_erstellt ? '#dbeafe' : '#f8fafc',
+              color: addr.rechnung_erstellt ? '#1d4ed8' : '#64748b',
+              border: `1px solid ${addr.rechnung_erstellt ? '#93c5fd' : '#cbd5e1'}`,
+            }}
+            title="Rechnung erstellt (abgerechnet) umschalten"
+          >
+            {addr.rechnung_erstellt ? '✓ ' : ''}RE erstellt
+          </button>
+          <button
+            type="button"
+            onClick={() =>
+              onPatchBuilding(addr.id, {
+                rechnung_bezahlt: !addr.rechnung_bezahlt,
+                ...(!addr.rechnung_bezahlt ? { rechnung_erstellt: true } : {}),
+              })
+            }
+            style={{
+              fontSize: 10,
+              fontWeight: 700,
+              padding: '2px 7px',
+              borderRadius: 5,
+              cursor: 'pointer',
+              background: addr.rechnung_bezahlt ? '#d1fae5' : '#f8fafc',
+              color: addr.rechnung_bezahlt ? '#047857' : '#64748b',
+              border: `1px solid ${addr.rechnung_bezahlt ? '#6ee7b7' : '#cbd5e1'}`,
+            }}
+            title="Rechnung erhalten / bezahlt umschalten"
+          >
+            {addr.rechnung_bezahlt ? '✓ ' : ''}RE erhalten
+          </button>
+        </div>
+
         {/* Quick Team + Ausbau Datum */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, alignItems: 'center' }}>
           <select
@@ -709,10 +771,27 @@ export function ObjectsKanbanAndCardsView({
       </div>
 
       {subView === 'kanban' ? (() => {
-        const openBoardAddrs = addresses.filter((a) => !isCoreArbeitCompleted(a, calcBuildingProgress));
-        const completedBoardAddrs = addresses.filter((a) => isCoreArbeitCompleted(a, calcBuildingProgress));
+        const openBoardAddrs = addresses.filter((a) => getObjectBillingStage(a, calcBuildingProgress) === 'open');
+        const completedUnbilledAddrs = addresses.filter((a) => getObjectBillingStage(a, calcBuildingProgress) === 'completed_unbilled');
+        const invoicedAddrs = addresses.filter((a) => getObjectBillingStage(a, calcBuildingProgress) === 'invoiced');
+        const paidAddrs = addresses.filter((a) => getObjectBillingStage(a, calcBuildingProgress) === 'paid');
+
+        const handleDropBillingColumn = (e, stageKey) => {
+          e.preventDefault();
+          setDragOverStatus(null);
+          const addrId = e.dataTransfer.getData('text/plain');
+          if (!addrId) return;
+          if (stageKey === '__INVOICED__') {
+            onPatchBuilding(addrId, { rechnung_erstellt: true, rechnung_bezahlt: false });
+            showToast?.('Als „Rechnung erstellt (Offen)“ markiert');
+          } else if (stageKey === '__PAID__') {
+            onPatchBuilding(addrId, { rechnung_erstellt: true, rechnung_bezahlt: true });
+            showToast?.('Als „Rechnung erhalten / bezahlt“ markiert');
+          }
+        };
+
         return (
-        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${BUILDING_STATUS_OPTIONS.length + 1}, minmax(245px, 1fr))`, gap: 10, overflowX: 'auto', paddingBottom: 8 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${BUILDING_STATUS_OPTIONS.length + 3}, minmax(245px, 1fr))`, gap: 10, overflowX: 'auto', paddingBottom: 8 }}>
           {BUILDING_STATUS_OPTIONS.map((st) => {
             const colItems = openBoardAddrs.filter((a) => (a.building_status || 'Ausbau terminiert') === st);
             const isOver = dragOverStatus === st;
@@ -751,7 +830,7 @@ export function ObjectsKanbanAndCardsView({
             );
           })}
 
-          {/* Dedicated Separated Board Column for Completed Core Work (TA, Flex, HÜP, Spleißen) */}
+          {/* Separated Column 1: Abgeschlossen — Bereit zur Abrechnung */}
           <div
             style={{
               background: '#f0fdf4',
@@ -765,26 +844,104 @@ export function ObjectsKanbanAndCardsView({
             }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 6px', borderBottom: '1px solid #86efac' }}>
-              <strong style={{ fontSize: 12, color: '#14532d' }}>✓ Abgeschlossen (TA·Flex·HÜP·Spl)</strong>
+              <strong style={{ fontSize: 12, color: '#14532d' }}>✓ Fertig (Bereit f. RE)</strong>
               <span style={{ fontSize: 11, fontWeight: 800, padding: '1px 7px', borderRadius: 999, background: '#dcfce7', color: '#15803d', border: '1px solid #86efac' }}>
-                {completedBoardAddrs.length}
+                {completedUnbilledAddrs.length}
               </span>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 7, maxHeight: 620, overflowY: 'auto' }}>
-              {completedBoardAddrs.length === 0 ? (
+              {completedUnbilledAddrs.length === 0 ? (
                 <div style={{ padding: 16, textAlign: 'center', fontSize: 11.5, color: '#15803d', opacity: 0.75 }}>
-                  Noch keine Objekte mit komplettem TA, Flex, HÜP &amp; Spleißen.
+                  Keine unberechneten fertigen Objekte.
                 </div>
               ) : (
-                completedBoardAddrs.map(renderCard)
+                completedUnbilledAddrs.map(renderCard)
+              )}
+            </div>
+          </div>
+
+          {/* Separated Column 2: Rechnung erstellt (Abgerechnet — Zahlung ausstehend) */}
+          <div
+            onDragOver={(e) => {
+              e.preventDefault();
+              if (dragOverStatus !== '__INVOICED__') setDragOverStatus('__INVOICED__');
+            }}
+            onDragLeave={() => {
+              if (dragOverStatus === '__INVOICED__') setDragOverStatus(null);
+            }}
+            onDrop={(e) => handleDropBillingColumn(e, '__INVOICED__')}
+            style={{
+              background: dragOverStatus === '__INVOICED__' ? '#dbeafe' : '#eff6ff',
+              border: dragOverStatus === '__INVOICED__' ? '2px dashed #2563eb' : '1.5px solid #93c5fd',
+              borderRadius: 10,
+              padding: 8,
+              minHeight: 420,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 8,
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 6px', borderBottom: '1px solid #93c5fd' }}>
+              <strong style={{ fontSize: 12, color: '#1e3a8a' }}>📄 Rechnung erstellt</strong>
+              <span style={{ fontSize: 11, fontWeight: 800, padding: '1px 7px', borderRadius: 999, background: '#dbeafe', color: '#1d4ed8', border: '1px solid #93c5fd' }}>
+                {invoicedAddrs.length}
+              </span>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 7, maxHeight: 620, overflowY: 'auto' }}>
+              {invoicedAddrs.length === 0 ? (
+                <div style={{ padding: 16, textAlign: 'center', fontSize: 11.5, color: '#1d4ed8', opacity: 0.75 }}>
+                  Hierher ziehen, um als „Rechnung erstellt“ zu markieren.
+                </div>
+              ) : (
+                invoicedAddrs.map(renderCard)
+              )}
+            </div>
+          </div>
+
+          {/* Separated Column 3: Rechnung erhalten / bezahlt */}
+          <div
+            onDragOver={(e) => {
+              e.preventDefault();
+              if (dragOverStatus !== '__PAID__') setDragOverStatus('__PAID__');
+            }}
+            onDragLeave={() => {
+              if (dragOverStatus === '__PAID__') setDragOverStatus(null);
+            }}
+            onDrop={(e) => handleDropBillingColumn(e, '__PAID__')}
+            style={{
+              background: dragOverStatus === '__PAID__' ? '#a7f3d0' : '#ecfdf5',
+              border: dragOverStatus === '__PAID__' ? '2px dashed #059669' : '1.5px solid #6ee7b7',
+              borderRadius: 10,
+              padding: 8,
+              minHeight: 420,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 8,
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 6px', borderBottom: '1px solid #6ee7b7' }}>
+              <strong style={{ fontSize: 12, color: '#065f46' }}>💰 Rechnung erhalten</strong>
+              <span style={{ fontSize: 11, fontWeight: 800, padding: '1px 7px', borderRadius: 999, background: '#d1fae5', color: '#047857', border: '1px solid #6ee7b7' }}>
+                {paidAddrs.length}
+              </span>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 7, maxHeight: 620, overflowY: 'auto' }}>
+              {paidAddrs.length === 0 ? (
+                <div style={{ padding: 16, textAlign: 'center', fontSize: 11.5, color: '#047857', opacity: 0.75 }}>
+                  Hierher ziehen, um als „Rechnung erhalten / bezahlt“ zu markieren.
+                </div>
+              ) : (
+                paidAddrs.map(renderCard)
               )}
             </div>
           </div>
         </div>
         );
       })() : (() => {
-        const openGridAddrs = addresses.filter((a) => !isCoreArbeitCompleted(a, calcBuildingProgress));
-        const completedGridAddrs = addresses.filter((a) => isCoreArbeitCompleted(a, calcBuildingProgress));
+        const openGridAddrs = addresses.filter((a) => getObjectBillingStage(a, calcBuildingProgress) === 'open');
+        const completedUnbilledGrid = addresses.filter((a) => getObjectBillingStage(a, calcBuildingProgress) === 'completed_unbilled');
+        const invoicedGrid = addresses.filter((a) => getObjectBillingStage(a, calcBuildingProgress) === 'invoiced');
+        const paidGrid = addresses.filter((a) => getObjectBillingStage(a, calcBuildingProgress) === 'paid');
         return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div>
@@ -793,7 +950,7 @@ export function ObjectsKanbanAndCardsView({
             </div>
             {openGridAddrs.length === 0 ? (
               <div style={{ padding: 18, textAlign: 'center', fontSize: 12, color: '#15803d', background: '#f0fdf4', border: '1px dashed #86efac', borderRadius: 8 }}>
-                Alle gefilterten Objekte sind abgeschlossen.
+                Alle gefilterten Objekte sind abgeschlossen oder bereits abgerechnet.
               </div>
             ) : (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 10 }}>
@@ -802,16 +959,42 @@ export function ObjectsKanbanAndCardsView({
             )}
           </div>
 
-          {completedGridAddrs.length > 0 && (
+          {completedUnbilledGrid.length > 0 && (
             <div style={{ padding: 12, borderRadius: 12, background: '#f0fdf4', border: '1.5px solid #86efac' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
                 <CheckCircle2 size={15} style={{ color: '#15803d' }} />
                 <strong style={{ fontSize: 12.5, color: '#14532d', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                  Abgeschlossene Objekte — TA · Flex · HÜP · Spleißen komplett ({completedGridAddrs.length})
+                  Abgeschlossen — Bereit zur Abrechnung ({completedUnbilledGrid.length})
                 </strong>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 10 }}>
-                {completedGridAddrs.map(renderCard)}
+                {completedUnbilledGrid.map(renderCard)}
+              </div>
+            </div>
+          )}
+
+          {invoicedGrid.length > 0 && (
+            <div style={{ padding: 12, borderRadius: 12, background: '#eff6ff', border: '1.5px solid #93c5fd' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                <strong style={{ fontSize: 12.5, color: '#1e3a8a', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  📄 Rechnung erstellt — Zahlung ausstehend ({invoicedGrid.length})
+                </strong>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 10 }}>
+                {invoicedGrid.map(renderCard)}
+              </div>
+            </div>
+          )}
+
+          {paidGrid.length > 0 && (
+            <div style={{ padding: 12, borderRadius: 12, background: '#ecfdf5', border: '1.5px solid #6ee7b7' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                <strong style={{ fontSize: 12.5, color: '#065f46', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  💰 Rechnung erhalten / bezahlt ({paidGrid.length})
+                </strong>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 10 }}>
+                {paidGrid.map(renderCard)}
               </div>
             </div>
           )}
@@ -843,16 +1026,24 @@ export function ObjectsWhiteboardView({
   onOpenDetail,
   showToast,
 }) {
-  // Separate remaining (incomplete) objects vs completed (TA, Flex, HÜP, Spleißen all done)
+  // Separate objects by operational & billing stage
   const remainingObjects = useMemo(
-    () => allAddresses.filter((a) => !isCoreArbeitCompleted(a, calcBuildingProgress)),
+    () => allAddresses.filter((a) => getObjectBillingStage(a, calcBuildingProgress) === 'open'),
     [allAddresses, calcBuildingProgress]
   );
-  const completedObjects = useMemo(
-    () => allAddresses.filter((a) => isCoreArbeitCompleted(a, calcBuildingProgress)),
+  const completedUnbilledObjects = useMemo(
+    () => allAddresses.filter((a) => getObjectBillingStage(a, calcBuildingProgress) === 'completed_unbilled'),
     [allAddresses, calcBuildingProgress]
   );
-  const completedCount = completedObjects.length;
+  const invoicedObjects = useMemo(
+    () => allAddresses.filter((a) => getObjectBillingStage(a, calcBuildingProgress) === 'invoiced'),
+    [allAddresses, calcBuildingProgress]
+  );
+  const paidObjects = useMemo(
+    () => allAddresses.filter((a) => getObjectBillingStage(a, calcBuildingProgress) === 'paid'),
+    [allAddresses, calcBuildingProgress]
+  );
+  const completedCount = completedUnbilledObjects.length + invoicedObjects.length + paidObjects.length;
 
   const allById = useMemo(() => {
     const m = new Map();
@@ -861,6 +1052,8 @@ export function ObjectsWhiteboardView({
   }, [allAddresses]);
 
   const [showCompletedSidebarGroup, setShowCompletedSidebarGroup] = useState(true);
+  const [showInvoicedSidebarGroup, setShowInvoicedSidebarGroup] = useState(true);
+  const [showPaidSidebarGroup, setShowPaidSidebarGroup] = useState(false);
 
   // Whiteboard persistent state: { groups: [...], cards: { [addrId]: { x, y, groupId } } }
   const [groups, setGroups] = useState([]);
@@ -1035,18 +1228,32 @@ export function ObjectsWhiteboardView({
       if (!buckets.has(label)) buckets.set(label, []);
       buckets.get(label).push(addr);
     });
-    if (completedObjects.length > 0) {
-      buckets.set('✓ Abgeschlossen (TA·Flex·HÜP·Spl)', completedObjects);
+    if (completedUnbilledObjects.length > 0) {
+      buckets.set('✓ Fertig — Bereit f. RE', completedUnbilledObjects);
+    }
+    if (invoicedObjects.length > 0) {
+      buckets.set('📄 Rechnung erstellt (Offen)', invoicedObjects);
+    }
+    if (paidObjects.length > 0) {
+      buckets.set('💰 Rechnung erhalten / bezahlt', paidObjects);
     }
 
     const nextGroups = [];
     const nextCards = {};
     let idx = 0;
     buckets.forEach((items, label) => {
-      const isDoneGroup = label.startsWith('✓ Abgeschlossen');
+      const isDoneGroup = label.startsWith('✓ Fertig');
+      const isInvoicedGroup = label.startsWith('📄 Rechnung erstellt');
+      const isPaidGroup = label.startsWith('💰 Rechnung erhalten');
       const col = idx % 3;
       const row = Math.floor(idx / 3);
-      const grpId = isDoneGroup ? `grp_completed_${Date.now()}` : `grp_auto_${idx}_${Date.now()}`;
+      const grpId = isPaidGroup
+        ? `grp_paid_${Date.now()}`
+        : isInvoicedGroup
+        ? `grp_invoiced_${Date.now()}`
+        : isDoneGroup
+        ? `grp_completed_${Date.now()}`
+        : `grp_auto_${idx}_${Date.now()}`;
       const gx = 28 + col * 390;
       const gy = 28 + row * 420;
       const neededHeight = Math.max(280, 110 + items.length * 142);
@@ -1054,7 +1261,13 @@ export function ObjectsWhiteboardView({
       nextGroups.push({
         id: grpId,
         name: label,
-        color: isDoneGroup ? 'emerald' : GROUP_COLORS[idx % GROUP_COLORS.length].id,
+        color: isPaidGroup
+          ? 'emerald'
+          : isInvoicedGroup
+          ? 'blue'
+          : isDoneGroup
+          ? 'purple'
+          : GROUP_COLORS[idx % GROUP_COLORS.length].id,
         x: gx,
         y: gy,
         width: 365,
@@ -1621,28 +1834,40 @@ export function ObjectsWhiteboardView({
                 </div>
               </div>
 
-              {/* Extra Flags */}
+              {/* Extra Flags + Billing Status (RE erstellt / RE erhalten) */}
               <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                 {[
                   { key: 'metalkanal_installiert', label: 'Metalkanal' },
                   { key: 'upload_done', label: 'Fotos' },
                   { key: 'genehmigt', label: 'Genehmigt' },
+                  { key: 'rechnung_erstellt', label: 'RE erstellt' },
+                  { key: 'rechnung_bezahlt', label: 'RE erhalten' },
                 ].map((f) => {
                   const on = Boolean(addr[f.key]);
+                  const isRe = f.key === 'rechnung_erstellt';
+                  const isPaid = f.key === 'rechnung_bezahlt';
                   return (
                     <button
                       key={f.key}
                       type="button"
-                      onClick={() => onPatchBuilding(addr.id, { [f.key]: !on })}
+                      onClick={() => {
+                        if (isPaid) {
+                          onPatchBuilding(addr.id, { rechnung_bezahlt: !on, ...(!on ? { rechnung_erstellt: true } : {}) });
+                        } else if (isRe) {
+                          onPatchBuilding(addr.id, { rechnung_erstellt: !on, ...(on ? { rechnung_bezahlt: false } : {}) });
+                        } else {
+                          onPatchBuilding(addr.id, { [f.key]: !on });
+                        }
+                      }}
                       style={{
                         padding: '2px 7px',
                         borderRadius: 5,
                         fontSize: 10,
                         fontWeight: 700,
                         cursor: 'pointer',
-                        border: `1px solid ${on ? '#86efac' : '#cbd5e1'}`,
-                        background: on ? '#dcfce7' : '#fff',
-                        color: on ? '#15803d' : '#475569',
+                        border: `1px solid ${on ? (isRe ? '#93c5fd' : '#86efac') : '#cbd5e1'}`,
+                        background: on ? (isRe ? '#dbeafe' : '#dcfce7') : '#fff',
+                        color: on ? (isRe ? '#1d4ed8' : '#15803d') : '#475569',
                       }}
                     >
                       {on ? '✓ ' : ''}{f.label}
@@ -1855,82 +2080,121 @@ export function ObjectsWhiteboardView({
             })
           )}
 
-          {/* Separated Completed Group in Whiteboard Sidebar */}
-          {completedObjects.length > 0 && (
-            <div style={{ marginTop: 8, borderRadius: 8, border: '1px solid #86efac', background: '#f0fdf4', overflow: 'hidden', flexShrink: 0 }}>
-              <button
-                type="button"
-                onClick={() => setShowCompletedSidebarGroup((v) => !v)}
-                style={{
-                  width: '100%',
-                  padding: '7px 9px',
-                  background: '#dcfce7',
-                  border: 'none',
-                  borderBottom: showCompletedSidebarGroup ? '1px solid #86efac' : 'none',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  cursor: 'pointer',
-                  fontSize: 11,
-                  fontWeight: 800,
-                  color: '#14532d',
-                }}
-              >
-                <span>✓ Abgeschlossen ({completedObjects.length})</span>
-                <span>{showCompletedSidebarGroup ? '▲' : '▼'}</span>
-              </button>
-              {showCompletedSidebarGroup && (
-                <div style={{ padding: 6, display: 'flex', flexDirection: 'column', gap: 5 }}>
-                  {completedObjects.map((addr) => {
-                    const isOnBoard = Boolean(cards[addr.id]);
-                    return (
-                      <div
-                        key={addr.id}
-                        draggable
-                        onDragStart={(e) => {
-                          e.dataTransfer.setData('text/plain', addr.id);
-                          e.dataTransfer.effectAllowed = 'move';
-                        }}
-                        style={{
-                          padding: '6px 8px',
-                          borderRadius: 6,
-                          background: '#ffffff',
-                          border: '1px solid #86efac',
-                          cursor: 'grab',
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'center',
-                          gap: 6,
-                        }}
-                      >
-                        <div style={{ minWidth: 0 }}>
-                          <div style={{ fontWeight: 700, fontSize: 11.5, color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {addr.strasse} {addr.hausnummer}
+          {/* Separated Groups in Whiteboard Sidebar: Fertig (Bereit f. RE), Rechnung erstellt, Rechnung erhalten */}
+          {[
+            {
+              key: 'ready',
+              title: `✓ Fertig — Bereit f. RE (${completedUnbilledObjects.length})`,
+              items: completedUnbilledObjects,
+              open: showCompletedSidebarGroup,
+              toggle: () => setShowCompletedSidebarGroup((v) => !v),
+              bg: '#f0fdf4',
+              headerBg: '#dcfce7',
+              border: '#86efac',
+              text: '#14532d',
+              sub: '✓ TA · Flex · HÜP · Spl komplett',
+            },
+            {
+              key: 'invoiced',
+              title: `📄 Rechnung erstellt — Offen (${invoicedObjects.length})`,
+              items: invoicedObjects,
+              open: showInvoicedSidebarGroup,
+              toggle: () => setShowInvoicedSidebarGroup((v) => !v),
+              bg: '#eff6ff',
+              headerBg: '#dbeafe',
+              border: '#93c5fd',
+              text: '#1e3a8a',
+              sub: '📄 Abgerechnet · Zahlung offen',
+            },
+            {
+              key: 'paid',
+              title: `💰 Rechnung erhalten / bezahlt (${paidObjects.length})`,
+              items: paidObjects,
+              open: showPaidSidebarGroup,
+              toggle: () => setShowPaidSidebarGroup((v) => !v),
+              bg: '#ecfdf5',
+              headerBg: '#d1fae5',
+              border: '#6ee7b7',
+              text: '#065f46',
+              sub: '💰 Bezahlt / Erhalten',
+            },
+          ]
+            .filter((g) => g.items.length > 0)
+            .map((grp) => (
+              <div key={grp.key} style={{ marginTop: 6, borderRadius: 8, border: `1px solid ${grp.border}`, background: grp.bg, overflow: 'hidden', flexShrink: 0 }}>
+                <button
+                  type="button"
+                  onClick={grp.toggle}
+                  style={{
+                    width: '100%',
+                    padding: '7px 9px',
+                    background: grp.headerBg,
+                    border: 'none',
+                    borderBottom: grp.open ? `1px solid ${grp.border}` : 'none',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    cursor: 'pointer',
+                    fontSize: 11,
+                    fontWeight: 800,
+                    color: grp.text,
+                  }}
+                >
+                  <span>{grp.title}</span>
+                  <span>{grp.open ? '▲' : '▼'}</span>
+                </button>
+                {grp.open && (
+                  <div style={{ padding: 6, display: 'flex', flexDirection: 'column', gap: 5 }}>
+                    {grp.items.map((addr) => {
+                      const isOnBoard = Boolean(cards[addr.id]);
+                      return (
+                        <div
+                          key={addr.id}
+                          draggable
+                          onDragStart={(e) => {
+                            e.dataTransfer.setData('text/plain', addr.id);
+                            e.dataTransfer.effectAllowed = 'move';
+                          }}
+                          style={{
+                            padding: '6px 8px',
+                            borderRadius: 6,
+                            background: '#ffffff',
+                            border: `1px solid ${grp.border}`,
+                            cursor: 'grab',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            gap: 6,
+                          }}
+                        >
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ fontWeight: 700, fontSize: 11.5, color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {addr.strasse} {addr.hausnummer}
+                            </div>
+                            <div style={{ fontSize: 10, color: grp.text, fontWeight: 600 }}>
+                              {grp.sub} {addr.ort ? `· ${addr.ort}` : ''}
+                            </div>
                           </div>
-                          <div style={{ fontSize: 10, color: '#15803d', fontWeight: 600 }}>
-                            ✓ TA · Flex · HÜP · Spl {addr.ort ? `· ${addr.ort}` : ''}
-                          </div>
+                          {isOnBoard ? (
+                            <span style={{ fontSize: 9.5, fontWeight: 700, color: grp.text, background: grp.headerBg, padding: '2px 5px', borderRadius: 4, flexShrink: 0 }}>
+                              Board
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handlePlaceSingleOnBoard(addr.id)}
+                              style={{ fontSize: 9.5, fontWeight: 700, padding: '2px 6px', borderRadius: 4, border: `1px solid ${grp.border}`, background: grp.headerBg, color: grp.text, cursor: 'pointer', flexShrink: 0 }}
+                            >
+                              + Board
+                            </button>
+                          )}
                         </div>
-                        {isOnBoard ? (
-                          <span style={{ fontSize: 9.5, fontWeight: 700, color: '#15803d', background: '#dcfce7', padding: '2px 5px', borderRadius: 4, flexShrink: 0 }}>
-                            Board
-                          </span>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => handlePlaceSingleOnBoard(addr.id)}
-                            style={{ fontSize: 9.5, fontWeight: 700, padding: '2px 6px', borderRadius: 4, border: '1px solid #86efac', background: '#dcfce7', color: '#15803d', cursor: 'pointer', flexShrink: 0 }}
-                          >
-                            + Board
-                          </button>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          )}
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            ))}
         </div>
       </div>
 
