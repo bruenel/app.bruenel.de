@@ -4305,9 +4305,9 @@ export function ProtocolExtractorModule({ user, mode = 'objects' }) {
   const [colHausBis, setColHausBis] = useState('');
   const [colDateSearch, setColDateSearch] = useState('');
 
-  // View switcher & core completion filter (TA, Flex, HÜP, Spleißen)
+  // View switcher & separated completed group toggle
   const [objectViewMode, setObjectViewMode] = useState('list'); // list | calendar | board | whiteboard
-  const [hideCompletedCoreWork, setHideCompletedCoreWork] = useState(true);
+  const [completedGroupOpen, setCompletedGroupOpen] = useState(true);
 
   // Sorting state for main Objects & Properties overview
   const [sortBy, setSortBy] = useState('ausbautermin');
@@ -4531,10 +4531,6 @@ export function ProtocolExtractorModule({ user, mode = 'objects' }) {
         if (!combinedDates.includes(q)) return false;
       }
 
-      if (hideCompletedCoreWork && isCoreArbeitCompleted(addr, calcBuildingProgress)) {
-        return false;
-      }
-
       if (globalSearch.trim()) {
         const q = globalSearch.trim().toLowerCase();
         const hay = [
@@ -4679,7 +4675,6 @@ export function ProtocolExtractorModule({ user, mode = 'objects' }) {
     colHausBis,
     colDateSearch,
     globalSearch,
-    hideCompletedCoreWork,
     sortBy,
     sortDir,
   ]);
@@ -5727,29 +5722,42 @@ export function ProtocolExtractorModule({ user, mode = 'objects' }) {
             })}
           </div>
 
-          <button
-            type="button"
-            onClick={() => setHideCompletedCoreWork((v) => !v)}
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-              padding: '5px 10px',
-              borderRadius: 8,
-              fontSize: 11.5,
-              fontWeight: 700,
-              cursor: 'pointer',
-              border: hideCompletedCoreWork ? '1px solid #86efac' : '1px solid #cbd5e1',
-              background: hideCompletedCoreWork ? '#f0fdf4' : '#f8fafc',
-              color: hideCompletedCoreWork ? '#15803d' : '#475569',
-            }}
-            title="Wenn aktiv, werden Objekte mit komplettem TA + Flex + HÜP + Spleißen automatisch aus der Hauptliste ausgeblendet"
-          >
-            <CheckCircle2 size={13} />
-            {hideCompletedCoreWork
-              ? `Fertige (TA·Flex·HÜP·Spl) ausgeblendet (${overviewStats.completedCoreCount})`
-              : `Fertige (TA·Flex·HÜP·Spl) werden angezeigt (${overviewStats.completedCoreCount})`}
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
+                padding: '5px 10px',
+                borderRadius: 8,
+                fontSize: 11.5,
+                fontWeight: 700,
+                border: '1px solid #fdba74',
+                background: '#fff7ed',
+                color: '#c2410c',
+              }}
+            >
+              Offen (Restarbeiten): {Math.max(0, addresses.length - overviewStats.completedCoreCount)}
+            </span>
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
+                padding: '5px 10px',
+                borderRadius: 8,
+                fontSize: 11.5,
+                fontWeight: 700,
+                border: '1px solid #86efac',
+                background: '#f0fdf4',
+                color: '#15803d',
+              }}
+              title="Objekte mit abgeschlossenem TA, Flex, HÜP & Spleißen werden in allen Ansichten in einer eigenen Gruppe / Spalte geführt"
+            >
+              <CheckCircle2 size={13} />
+              Abgeschlossen (TA·Flex·HÜP·Spl): {overviewStats.completedCoreCount}
+            </span>
+          </div>
         </div>
 
         {/* SPECIAL VIEW: WHITEBOARD & IN-PLACE COMPLETION TRACKER */}
@@ -5815,9 +5823,11 @@ export function ProtocolExtractorModule({ user, mode = 'objects' }) {
               Keine Objekte gefunden. Ziehen Sie oben ein PDF in den Import oder klicken Sie auf{' '}
               <strong style={{ color: '#FF6B00' }}>„+ New“</strong>.
             </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {filteredAddresses.map((addr) => {
+          ) : (() => {
+            const openListAddresses = filteredAddresses.filter((a) => !isCoreArbeitCompleted(a, calcBuildingProgress));
+            const completedListAddresses = filteredAddresses.filter((a) => isCoreArbeitCompleted(a, calcBuildingProgress));
+
+            const renderDesktopAccordionRow = (addr) => {
                 const commentsCount = (addr.comments || []).length;
                 const lastCommentObj = commentsCount > 0 ? addr.comments[0] : null;
                 const bStatus = addr.building_status || 'Ausbau terminiert';
@@ -6213,9 +6223,61 @@ export function ProtocolExtractorModule({ user, mode = 'objects' }) {
                     </div>
                   </div>
                 );
-              })}
-            </div>
-          )}
+            };
+
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                {/* Group 1: Offene Objekte (Restarbeiten) */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 6px' }}>
+                    <strong style={{ fontSize: 12, color: '#0f172a', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      Offene Objekte — Restarbeiten ({openListAddresses.length})
+                    </strong>
+                  </div>
+                  {openListAddresses.length === 0 ? (
+                    <div style={{ padding: 18, textAlign: 'center', color: '#15803d', fontSize: 12.5, background: '#f0fdf4', border: '1px dashed #86efac', borderRadius: 8 }}>
+                      Alle gefilterten Objekte haben TA, Flex, HÜP &amp; Spleißen abgeschlossen!
+                    </div>
+                  ) : (
+                    openListAddresses.map(renderDesktopAccordionRow)
+                  )}
+                </div>
+
+                {/* Group 2: Separated Group for Abgeschlossene Objekte (TA, Flex, HÜP, Spleißen komplett) */}
+                {completedListAddresses.length > 0 && (
+                  <div style={{ border: '1px solid #86efac', borderRadius: 10, background: '#f0fdf4', overflow: 'hidden' }}>
+                    <div
+                      onClick={() => setCompletedGroupOpen((v) => !v)}
+                      style={{
+                        padding: '10px 14px',
+                        background: '#dcfce7',
+                        borderBottom: completedGroupOpen ? '1px solid #86efac' : 'none',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <CheckCircle2 size={15} style={{ color: '#15803d' }} />
+                        <strong style={{ fontSize: 12.5, color: '#14532d' }}>
+                          Abgeschlossene Objekte — TA · Flex · HÜP · Spleißen komplett ({completedListAddresses.length})
+                        </strong>
+                      </div>
+                      <span style={{ fontSize: 11.5, fontWeight: 700, color: '#15803d' }}>
+                        {completedGroupOpen ? '▲ Einklappen' : '▼ Anzeigen'}
+                      </span>
+                    </div>
+                    {completedGroupOpen && (
+                      <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        {completedListAddresses.map(renderDesktopAccordionRow)}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </div>
 
         {/* MOBILE RESPONSIVE BUILDING CARDS (Light Mode) */}

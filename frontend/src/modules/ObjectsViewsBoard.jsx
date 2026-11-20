@@ -324,8 +324,10 @@ export function ObjectsCalendarView({
                 <div style={{ fontSize: 11.5, color: '#64748b', padding: 10, textAlign: 'center' }}>
                   Alle Objekte sind terminiert.
                 </div>
-              ) : (
-                filteredUnscheduled.map((addr) => {
+              ) : (() => {
+                const openUnsch = filteredUnscheduled.filter((a) => !isCoreArbeitCompleted(a, calcBuildingProgress));
+                const doneUnsch = filteredUnscheduled.filter((a) => isCoreArbeitCompleted(a, calcBuildingProgress));
+                const renderUnschItem = (addr) => {
                   const core = getRemainingCoreWorks(addr, calcBuildingProgress);
                   return (
                     <div
@@ -339,8 +341,8 @@ export function ObjectsCalendarView({
                       style={{
                         padding: '7px 9px',
                         borderRadius: 7,
-                        background: '#fff',
-                        border: '1px solid #e2e8f0',
+                        background: core.isCompleted ? '#f0fdf4' : '#fff',
+                        border: `1px solid ${core.isCompleted ? '#86efac' : '#e2e8f0'}`,
                         cursor: 'grab',
                         fontSize: 11.5,
                       }}
@@ -353,7 +355,7 @@ export function ObjectsCalendarView({
                         <span>{addr.ort || '—'}</span>
                         <span>{addr.team || 'Kein Team'}</span>
                       </div>
-                      {core.remaining.length > 0 && (
+                      {core.remaining.length > 0 ? (
                         <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap', marginTop: 4 }}>
                           {core.remaining.map((r) => (
                             <span key={r} style={{ fontSize: 9.5, fontWeight: 700, padding: '1px 5px', borderRadius: 4, background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca' }}>
@@ -361,11 +363,30 @@ export function ObjectsCalendarView({
                             </span>
                           ))}
                         </div>
+                      ) : (
+                        <div style={{ marginTop: 4 }}>
+                          <span style={{ fontSize: 9.5, fontWeight: 700, padding: '1px 6px', borderRadius: 4, background: '#dcfce7', color: '#15803d', border: '1px solid #86efac' }}>
+                            ✓ TA·Flex·HÜP·Spl komplett
+                          </span>
+                        </div>
                       )}
                     </div>
                   );
-                })
-              )}
+                };
+                return (
+                  <>
+                    {openUnsch.map(renderUnschItem)}
+                    {doneUnsch.length > 0 && (
+                      <div style={{ marginTop: 6, paddingTop: 6, borderTop: '1px dashed #86efac', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        <div style={{ fontSize: 10.5, fontWeight: 800, color: '#15803d', padding: '0 2px' }}>
+                          ✓ Abgeschlossen ({doneUnsch.length})
+                        </div>
+                        {doneUnsch.map(renderUnschItem)}
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
             </div>
           </div>
         )}
@@ -687,10 +708,13 @@ export function ObjectsKanbanAndCardsView({
         </span>
       </div>
 
-      {subView === 'kanban' ? (
-        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${BUILDING_STATUS_OPTIONS.length}, minmax(240px, 1fr))`, gap: 10, overflowX: 'auto', paddingBottom: 8 }}>
+      {subView === 'kanban' ? (() => {
+        const openBoardAddrs = addresses.filter((a) => !isCoreArbeitCompleted(a, calcBuildingProgress));
+        const completedBoardAddrs = addresses.filter((a) => isCoreArbeitCompleted(a, calcBuildingProgress));
+        return (
+        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${BUILDING_STATUS_OPTIONS.length + 1}, minmax(245px, 1fr))`, gap: 10, overflowX: 'auto', paddingBottom: 8 }}>
           {BUILDING_STATUS_OPTIONS.map((st) => {
-            const colItems = addresses.filter((a) => (a.building_status || 'Ausbau terminiert') === st);
+            const colItems = openBoardAddrs.filter((a) => (a.building_status || 'Ausbau terminiert') === st);
             const isOver = dragOverStatus === st;
             return (
               <div
@@ -726,12 +750,74 @@ export function ObjectsKanbanAndCardsView({
               </div>
             );
           })}
+
+          {/* Dedicated Separated Board Column for Completed Core Work (TA, Flex, HÜP, Spleißen) */}
+          <div
+            style={{
+              background: '#f0fdf4',
+              border: '1.5px solid #86efac',
+              borderRadius: 10,
+              padding: 8,
+              minHeight: 420,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 8,
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 6px', borderBottom: '1px solid #86efac' }}>
+              <strong style={{ fontSize: 12, color: '#14532d' }}>✓ Abgeschlossen (TA·Flex·HÜP·Spl)</strong>
+              <span style={{ fontSize: 11, fontWeight: 800, padding: '1px 7px', borderRadius: 999, background: '#dcfce7', color: '#15803d', border: '1px solid #86efac' }}>
+                {completedBoardAddrs.length}
+              </span>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 7, maxHeight: 620, overflowY: 'auto' }}>
+              {completedBoardAddrs.length === 0 ? (
+                <div style={{ padding: 16, textAlign: 'center', fontSize: 11.5, color: '#15803d', opacity: 0.75 }}>
+                  Noch keine Objekte mit komplettem TA, Flex, HÜP &amp; Spleißen.
+                </div>
+              ) : (
+                completedBoardAddrs.map(renderCard)
+              )}
+            </div>
+          </div>
         </div>
-      ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 10 }}>
-          {addresses.map(renderCard)}
+        );
+      })() : (() => {
+        const openGridAddrs = addresses.filter((a) => !isCoreArbeitCompleted(a, calcBuildingProgress));
+        const completedGridAddrs = addresses.filter((a) => isCoreArbeitCompleted(a, calcBuildingProgress));
+        return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 800, color: '#0f172a', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+              Offene Objekte — Restarbeiten ({openGridAddrs.length})
+            </div>
+            {openGridAddrs.length === 0 ? (
+              <div style={{ padding: 18, textAlign: 'center', fontSize: 12, color: '#15803d', background: '#f0fdf4', border: '1px dashed #86efac', borderRadius: 8 }}>
+                Alle gefilterten Objekte sind abgeschlossen.
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 10 }}>
+                {openGridAddrs.map(renderCard)}
+              </div>
+            )}
+          </div>
+
+          {completedGridAddrs.length > 0 && (
+            <div style={{ padding: 12, borderRadius: 12, background: '#f0fdf4', border: '1.5px solid #86efac' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                <CheckCircle2 size={15} style={{ color: '#15803d' }} />
+                <strong style={{ fontSize: 12.5, color: '#14532d', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  Abgeschlossene Objekte — TA · Flex · HÜP · Spleißen komplett ({completedGridAddrs.length})
+                </strong>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 10 }}>
+                {completedGridAddrs.map(renderCard)}
+              </div>
+            </div>
+          )}
         </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
@@ -757,18 +843,24 @@ export function ObjectsWhiteboardView({
   onOpenDetail,
   showToast,
 }) {
-  // Only show remaining (incomplete) objects in the Whiteboard tracker
+  // Separate remaining (incomplete) objects vs completed (TA, Flex, HÜP, Spleißen all done)
   const remainingObjects = useMemo(
     () => allAddresses.filter((a) => !isCoreArbeitCompleted(a, calcBuildingProgress)),
     [allAddresses, calcBuildingProgress]
   );
-  const completedCount = allAddresses.length - remainingObjects.length;
+  const completedObjects = useMemo(
+    () => allAddresses.filter((a) => isCoreArbeitCompleted(a, calcBuildingProgress)),
+    [allAddresses, calcBuildingProgress]
+  );
+  const completedCount = completedObjects.length;
 
-  const remainingById = useMemo(() => {
+  const allById = useMemo(() => {
     const m = new Map();
-    remainingObjects.forEach((a) => m.set(a.id, a));
+    allAddresses.forEach((a) => m.set(a.id, a));
     return m;
-  }, [remainingObjects]);
+  }, [allAddresses]);
+
+  const [showCompletedSidebarGroup, setShowCompletedSidebarGroup] = useState(true);
 
   // Whiteboard persistent state: { groups: [...], cards: { [addrId]: { x, y, groupId } } }
   const [groups, setGroups] = useState([]);
@@ -927,10 +1019,10 @@ export function ObjectsWhiteboardView({
     setEditingGroupId(newGroup.id);
   };
 
-  // Auto-group all remaining objects by their exact remaining work combination
+  // Auto-group all remaining objects by their exact remaining work combination + separated Abgeschlossen group
   const handleAutoGroupByRemaining = () => {
-    if (remainingObjects.length === 0) {
-      showToast?.('Keine offenen Objekte vorhanden.');
+    if (allAddresses.length === 0) {
+      showToast?.('Keine Objekte vorhanden.');
       return;
     }
     const buckets = new Map();
@@ -943,14 +1035,18 @@ export function ObjectsWhiteboardView({
       if (!buckets.has(label)) buckets.set(label, []);
       buckets.get(label).push(addr);
     });
+    if (completedObjects.length > 0) {
+      buckets.set('✓ Abgeschlossen (TA·Flex·HÜP·Spl)', completedObjects);
+    }
 
     const nextGroups = [];
     const nextCards = {};
     let idx = 0;
     buckets.forEach((items, label) => {
+      const isDoneGroup = label.startsWith('✓ Abgeschlossen');
       const col = idx % 3;
       const row = Math.floor(idx / 3);
-      const grpId = `grp_auto_${idx}_${Date.now()}`;
+      const grpId = isDoneGroup ? `grp_completed_${Date.now()}` : `grp_auto_${idx}_${Date.now()}`;
       const gx = 28 + col * 390;
       const gy = 28 + row * 420;
       const neededHeight = Math.max(280, 110 + items.length * 142);
@@ -958,7 +1054,7 @@ export function ObjectsWhiteboardView({
       nextGroups.push({
         id: grpId,
         name: label,
-        color: GROUP_COLORS[idx % GROUP_COLORS.length].id,
+        color: isDoneGroup ? 'emerald' : GROUP_COLORS[idx % GROUP_COLORS.length].id,
         x: gx,
         y: gy,
         width: 365,
@@ -978,7 +1074,7 @@ export function ObjectsWhiteboardView({
     });
 
     updateBoard(nextGroups, nextCards);
-    showToast?.(`${remainingObjects.length} offene Objekte in ${nextGroups.length} Restarbeit-Gruppen sortiert`);
+    showToast?.(`${allAddresses.length} Objekte in ${nextGroups.length} Gruppen (inkl. Abgeschlossen) sortiert`);
   };
 
   // Place all unplaced remaining objects onto canvas
@@ -1043,7 +1139,7 @@ export function ObjectsWhiteboardView({
 
   const handleApplyGroupPlanToObjects = async (group) => {
     const memberIds = Object.keys(cards).filter(
-      (cid) => cards[cid]?.groupId === group.id && remainingById.has(cid)
+      (cid) => cards[cid]?.groupId === group.id && allById.has(cid)
     );
     if (memberIds.length === 0) {
       showToast?.('Keine Objekte in dieser Gruppe.', 'error');
@@ -1066,7 +1162,7 @@ export function ObjectsWhiteboardView({
     e.stopPropagation();
     setDragOverGroupId(null);
     const addrId = e.dataTransfer.getData('text/plain');
-    if (!addrId || !remainingById.has(addrId)) return;
+    if (!addrId || !allById.has(addrId)) return;
 
     const canvasEl = canvasRef.current;
     if (!canvasEl) return;
@@ -1226,7 +1322,7 @@ export function ObjectsWhiteboardView({
     const willComplete = isCoreArbeitCompleted(simulated, calcBuildingProgress);
     await onPatchBuilding(addr.id, { [flagKey]: nextVal });
     if (willComplete) {
-      showToast?.(`✓ ${addr.strasse} ${addr.hausnummer}: TA, Flex, HÜP & Spleißen komplett — aus offener Liste entfernt!`);
+      showToast?.(`✓ ${addr.strasse} ${addr.hausnummer}: TA, Flex, HÜP & Spleißen komplett — in Abgeschlossen-Gruppe verschoben!`);
     }
   };
 
@@ -1243,16 +1339,16 @@ export function ObjectsWhiteboardView({
       units: units.map((u) => (u.id === firstNonTa.id ? { ...u, we_ausbau_art: 'TA Installation', ta_installiert: true } : u)),
     };
     if (isCoreArbeitCompleted(simulated, calcBuildingProgress)) {
-      showToast?.(`✓ ${addr.strasse} ${addr.hausnummer}: TA, Flex, HÜP & Spleißen komplett — aus offener Liste entfernt!`);
+      showToast?.(`✓ ${addr.strasse} ${addr.hausnummer}: TA, Flex, HÜP & Spleißen komplett — in Abgeschlossen-Gruppe verschoben!`);
     }
   };
 
-  // Cards currently on the whiteboard (only those still incomplete)
+  // Cards currently on the whiteboard (both open & completed)
   const activeBoardCardEntries = useMemo(() => {
     return Object.entries(cards)
-      .filter(([addrId]) => remainingById.has(addrId))
-      .map(([addrId, pos]) => ({ addr: remainingById.get(addrId), pos }));
-  }, [cards, remainingById]);
+      .filter(([addrId]) => allById.has(addrId))
+      .map(([addrId, pos]) => ({ addr: allById.get(addrId), pos }));
+  }, [cards, allById]);
 
   // Separate freeform cards (not in a group) vs grouped cards
   const freeformCards = activeBoardCardEntries.filter((e) => !e.pos.groupId || !groups.some((g) => g.id === e.pos.groupId));
@@ -1757,6 +1853,83 @@ export function ObjectsWhiteboardView({
                 </div>
               );
             })
+          )}
+
+          {/* Separated Completed Group in Whiteboard Sidebar */}
+          {completedObjects.length > 0 && (
+            <div style={{ marginTop: 8, borderRadius: 8, border: '1px solid #86efac', background: '#f0fdf4', overflow: 'hidden', flexShrink: 0 }}>
+              <button
+                type="button"
+                onClick={() => setShowCompletedSidebarGroup((v) => !v)}
+                style={{
+                  width: '100%',
+                  padding: '7px 9px',
+                  background: '#dcfce7',
+                  border: 'none',
+                  borderBottom: showCompletedSidebarGroup ? '1px solid #86efac' : 'none',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  cursor: 'pointer',
+                  fontSize: 11,
+                  fontWeight: 800,
+                  color: '#14532d',
+                }}
+              >
+                <span>✓ Abgeschlossen ({completedObjects.length})</span>
+                <span>{showCompletedSidebarGroup ? '▲' : '▼'}</span>
+              </button>
+              {showCompletedSidebarGroup && (
+                <div style={{ padding: 6, display: 'flex', flexDirection: 'column', gap: 5 }}>
+                  {completedObjects.map((addr) => {
+                    const isOnBoard = Boolean(cards[addr.id]);
+                    return (
+                      <div
+                        key={addr.id}
+                        draggable
+                        onDragStart={(e) => {
+                          e.dataTransfer.setData('text/plain', addr.id);
+                          e.dataTransfer.effectAllowed = 'move';
+                        }}
+                        style={{
+                          padding: '6px 8px',
+                          borderRadius: 6,
+                          background: '#ffffff',
+                          border: '1px solid #86efac',
+                          cursor: 'grab',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          gap: 6,
+                        }}
+                      >
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontWeight: 700, fontSize: 11.5, color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {addr.strasse} {addr.hausnummer}
+                          </div>
+                          <div style={{ fontSize: 10, color: '#15803d', fontWeight: 600 }}>
+                            ✓ TA · Flex · HÜP · Spl {addr.ort ? `· ${addr.ort}` : ''}
+                          </div>
+                        </div>
+                        {isOnBoard ? (
+                          <span style={{ fontSize: 9.5, fontWeight: 700, color: '#15803d', background: '#dcfce7', padding: '2px 5px', borderRadius: 4, flexShrink: 0 }}>
+                            Board
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handlePlaceSingleOnBoard(addr.id)}
+                            style={{ fontSize: 9.5, fontWeight: 700, padding: '2px 6px', borderRadius: 4, border: '1px solid #86efac', background: '#dcfce7', color: '#15803d', cursor: 'pointer', flexShrink: 0 }}
+                          >
+                            + Board
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           )}
         </div>
       </div>
