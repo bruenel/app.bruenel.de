@@ -4352,7 +4352,7 @@ export function ProtocolExtractorModule({ user, mode = 'objects' }) {
   const [colDateSearch, setColDateSearch] = useState('');
 
   // View switcher, animated header drawers & separated group toggles
-  const [objectViewMode, setObjectViewMode] = useState('list'); // list | calendar | board | whiteboard
+  const [objectViewMode, setObjectViewMode] = useState('whiteboard'); // whiteboard (default) | list | calendar | board
   const [activeHeaderPanel, setActiveHeaderPanel] = useState(null); // null | 'filter' | 'sort'
   const [completedGroupOpen, setCompletedGroupOpen] = useState(true);
   const [invoicedGroupOpen, setInvoicedGroupOpen] = useState(true);

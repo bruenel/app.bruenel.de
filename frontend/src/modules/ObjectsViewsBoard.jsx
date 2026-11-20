@@ -1250,7 +1250,18 @@ export function ObjectsWhiteboardView({
       return true;
     });
 
+    const activeGroupIds = new Set(groups.map((g) => g.id));
+    const isGrouped = (addr) => {
+      const gid = cards[addr.id]?.groupId;
+      return Boolean(gid && activeGroupIds.has(gid));
+    };
+
     return [...list].sort((a, b) => {
+      // Always bring NOT-GROUPED objects to the very top of the sidebar list
+      const ga = isGrouped(a) ? 1 : 0;
+      const gb = isGrouped(b) ? 1 : 0;
+      if (ga !== gb) return ga - gb;
+
       if (sidebarSort === 'ausbautermin') {
         const da = dateValueForSort(a.ausbautermin);
         const db = dateValueForSort(b.ausbautermin);
@@ -1276,7 +1287,7 @@ export function ObjectsWhiteboardView({
       }
       return String(a.strasse || '').localeCompare(String(b.strasse || ''), 'de');
     });
-  }, [remainingObjects, sidebarSearch, sidebarFilter, sidebarSort, cards, calcBuildingProgress, dateValueForSort]);
+  }, [remainingObjects, sidebarSearch, sidebarFilter, sidebarSort, cards, groups, calcBuildingProgress, dateValueForSort]);
 
   // Sidebar draggable groups by remaining work combinations
   const sidebarRemainingGroups = useMemo(() => {
@@ -2529,11 +2540,16 @@ export function ObjectsWhiteboardView({
                 ? 'Alle Objekte haben TA, Flex, HÜP & Spleißen abgeschlossen!'
                 : 'Keine passenden offenen Objekte gefunden.'}
             </div>
-          ) : (
-            sidebarObjects.map((addr) => {
+          ) : (() => {
+            const activeGrpMap = new Map(groups.map((g) => [g.id, g]));
+            const ungroupedSidebarObjs = sidebarObjects.filter((a) => !cards[a.id]?.groupId || !activeGrpMap.has(cards[a.id].groupId));
+            const groupedSidebarObjs = sidebarObjects.filter((a) => cards[a.id]?.groupId && activeGrpMap.has(cards[a.id].groupId));
+
+            const renderSidebarObjCard = (addr, isUngrouped) => {
               const core = getRemainingCoreWorks(addr, calcBuildingProgress);
               const isOnBoard = Boolean(cards[addr.id]);
               const isSelected = selectedIds.includes(addr.id);
+              const parentGroup = cards[addr.id]?.groupId ? activeGrpMap.get(cards[addr.id].groupId) : null;
               return (
                 <div
                   key={addr.id}
@@ -2550,11 +2566,27 @@ export function ObjectsWhiteboardView({
                   style={{
                     padding: '8px 9px',
                     borderRadius: 8,
-                    background: isSelected ? '#eff6ff' : isOnBoard ? '#f0fdf4' : '#ffffff',
+                    background: isSelected
+                      ? '#eff6ff'
+                      : isUngrouped
+                      ? '#fffaf5'
+                      : '#f8fafc',
                     border: isSelected
-                      ? '1.5px solid #2563eb'
-                      : `1px solid ${isOnBoard ? '#86efac' : '#e2e8f0'}`,
-                    boxShadow: isSelected ? '0 0 0 2px rgba(37,99,235,0.18)' : 'none',
+                      ? '2px solid #2563eb'
+                      : isUngrouped
+                      ? '1.5px solid #fdba74'
+                      : '1px solid #e2e8f0',
+                    borderLeft: isSelected
+                      ? '4px solid #2563eb'
+                      : isUngrouped
+                      ? '4px solid #FF6B00'
+                      : '3px solid #cbd5e1',
+                    boxShadow: isSelected
+                      ? '0 0 0 2px rgba(37,99,235,0.18)'
+                      : isUngrouped
+                      ? '0 2px 6px rgba(255, 107, 0, 0.08)'
+                      : 'none',
+                    opacity: isUngrouped || isSelected ? 1 : 0.8,
                     cursor: 'grab',
                     display: 'flex',
                     flexDirection: 'column',
@@ -2564,22 +2596,44 @@ export function ObjectsWhiteboardView({
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 4 }}>
                     <div style={{ minWidth: 0 }}>
-                      <div style={{ fontWeight: 700, fontSize: 12, color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      <div style={{ fontWeight: isUngrouped ? 900 : 600, fontSize: isUngrouped ? 12.5 : 11.5, color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                         {addr.strasse} {addr.hausnummer}
                       </div>
-                      <div style={{ fontSize: 10.5, color: '#64748b' }}>
+                      <div style={{ fontSize: 10.5, fontWeight: isUngrouped ? 600 : 400, color: isUngrouped ? '#475569' : '#64748b' }}>
                         {addr.ort || '—'} {addr.ausbautermin ? `· ${addr.ausbautermin}` : ''}
                       </div>
                     </div>
-                    {isOnBoard ? (
-                      <span style={{ fontSize: 9.5, fontWeight: 700, color: '#15803d', background: '#dcfce7', padding: '2px 6px', borderRadius: 4, flexShrink: 0 }}>
-                        Auf Board
+                    {parentGroup ? (
+                      <span
+                        style={{
+                          fontSize: 9.5,
+                          fontWeight: 700,
+                          color: '#15803d',
+                          background: '#dcfce7',
+                          padding: '2px 6px',
+                          borderRadius: 4,
+                          maxWidth: 96,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                          flexShrink: 0,
+                        }}
+                        title={`In Gruppe: ${parentGroup.name}`}
+                      >
+                        {parentGroup.name}
+                      </span>
+                    ) : isOnBoard ? (
+                      <span style={{ fontSize: 9.5, fontWeight: 800, color: '#c2410c', background: '#ffedd5', border: '1px solid #fdba74', padding: '2px 6px', borderRadius: 4, flexShrink: 0 }}>
+                        Ohne Gruppe
                       </span>
                     ) : (
                       <button
                         type="button"
-                        onClick={() => handlePlaceSingleOnBoard(addr.id)}
-                        style={{ fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 5, border: '1px solid #fdba74', background: '#fff7ed', color: '#c2410c', cursor: 'pointer', flexShrink: 0 }}
+                        onClick={(ev) => {
+                          ev.stopPropagation();
+                          handlePlaceSingleOnBoard(addr.id);
+                        }}
+                        style={{ fontSize: 10, fontWeight: 800, padding: '2px 6px', borderRadius: 5, border: '1px solid #FF6B00', background: '#FF6B00', color: '#ffffff', cursor: 'pointer', flexShrink: 0 }}
                       >
                         + Board
                       </button>
@@ -2593,21 +2647,30 @@ export function ObjectsWhiteboardView({
                     </span>
                     <button
                       type="button"
-                      onClick={() => handleToggleCoreFlag(addr, 'flexrohr', core.flexDone)}
+                      onClick={(ev) => {
+                        ev.stopPropagation();
+                        handleToggleCoreFlag(addr, 'flexrohr', core.flexDone);
+                      }}
                       style={{ border: 'none', cursor: 'pointer', fontSize: 9.5, fontWeight: 700, padding: '1px 5px', borderRadius: 4, background: core.flexDone ? '#dcfce7' : '#fef2f2', color: core.flexDone ? '#15803d' : '#dc2626' }}
                     >
                       {core.flexDone ? '✓' : '✗'} Flex
                     </button>
                     <button
                       type="button"
-                      onClick={() => handleToggleCoreFlag(addr, 'huep_installiert', core.huepDone)}
+                      onClick={(ev) => {
+                        ev.stopPropagation();
+                        handleToggleCoreFlag(addr, 'huep_installiert', core.huepDone);
+                      }}
                       style={{ border: 'none', cursor: 'pointer', fontSize: 9.5, fontWeight: 700, padding: '1px 5px', borderRadius: 4, background: core.huepDone ? '#dcfce7' : '#fef2f2', color: core.huepDone ? '#15803d' : '#dc2626' }}
                     >
                       {core.huepDone ? '✓' : '✗'} HÜP
                     </button>
                     <button
                       type="button"
-                      onClick={() => handleToggleCoreFlag(addr, 'spleissen_fertig', core.spleissenDone)}
+                      onClick={(ev) => {
+                        ev.stopPropagation();
+                        handleToggleCoreFlag(addr, 'spleissen_fertig', core.spleissenDone);
+                      }}
                       style={{ border: 'none', cursor: 'pointer', fontSize: 9.5, fontWeight: 700, padding: '1px 5px', borderRadius: 4, background: core.spleissenDone ? '#dcfce7' : '#fef2f2', color: core.spleissenDone ? '#15803d' : '#dc2626' }}
                     >
                       {core.spleissenDone ? '✓' : '✗'} Spleiß
@@ -2615,8 +2678,32 @@ export function ObjectsWhiteboardView({
                   </div>
                 </div>
               );
-            })
-          )}
+            };
+
+            return (
+              <>
+                {ungroupedSidebarObjs.length > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '2px 2px' }}>
+                      <strong style={{ fontSize: 10.5, fontWeight: 900, color: '#c2410c', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                        ● Nicht gruppiert ({ungroupedSidebarObjs.length})
+                      </strong>
+                    </div>
+                    {ungroupedSidebarObjs.map((addr) => renderSidebarObjCard(addr, true))}
+                  </div>
+                )}
+
+                {groupedSidebarObjs.length > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 5, marginTop: ungroupedSidebarObjs.length > 0 ? 6 : 0, paddingTop: ungroupedSidebarObjs.length > 0 ? 6 : 0, borderTop: ungroupedSidebarObjs.length > 0 ? '1px dashed #cbd5e1' : 'none' }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em', padding: '0 2px' }}>
+                      Bereits gruppiert ({groupedSidebarObjs.length})
+                    </span>
+                    {groupedSidebarObjs.map((addr) => renderSidebarObjCard(addr, false))}
+                  </div>
+                )}
+              </>
+            );
+          })()}
 
           {/* Separated Groups in Whiteboard Sidebar: Fertig (Bereit f. RE), Rechnung erstellt, Rechnung erhalten */}
           {[
