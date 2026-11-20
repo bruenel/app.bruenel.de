@@ -1072,11 +1072,64 @@ export function ObjectsWhiteboardView({
   const [editingGroupId, setEditingGroupId] = useState(null);
   const [dragOverGroupId, setDragOverGroupId] = useState(null);
 
+  // Multi-selection, Marquee box selection & Spacebar panning states
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [marqueeBox, setMarqueeBox] = useState(null); // { startX, startY, curX, curY }
+  const [isSpacePressed, setIsSpacePressed] = useState(false);
+  const [isPanning, setIsPanning] = useState(false);
+  const [showSidebarWorkGroups, setShowSidebarWorkGroups] = useState(true);
+
   const canvasRef = useRef(null);
   const viewportRef = useRef(null);
   const zoomRef = useRef(zoom);
   zoomRef.current = zoom;
   const saveTimerRef = useRef(null);
+
+  // Spacebar listener for panning the whiteboard (ignores when typing in inputs/selects)
+  useEffect(() => {
+    const isInputTarget = (el) => {
+      if (!el) return false;
+      const tag = (el.tagName || '').toLowerCase();
+      return tag === 'input' || tag === 'textarea' || tag === 'select' || Boolean(el.isContentEditable);
+    };
+    const onKeyDown = (e) => {
+      if (e.code === 'Space' && !isInputTarget(e.target)) {
+        e.preventDefault();
+        setIsSpacePressed(true);
+      } else if (e.key === 'Escape') {
+        setSelectedIds([]);
+        setMarqueeBox(null);
+      }
+    };
+    const onKeyUp = (e) => {
+      if (e.code === 'Space') {
+        setIsSpacePressed(false);
+        setIsPanning(false);
+      }
+    };
+    const onBlur = () => {
+      setIsSpacePressed(false);
+      setIsPanning(false);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    window.addEventListener('blur', onBlur);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+      window.removeEventListener('blur', onBlur);
+    };
+  }, []);
+
+  const toggleSelectObject = useCallback((addrId, e) => {
+    const isMultiKey = e && (e.metaKey || e.ctrlKey || e.shiftKey);
+    setSelectedIds((prev) => {
+      if (isMultiKey) {
+        return prev.includes(addrId) ? prev.filter((id) => id !== addrId) : [...prev, addrId];
+      }
+      return prev.includes(addrId) && prev.length === 1 ? [] : [addrId];
+    });
+  }, []);
 
   // Alt + Mouse Scroll (and Ctrl + Scroll) to smoothly zoom in/out toward cursor
   useEffect(() => {
@@ -1224,6 +1277,107 @@ export function ObjectsWhiteboardView({
       return String(a.strasse || '').localeCompare(String(b.strasse || ''), 'de');
     });
   }, [remainingObjects, sidebarSearch, sidebarFilter, sidebarSort, cards, calcBuildingProgress, dateValueForSort]);
+
+  // Sidebar draggable groups by remaining work combinations
+  const sidebarRemainingGroups = useMemo(() => {
+    const map = new Map();
+    sidebarObjects.forEach((addr) => {
+      const core = getRemainingCoreWorks(addr, calcBuildingProgress);
+      const label =
+        core.remaining.length === 1
+          ? `Nur ${core.remaining[0]} offen`
+          : `Offen: ${core.remaining.join(' + ')}`;
+      if (!map.has(label)) map.set(label, []);
+      map.get(label).push(addr);
+    });
+    return Array.from(map.entries()).map(([label, items], idx) => ({
+      label,
+      items,
+      color: GROUP_COLORS[idx % GROUP_COLORS.length].id,
+    }));
+  }, [sidebarObjects, calcBuildingProgress]);
+
+  // Create a new group from currently selected objects (selectedIds)
+  const handleCreateGroupFromSelection = () => {
+    const validIds = selectedIds.filter((id) => allById.has(id));
+    if (validIds.length === 0) {
+      showToast?.('Bitte zuerst Objekte auswählen (Ziehen mit Maus oder Cmd/Ctrl + Klick).', 'error');
+      return;
+    }
+    const firstAddr = allById.get(validIds[0]);
+    const firstCore = firstAddr ? getRemainingCoreWorks(firstAddr, calcBuildingProgress) : null;
+    const defaultTitle =
+      firstCore && firstCore.remaining.length > 0
+        ? `Offen: ${firstCore.remaining.join(' + ')} (${validIds.length})`
+        : `Auswahl Gruppe (${validIds.length})`;
+
+    // Position near existing selected cards if on board, else next grid slot
+    const existingPositions = validIds.map((id) => cards[id]).filter(Boolean);
+    const idx = groups.length;
+    const gx =
+      existingPositions.length > 0
+        ? Math.max(20, Math.min(...existingPositions.map((p) => p.x)) - 12)
+        : 36 + (idx % 3) * 385;
+    const gy =
+      existingPositions.length > 0
+        ? Math.max(20, Math.min(...existingPositions.map((p) => p.y)) - 60)
+        : 36 + Math.floor(idx / 3) * 360;
+
+    const grpId = `grp_sel_${Date.now()}_${Math.random().toString(36).slice(2, 5)}`;
+    const newGroup = {
+      id: grpId,
+      name: defaultTitle,
+      color: GROUP_COLORS[idx % GROUP_COLORS.length].id,
+      x: gx,
+      y: gy,
+      width: 365,
+      height: Math.max(260, 110 + validIds.length * 138),
+      team: '',
+      plannedDate: '',
+    };
+
+    updateBoard(
+      (prevG) => [...prevG, newGroup],
+      (prevC) => {
+        const nextC = { ...prevC };
+        validIds.forEach((id, i) => {
+          nextC[id] = {
+            x: gx + 14,
+            y: gy + 92 + i * 135,
+            groupId: grpId,
+          };
+        });
+        return nextC;
+      }
+    );
+    setEditingGroupId(grpId);
+    showToast?.(`${validIds.length} ausgewählte Objekte in neue Gruppe zusammengefasst`);
+  };
+
+  // Move all selected objects into an existing group
+  const handleMoveSelectedToGroup = (targetGroupId) => {
+    if (!targetGroupId) return;
+    const targetGrp = groups.find((g) => g.id === targetGroupId);
+    if (!targetGrp) return;
+    const validIds = selectedIds.filter((id) => allById.has(id));
+    if (validIds.length === 0) return;
+
+    updateBoard(
+      (prevG) => prevG,
+      (prevC) => {
+        const nextC = { ...prevC };
+        validIds.forEach((id, i) => {
+          nextC[id] = {
+            x: targetGrp.x + 14,
+            y: targetGrp.y + 92 + i * 135,
+            groupId: targetGroupId,
+          };
+        });
+        return nextC;
+      }
+    );
+    showToast?.(`${validIds.length} Objekte in „${targetGrp.name}“ verschoben`);
+  };
 
   // Create a new named Group / Zone
   const handleCreateGroup = (customName = null, colorId = null) => {
@@ -1402,13 +1556,13 @@ export function ObjectsWhiteboardView({
     showToast?.(`Planung auf ${memberIds.length} Objekte in „${group.name}“ angewendet`);
   };
 
-  // HTML5 Drop from Left Sidebar onto Canvas or directly into a Group
+  // HTML5 Drop from Left Sidebar (Single Object, Multiple Selected Objects, or Entire Sidebar Group!) onto Canvas or Group
   const handleCanvasDrop = (e, targetGroupId = null) => {
     e.preventDefault();
     e.stopPropagation();
     setDragOverGroupId(null);
-    const addrId = e.dataTransfer.getData('text/plain');
-    if (!addrId || !allById.has(addrId)) return;
+    const rawData = e.dataTransfer.getData('text/plain');
+    if (!rawData) return;
 
     const canvasEl = canvasRef.current;
     if (!canvasEl) return;
@@ -1416,7 +1570,46 @@ export function ObjectsWhiteboardView({
     const dropX = Math.max(12, Math.round((e.clientX - rect.left) / zoom - 150));
     const dropY = Math.max(12, Math.round((e.clientY - rect.top) / zoom - 30));
 
-    // Detect if dropped inside a group even if dropped on canvas
+    let payload = null;
+    if (rawData.startsWith('{')) {
+      try {
+        payload = JSON.parse(rawData);
+      } catch {
+        payload = null;
+      }
+    }
+
+    // Case 1: Entire Group dragged from the Left Sidebar directly onto the Whiteboard!
+    if (payload && payload.type === 'sidebar_group' && Array.isArray(payload.ids)) {
+      const validIds = payload.ids.filter((id) => allById.has(id));
+      if (validIds.length === 0) return;
+      const grpId = `grp_sb_${Date.now()}_${Math.random().toString(36).slice(2, 5)}`;
+      const newGroup = {
+        id: grpId,
+        name: payload.title || `Gruppe (${validIds.length})`,
+        color: payload.color || GROUP_COLORS[groups.length % GROUP_COLORS.length].id,
+        x: dropX,
+        y: dropY,
+        width: 365,
+        height: Math.max(260, 110 + validIds.length * 138),
+        team: '',
+        plannedDate: '',
+      };
+      updateBoard(
+        (prevG) => [...prevG, newGroup],
+        (prevC) => {
+          const nextC = { ...prevC };
+          validIds.forEach((id, i) => {
+            nextC[id] = { x: dropX + 14, y: dropY + 92 + i * 135, groupId: grpId };
+          });
+          return nextC;
+        }
+      );
+      showToast?.(`Gruppe „${newGroup.name}“ (${validIds.length} Objekte) auf dem Whiteboard platziert`);
+      return;
+    }
+
+    // Detect if dropped inside an existing group
     let resolvedGroupId = targetGroupId;
     if (!resolvedGroupId) {
       const hit = groups.find(
@@ -1425,56 +1618,210 @@ export function ObjectsWhiteboardView({
       if (hit) resolvedGroupId = hit.id;
     }
 
+    // Case 2: Multiple selected objects dragged together
+    const idsToPlace =
+      payload && payload.type === 'multi_addrs' && Array.isArray(payload.ids)
+        ? payload.ids.filter((id) => allById.has(id))
+        : allById.has(rawData)
+        ? selectedIds.includes(rawData) && selectedIds.length > 1
+          ? selectedIds.filter((id) => allById.has(id))
+          : [rawData]
+        : [];
+
+    if (idsToPlace.length === 0) return;
+
     updateBoard(
       (prevG) => prevG,
-      (prevC) => ({
-        ...prevC,
-        [addrId]: { x: dropX, y: dropY, groupId: resolvedGroupId },
-      })
+      (prevC) => {
+        const nextC = { ...prevC };
+        idsToPlace.forEach((id, i) => {
+          const col = i % 2;
+          const row = Math.floor(i / 2);
+          nextC[id] = {
+            x: resolvedGroupId ? dropX : dropX + col * 326,
+            y: resolvedGroupId ? dropY + i * 135 : dropY + row * 175,
+            groupId: resolvedGroupId,
+          };
+        });
+        return nextC;
+      }
     );
+    if (idsToPlace.length > 1) {
+      showToast?.(
+        resolvedGroupId
+          ? `${idsToPlace.length} ausgewählte Objekte in Gruppe abgelegt`
+          : `${idsToPlace.length} ausgewählte Objekte auf dem Whiteboard platziert`
+      );
+    }
   };
 
-  // Pointer-based smooth dragging for FREEFORM CARDS on the canvas
+  // Pointer-based smooth dragging for FREEFORM CARDS on the canvas (supports multi-selected cards!)
   const startCardDrag = (e, addrId) => {
-    if (e.button !== 0) return;
+    if (e.button !== 0 || isSpacePressed) return;
     e.stopPropagation();
+
+    if (e.metaKey || e.ctrlKey || e.shiftKey) {
+      toggleSelectObject(addrId, e);
+      return;
+    }
+
+    const movingIds =
+      selectedIds.includes(addrId) && selectedIds.length > 1
+        ? selectedIds.filter((id) => cards[id])
+        : [addrId];
+
+    if (!selectedIds.includes(addrId)) {
+      setSelectedIds([addrId]);
+    }
+
     const startX = e.clientX;
     const startY = e.clientY;
-    const orig = cards[addrId] || { x: 40, y: 40, groupId: null };
-    let latestX = orig.x;
-    let latestY = orig.y;
+    const origPositions = {};
+    movingIds.forEach((id) => {
+      origPositions[id] = { ...(cards[id] || { x: 40, y: 40, groupId: null }) };
+    });
+
+    let lastDx = 0;
+    let lastDy = 0;
 
     const onMove = (ev) => {
-      const dx = (ev.clientX - startX) / zoom;
-      const dy = (ev.clientY - startY) / zoom;
-      latestX = Math.max(8, Math.round(orig.x + dx));
-      latestY = Math.max(8, Math.round(orig.y + dy));
-      setCards((prev) => ({
-        ...prev,
-        [addrId]: { ...prev[addrId], x: latestX, y: latestY },
-      }));
+      lastDx = Math.round((ev.clientX - startX) / zoom);
+      lastDy = Math.round((ev.clientY - startY) / zoom);
+      setCards((prev) => {
+        const next = { ...prev };
+        movingIds.forEach((id) => {
+          const o = origPositions[id];
+          next[id] = {
+            ...prev[id],
+            x: Math.max(8, o.x + lastDx),
+            y: Math.max(8, o.y + lastDy),
+          };
+        });
+        return next;
+      });
     };
 
     const onUp = () => {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
-      // Snap groupId based on card center
-      const centerX = latestX + 150;
-      const centerY = latestY + 50;
+
+      const primaryOrig = origPositions[addrId] || { x: 40, y: 40 };
+      const centerX = Math.max(8, primaryOrig.x + lastDx) + 150;
+      const centerY = Math.max(8, primaryOrig.y + lastDy) + 50;
       const hitGroup = groups.find(
         (g) => centerX >= g.x && centerX <= g.x + g.width && centerY >= g.y && centerY <= g.y + g.height
       );
+
       updateBoard(
         (prevG) => prevG,
-        (prevC) => ({
-          ...prevC,
-          [addrId]: { x: latestX, y: latestY, groupId: hitGroup ? hitGroup.id : null },
-        })
+        (prevC) => {
+          const next = { ...prevC };
+          movingIds.forEach((id) => {
+            const o = origPositions[id];
+            next[id] = {
+              x: Math.max(8, o.x + lastDx),
+              y: Math.max(8, o.y + lastDy),
+              groupId: hitGroup ? hitGroup.id : null,
+            };
+          });
+          return next;
+        }
       );
+      if (hitGroup && movingIds.length > 1) {
+        showToast?.(`${movingIds.length} ausgewählte Objekte in „${hitGroup.name}“ abgelegt`);
+      }
     };
 
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
+  };
+
+  // Spacebar + Click-and-Drag Panning OR Mouse Marquee Box Selection on the Whiteboard Canvas
+  const handleCanvasPointerDown = (e) => {
+    if (e.button !== 0) return;
+    const vp = viewportRef.current;
+    const canvasEl = canvasRef.current;
+    if (!vp || !canvasEl) return;
+
+    // 1. Spacebar pressed -> Pan the whiteboard viewport anywhere!
+    if (isSpacePressed) {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsPanning(true);
+      const startX = e.clientX;
+      const startY = e.clientY;
+      const origLeft = vp.scrollLeft;
+      const origTop = vp.scrollTop;
+
+      const onPanMove = (ev) => {
+        vp.scrollLeft = Math.max(0, origLeft - (ev.clientX - startX));
+        vp.scrollTop = Math.max(0, origTop - (ev.clientY - startY));
+      };
+      const onPanUp = () => {
+        setIsPanning(false);
+        window.removeEventListener('pointermove', onPanMove);
+        window.removeEventListener('pointerup', onPanUp);
+      };
+      window.addEventListener('pointermove', onPanMove);
+      window.addEventListener('pointerup', onPanUp);
+      return;
+    }
+
+    // 2. Clicked on empty canvas background -> Draw Marquee Selection Box!
+    if (e.target !== canvasEl) return;
+    const rect = canvasEl.getBoundingClientRect();
+    const startX = Math.round((e.clientX - rect.left) / zoom);
+    const startY = Math.round((e.clientY - rect.top) / zoom);
+    const additive = e.metaKey || e.ctrlKey || e.shiftKey;
+    const initialSelected = additive ? [...selectedIds] : [];
+
+    if (!additive) {
+      setSelectedIds([]);
+    }
+    setMarqueeBox({ startX, startY, curX: startX, curY: startY });
+
+    const onSelectMove = (ev) => {
+      const curX = Math.round((ev.clientX - rect.left) / zoom);
+      const curY = Math.round((ev.clientY - rect.top) / zoom);
+      setMarqueeBox({ startX, startY, curX, curY });
+
+      const minX = Math.min(startX, curX);
+      const maxX = Math.max(startX, curX);
+      const minY = Math.min(startY, curY);
+      const maxY = Math.max(startY, curY);
+
+      if (maxX - minX < 5 && maxY - minY < 5) return;
+
+      const hitIds = new Set(initialSelected);
+      Object.entries(cards).forEach(([cid, pos]) => {
+        if (!allById.has(cid) || !pos) return;
+        let cardX = pos.x;
+        let cardY = pos.y;
+        if (pos.groupId) {
+          const parentGrp = groups.find((g) => g.id === pos.groupId);
+          if (parentGrp) {
+            const members = Object.keys(cards).filter((k) => cards[k]?.groupId === parentGrp.id);
+            const idxInGrp = Math.max(0, members.indexOf(cid));
+            cardX = parentGrp.x + 12;
+            cardY = parentGrp.y + 85 + idxInGrp * 125;
+          }
+        }
+        const cardW = 312;
+        const cardH = 115;
+        const intersects = cardX < maxX && cardX + cardW > minX && cardY < maxY && cardY + cardH > minY;
+        if (intersects) hitIds.add(cid);
+      });
+      setSelectedIds(Array.from(hitIds));
+    };
+
+    const onSelectUp = () => {
+      setMarqueeBox(null);
+      window.removeEventListener('pointermove', onSelectMove);
+      window.removeEventListener('pointerup', onSelectUp);
+    };
+
+    window.addEventListener('pointermove', onSelectMove);
+    window.addEventListener('pointerup', onSelectUp);
   };
 
   // Pointer-based smooth dragging for GROUPS (moves contained cards along with group!)
@@ -1604,21 +1951,32 @@ export function ObjectsWhiteboardView({
     const core = getRemainingCoreWorks(addr, calcBuildingProgress);
     const isTaExpanded = expandedTaCardId === addr.id;
     const isEditExpanded = expandedEditCardId === addr.id;
+    const isSelected = selectedIds.includes(addr.id);
     const units = Array.isArray(addr.units) ? addr.units : [];
 
     return (
       <div
         key={addr.id}
+        onClick={(e) => {
+          if (e.metaKey || e.ctrlKey || e.shiftKey) {
+            e.stopPropagation();
+            toggleSelectObject(addr.id, e);
+          }
+        }}
         style={{
           position: isInsideGroup ? 'relative' : 'absolute',
           left: isInsideGroup ? undefined : pos.x,
           top: isInsideGroup ? undefined : pos.y,
           width: isInsideGroup ? '100%' : 312,
-          background: '#ffffff',
-          border: `1.5px solid ${core.remainingCount === 1 ? '#fb923c' : '#cbd5e1'}`,
+          background: isSelected ? '#eff6ff' : '#ffffff',
+          border: isSelected
+            ? '2px solid #2563eb'
+            : `1.5px solid ${core.remainingCount === 1 ? '#fb923c' : '#cbd5e1'}`,
           borderRadius: 10,
-          boxShadow: '0 6px 18px rgba(15, 23, 42, 0.09)',
-          zIndex: isEditExpanded || isTaExpanded ? 40 : 20,
+          boxShadow: isSelected
+            ? '0 0 0 3px rgba(37, 99, 235, 0.22), 0 8px 20px rgba(15, 23, 42, 0.12)'
+            : '0 6px 18px rgba(15, 23, 42, 0.09)',
+          zIndex: isEditExpanded || isTaExpanded ? 40 : isSelected ? 30 : 20,
           userSelect: 'none',
         }}
       >
@@ -1630,13 +1988,17 @@ export function ObjectsWhiteboardView({
           draggable={isInsideGroup}
           onDragStart={(e) => {
             if (isInsideGroup) {
-              e.dataTransfer.setData('text/plain', addr.id);
+              const dragPayload =
+                selectedIds.includes(addr.id) && selectedIds.length > 1
+                  ? JSON.stringify({ type: 'multi_addrs', ids: selectedIds })
+                  : addr.id;
+              e.dataTransfer.setData('text/plain', dragPayload);
               e.dataTransfer.effectAllowed = 'move';
             }
           }}
           style={{
             padding: '7px 9px',
-            background: '#f8fafc',
+            background: isSelected ? '#dbeafe' : '#f8fafc',
             borderBottom: '1px solid #e2e8f0',
             borderTopLeftRadius: 9,
             borderTopRightRadius: 9,
@@ -2025,8 +2387,142 @@ export function ObjectsWhiteboardView({
           </select>
         </div>
 
-        {/* Draggable Remaining Objects List */}
+        {/* Draggable Remaining Objects List + Draggable Sidebar Groups */}
         <div style={{ flex: 1, overflowY: 'auto', padding: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {/* Multi-Selection Action Strip inside Sidebar */}
+          {selectedIds.length > 0 && (
+            <div
+              draggable
+              onDragStart={(e) => {
+                e.dataTransfer.setData(
+                  'text/plain',
+                  JSON.stringify({
+                    type: 'sidebar_group',
+                    title: `Auswahl Gruppe (${selectedIds.length})`,
+                    color: 'blue',
+                    ids: selectedIds,
+                  })
+                );
+                e.dataTransfer.effectAllowed = 'move';
+              }}
+              style={{
+                padding: '7px 9px',
+                borderRadius: 8,
+                background: '#dbeafe',
+                border: '1.5px solid #2563eb',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 5,
+                cursor: 'grab',
+              }}
+              title="Auf das Whiteboard ziehen, um alle ausgewählten Objekte als neue Gruppe abzulegen"
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <strong style={{ fontSize: 11, color: '#1e3a8a', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  <GripVertical size={12} /> {selectedIds.length} ausgewählt (Als Gruppe ziehen)
+                </strong>
+                <button
+                  type="button"
+                  onClick={() => setSelectedIds([])}
+                  style={{ border: 'none', background: 'transparent', color: '#1e3a8a', cursor: 'pointer', fontSize: 11, fontWeight: 700 }}
+                >
+                  ×
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={handleCreateGroupFromSelection}
+                style={{
+                  padding: '4px 8px',
+                  borderRadius: 5,
+                  border: 'none',
+                  background: '#2563eb',
+                  color: '#fff',
+                  fontSize: 10.5,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                }}
+              >
+                + Auswahl als Gruppe aufs Board
+              </button>
+            </div>
+          )}
+
+          {/* Draggable Remaining-Work Groups (Drag directly onto Whiteboard as a Group!) */}
+          {sidebarRemainingGroups.length > 0 && (
+            <div style={{ borderRadius: 8, border: '1px solid #fed7aa', background: '#fff7ed', overflow: 'hidden', flexShrink: 0 }}>
+              <button
+                type="button"
+                onClick={() => setShowSidebarWorkGroups((v) => !v)}
+                style={{
+                  width: '100%',
+                  padding: '6px 9px',
+                  background: '#ffedd5',
+                  border: 'none',
+                  borderBottom: showSidebarWorkGroups ? '1px solid #fed7aa' : 'none',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  cursor: 'pointer',
+                  fontSize: 10.5,
+                  fontWeight: 800,
+                  color: '#9a3412',
+                }}
+              >
+                <span>Restarbeit-Gruppen aufs Board ziehen ({sidebarRemainingGroups.length})</span>
+                <span>{showSidebarWorkGroups ? '▲' : '▼'}</span>
+              </button>
+              {showSidebarWorkGroups && (
+                <div style={{ padding: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {sidebarRemainingGroups.map((sg) => {
+                    const pal = getGroupColor(sg.color);
+                    return (
+                      <div
+                        key={sg.label}
+                        draggable
+                        onDragStart={(e) => {
+                          e.dataTransfer.setData(
+                            'text/plain',
+                            JSON.stringify({
+                              type: 'sidebar_group',
+                              title: sg.label,
+                              color: sg.color,
+                              ids: sg.items.map((a) => a.id),
+                            })
+                          );
+                          e.dataTransfer.effectAllowed = 'move';
+                        }}
+                        style={{
+                          padding: '5px 8px',
+                          borderRadius: 6,
+                          background: '#ffffff',
+                          border: `1px solid ${pal.border}`,
+                          borderLeft: `3.5px solid ${pal.accent}`,
+                          cursor: 'grab',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          fontSize: 11,
+                          fontWeight: 700,
+                          color: '#0f172a',
+                        }}
+                        title="Diese gesamte Gruppe direkt auf das Whiteboard ziehen!"
+                      >
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          <GripVertical size={12} style={{ color: '#94a3b8', flexShrink: 0 }} />
+                          {sg.label}
+                        </span>
+                        <span style={{ fontSize: 10, fontWeight: 800, padding: '1px 6px', borderRadius: 999, background: pal.header, color: pal.text, flexShrink: 0 }}>
+                          {sg.items.length}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
           {sidebarObjects.length === 0 ? (
             <div style={{ padding: 20, textAlign: 'center', fontSize: 12, color: '#64748b' }}>
               {remainingObjects.length === 0
@@ -2037,25 +2533,34 @@ export function ObjectsWhiteboardView({
             sidebarObjects.map((addr) => {
               const core = getRemainingCoreWorks(addr, calcBuildingProgress);
               const isOnBoard = Boolean(cards[addr.id]);
+              const isSelected = selectedIds.includes(addr.id);
               return (
                 <div
                   key={addr.id}
                   draggable
+                  onClick={(e) => toggleSelectObject(addr.id, e)}
                   onDragStart={(e) => {
-                    e.dataTransfer.setData('text/plain', addr.id);
+                    const dragPayload =
+                      isSelected && selectedIds.length > 1
+                        ? JSON.stringify({ type: 'multi_addrs', ids: selectedIds })
+                        : addr.id;
+                    e.dataTransfer.setData('text/plain', dragPayload);
                     e.dataTransfer.effectAllowed = 'move';
                   }}
                   style={{
                     padding: '8px 9px',
                     borderRadius: 8,
-                    background: isOnBoard ? '#f0fdf4' : '#ffffff',
-                    border: `1px solid ${isOnBoard ? '#86efac' : '#e2e8f0'}`,
+                    background: isSelected ? '#eff6ff' : isOnBoard ? '#f0fdf4' : '#ffffff',
+                    border: isSelected
+                      ? '1.5px solid #2563eb'
+                      : `1px solid ${isOnBoard ? '#86efac' : '#e2e8f0'}`,
+                    boxShadow: isSelected ? '0 0 0 2px rgba(37,99,235,0.18)' : 'none',
                     cursor: 'grab',
                     display: 'flex',
                     flexDirection: 'column',
                     gap: 5,
                   }}
-                  title="Auf das Whiteboard rechts ziehen oder + Board klicken"
+                  title="Cmd/Ctrl + Klick für Mehrfachauswahl · Auf das Whiteboard ziehen oder + Board klicken"
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 4 }}>
                     <div style={{ minWidth: 0 }}>
@@ -2155,27 +2660,42 @@ export function ObjectsWhiteboardView({
             .filter((g) => g.items.length > 0)
             .map((grp) => (
               <div key={grp.key} style={{ marginTop: 6, borderRadius: 8, border: `1px solid ${grp.border}`, background: grp.bg, overflow: 'hidden', flexShrink: 0 }}>
-                <button
-                  type="button"
+                <div
+                  draggable
+                  onDragStart={(e) => {
+                    e.dataTransfer.setData(
+                      'text/plain',
+                      JSON.stringify({
+                        type: 'sidebar_group',
+                        title: grp.title.replace(/\s*\(\d+\)$/, ''),
+                        color: grp.key === 'invoiced' ? 'blue' : 'emerald',
+                        ids: grp.items.map((a) => a.id),
+                      })
+                    );
+                    e.dataTransfer.effectAllowed = 'move';
+                  }}
                   onClick={grp.toggle}
                   style={{
                     width: '100%',
                     padding: '7px 9px',
                     background: grp.headerBg,
-                    border: 'none',
                     borderBottom: grp.open ? `1px solid ${grp.border}` : 'none',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'space-between',
-                    cursor: 'pointer',
+                    cursor: 'grab',
                     fontSize: 11,
                     fontWeight: 800,
                     color: grp.text,
                   }}
+                  title="Ganze Gruppe direkt auf das Whiteboard ziehen oder klicken zum Auf-/Zuklappen"
                 >
-                  <span>{grp.title}</span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    <GripVertical size={12} />
+                    {grp.title}
+                  </span>
                   <span>{grp.open ? '▲' : '▼'}</span>
-                </button>
+                </div>
                 {grp.open && (
                   <div style={{ padding: 6, display: 'flex', flexDirection: 'column', gap: 5 }}>
                     {grp.items.map((addr) => {
@@ -2273,12 +2793,74 @@ export function ObjectsWhiteboardView({
             >
               Alle offenen aufs Board
             </button>
+
+            {/* Multi-Selection Actions in Whiteboard Toolbar */}
+            {selectedIds.length > 0 && (
+              <div
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '3px 8px',
+                  borderRadius: 8,
+                  background: '#eff6ff',
+                  border: '1.5px solid #2563eb',
+                }}
+              >
+                <span style={{ fontSize: 11, fontWeight: 800, color: '#1e3a8a' }}>
+                  {selectedIds.length} ausgewählt
+                </span>
+                <button
+                  type="button"
+                  onClick={handleCreateGroupFromSelection}
+                  style={{
+                    padding: '3px 8px',
+                    borderRadius: 6,
+                    border: 'none',
+                    background: '#2563eb',
+                    color: '#fff',
+                    fontSize: 11,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                  }}
+                >
+                  + Gruppe aus Auswahl
+                </button>
+                {groups.length > 0 && (
+                  <select
+                    defaultValue=""
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        handleMoveSelectedToGroup(e.target.value);
+                        e.target.value = '';
+                      }
+                    }}
+                    style={{ padding: '3px 6px', fontSize: 11, borderRadius: 6, border: '1px solid #93c5fd', background: '#fff', color: '#1e3a8a', fontWeight: 700 }}
+                  >
+                    <option value="" disabled>In Gruppe verschieben…</option>
+                    {groups.map((g) => (
+                      <option key={g.id} value={g.id}>{g.name}</option>
+                    ))}
+                  </select>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setSelectedIds([])}
+                  style={{ border: 'none', background: 'transparent', color: '#1e3a8a', cursor: 'pointer', fontWeight: 800, fontSize: 11 }}
+                  title="Auswahl aufheben (Esc)"
+                >
+                  ×
+                </button>
+              </div>
+            )}
+
             <button
               type="button"
               className="btn-secondary btn-sm"
               onClick={() => {
                 if (window.confirm('Whiteboard-Layout leeren? (Objekte bleiben in der linken Liste erhalten.)')) {
                   updateBoard([], {});
+                  setSelectedIds([]);
                 }
               }}
               title="Whiteboard leeren"
@@ -2288,6 +2870,22 @@ export function ObjectsWhiteboardView({
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span
+              style={{
+                fontSize: 10.5,
+                padding: '3px 8px',
+                borderRadius: 6,
+                background: isSpacePressed ? '#fef9c3' : '#f8fafc',
+                border: `1px solid ${isSpacePressed ? '#eab308' : '#e2e8f0'}`,
+                color: isSpacePressed ? '#a16207' : '#64748b',
+                fontWeight: 600,
+              }}
+              title="Tastatur- & Maus-Steuerung auf dem Whiteboard"
+            >
+              {isSpacePressed
+                ? '✋ Leertaste aktiv: Klicken & Ziehen zum Verschieben'
+                : 'Maus ziehen: Auswahl · Cmd/Ctrl+Klick: Multi · Leertaste+Ziehen: Pan · Alt+Scroll: Zoom'}
+            </span>
             <span style={{ fontSize: 11, color: saveState === 'saving' ? '#ea580c' : '#16a34a', fontWeight: 700 }}>
               {saveState === 'saving' ? 'Speichert…' : 'Gespeichert ✓'}
             </span>
@@ -2308,10 +2906,22 @@ export function ObjectsWhiteboardView({
           </div>
         </div>
 
-        {/* Scrollable Dot-Grid Whiteboard Canvas (Alt + Scroll to Zoom) */}
-        <div ref={viewportRef} style={{ flex: 1, overflow: 'auto', position: 'relative' }}>
+        {/* Scrollable Dot-Grid Whiteboard Canvas (Alt+Scroll: Zoom, Space+Drag: Pan, Drag: Marquee Selection) */}
+        <div
+          ref={viewportRef}
+          onPointerDownCapture={(e) => {
+            if (isSpacePressed) handleCanvasPointerDown(e);
+          }}
+          style={{
+            flex: 1,
+            overflow: 'auto',
+            position: 'relative',
+            cursor: isPanning ? 'grabbing' : isSpacePressed ? 'grab' : 'default',
+          }}
+        >
           <div
             ref={canvasRef}
+            onPointerDown={handleCanvasPointerDown}
             onDragOver={(e) => e.preventDefault()}
             onDrop={(e) => handleCanvasDrop(e, null)}
             style={{
@@ -2323,8 +2933,26 @@ export function ObjectsWhiteboardView({
               backgroundImage: 'radial-gradient(#cbd5e1 1.25px, transparent 1.25px)',
               backgroundSize: '22px 22px',
               backgroundColor: '#f8fafc',
+              cursor: isPanning ? 'grabbing' : isSpacePressed ? 'grab' : 'default',
             }}
           >
+            {/* Live Marquee Selection Box */}
+            {marqueeBox && (
+              <div
+                style={{
+                  position: 'absolute',
+                  left: Math.min(marqueeBox.startX, marqueeBox.curX),
+                  top: Math.min(marqueeBox.startY, marqueeBox.curY),
+                  width: Math.abs(marqueeBox.curX - marqueeBox.startX),
+                  height: Math.abs(marqueeBox.curY - marqueeBox.startY),
+                  background: 'rgba(37, 99, 235, 0.12)',
+                  border: '1.5px dashed #2563eb',
+                  borderRadius: 6,
+                  pointerEvents: 'none',
+                  zIndex: 90,
+                }}
+              />
+            )}
             {/* Empty State Hint */}
             {boardLoaded && groups.length === 0 && activeBoardCardEntries.length === 0 && (
               <div
