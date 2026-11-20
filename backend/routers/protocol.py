@@ -1,5 +1,6 @@
 import base64
 import io
+import json
 import re
 import uuid
 import zipfile
@@ -3033,4 +3034,90 @@ def delete_protocol_invoice(
     db.delete(inv)
     db.commit()
     return {"status": "deleted", "id": invoice_id}
+
+
+def _ensure_whiteboard_table(db: Session) -> None:
+    db.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS protocol_whiteboards (
+                board_key TEXT PRIMARY KEY,
+                state_json TEXT NOT NULL,
+                updated_at TEXT
+            )
+            """
+        )
+    )
+    db.commit()
+
+
+@router.get(
+    "/whiteboard",
+    summary="Get saved Objects & Properties planning whiteboard state (groups, card positions)",
+)
+def get_protocol_whiteboard(
+    board_key: str = Query("default"),
+    db: Session = Depends(database.get_db),
+) -> Dict[str, Any]:
+    _ensure_whiteboard_table(db)
+    row = db.execute(
+        text("SELECT state_json, updated_at FROM protocol_whiteboards WHERE board_key = :k"),
+        {"k": board_key},
+    ).fetchone()
+    if not row:
+        return {"board_key": board_key, "groups": [], "cards": {}, "updated_at": None}
+    try:
+        parsed = json.loads(row[0] or "{}")
+    except Exception:
+        parsed = {}
+    return {
+        "board_key": board_key,
+        "groups": parsed.get("groups", []),
+        "cards": parsed.get("cards", {}),
+        "updated_at": row[1],
+    }
+
+
+@router.put(
+    "/whiteboard",
+    summary="Save Objects & Properties planning whiteboard state (groups, card positions)",
+)
+def save_protocol_whiteboard(
+    payload: Dict[str, Any],
+    board_key: str = Query("default"),
+    db: Session = Depends(database.get_db),
+) -> Dict[str, Any]:
+    _ensure_whiteboard_table(db)
+    state_obj = {
+        "groups": payload.get("groups", []),
+        "cards": payload.get("cards", {}),
+    }
+    state_str = json.dumps(state_obj, ensure_ascii=False)
+    now_iso = datetime.utcnow().isoformat()
+    existing = db.execute(
+        text("SELECT board_key FROM protocol_whiteboards WHERE board_key = :k"),
+        {"k": board_key},
+    ).fetchone()
+    if existing:
+        db.execute(
+            text(
+                "UPDATE protocol_whiteboards SET state_json = :s, updated_at = :u WHERE board_key = :k"
+            ),
+            {"s": state_str, "u": now_iso, "k": board_key},
+        )
+    else:
+        db.execute(
+            text(
+                "INSERT INTO protocol_whiteboards (board_key, state_json, updated_at) VALUES (:k, :s, :u)"
+            ),
+            {"k": board_key, "s": state_str, "u": now_iso},
+        )
+    db.commit()
+    return {
+        "board_key": board_key,
+        "groups": state_obj["groups"],
+        "cards": state_obj["cards"],
+        "updated_at": now_iso,
+    }
+
 

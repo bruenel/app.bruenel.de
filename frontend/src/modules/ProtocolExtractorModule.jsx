@@ -31,8 +31,18 @@ import {
   Users,
   Receipt,
   FolderKanban,
+  List,
+  LayoutGrid,
+  Columns,
 } from 'lucide-react';
 import { API_URL, fetchWithToken, getToken } from '../core/api';
+import {
+  ObjectsCalendarView,
+  ObjectsKanbanAndCardsView,
+  ObjectsWhiteboardView,
+  getRemainingCoreWorks,
+  isCoreArbeitCompleted,
+} from './ObjectsViewsBoard';
 
 export const AUSBAU_TYP_OPTIONS = [
   'Metalkanal',
@@ -4295,9 +4305,13 @@ export function ProtocolExtractorModule({ user, mode = 'objects' }) {
   const [colHausBis, setColHausBis] = useState('');
   const [colDateSearch, setColDateSearch] = useState('');
 
+  // View switcher & core completion filter (TA, Flex, HÜP, Spleißen)
+  const [objectViewMode, setObjectViewMode] = useState('list'); // list | calendar | board | whiteboard
+  const [hideCompletedCoreWork, setHideCompletedCoreWork] = useState(true);
+
   // Sorting state for main Objects & Properties overview
-  const [sortBy, setSortBy] = useState('created');
-  const [sortDir, setSortDir] = useState('desc');
+  const [sortBy, setSortBy] = useState('ausbautermin');
+  const [sortDir, setSortDir] = useState('asc');
 
   const toggleColumnSort = (colKey) => {
     if (sortBy === colKey) {
@@ -4517,6 +4531,10 @@ export function ProtocolExtractorModule({ user, mode = 'objects' }) {
         if (!combinedDates.includes(q)) return false;
       }
 
+      if (hideCompletedCoreWork && isCoreArbeitCompleted(addr, calcBuildingProgress)) {
+        return false;
+      }
+
       if (globalSearch.trim()) {
         const q = globalSearch.trim().toLowerCase();
         const hay = [
@@ -4607,15 +4625,28 @@ export function ProtocolExtractorModule({ user, mode = 'objects' }) {
       } else if (sortBy === 'ausbautermin') {
         const da = dateValueForSort(a.ausbautermin);
         const db = dateValueForSort(b.ausbautermin);
+        if (!da && !db) return 0;
+        if (!da) return 1;
+        if (!db) return -1;
         if (da !== db) return (da - db) * dir;
       } else if (sortBy === 'abgeschlossen_datum') {
         const da = dateValueForSort(a.abgeschlossen_datum);
         const db = dateValueForSort(b.abgeschlossen_datum);
+        if (!da && !db) return 0;
+        if (!da) return 1;
+        if (!db) return -1;
         if (da !== db) return (da - db) * dir;
       } else if (sortBy === 'restarbeit_termin') {
         const da = dateValueForSort(a.restarbeit_termin);
         const db = dateValueForSort(b.restarbeit_termin);
+        if (!da && !db) return 0;
+        if (!da) return 1;
+        if (!db) return -1;
         if (da !== db) return (da - db) * dir;
+      } else if (sortBy === 'remaining_work') {
+        const ra = getRemainingCoreWorks(a, calcBuildingProgress).remainingCount;
+        const rb = getRemainingCoreWorks(b, calcBuildingProgress).remainingCount;
+        if (ra !== rb) return (ra - rb) * dir;
       } else if (sortBy === 'checklist') {
         if (progA.doneChecks !== progB.doneChecks) return (progA.doneChecks - progB.doneChecks) * dir;
       } else if (sortBy === 'comments') {
@@ -4648,6 +4679,7 @@ export function ProtocolExtractorModule({ user, mode = 'objects' }) {
     colHausBis,
     colDateSearch,
     globalSearch,
+    hideCompletedCoreWork,
     sortBy,
     sortDir,
   ]);
@@ -4659,6 +4691,7 @@ export function ProtocolExtractorModule({ user, mode = 'objects' }) {
     let totalResAll = 0;
     let totalOhneAll = 0;
     let completedObjCount = 0;
+    let completedCoreCount = 0;
 
     addresses.forEach((a) => {
       const { totalWe, taCount, reserveCount, ohneCount } = calcBuildingProgress(a);
@@ -4668,6 +4701,9 @@ export function ProtocolExtractorModule({ user, mode = 'objects' }) {
       totalOhneAll += ohneCount;
       if ((a.building_status || '') === 'Abgeschlossen') {
         completedObjCount += 1;
+      }
+      if (isCoreArbeitCompleted(a, calcBuildingProgress)) {
+        completedCoreCount += 1;
       }
     });
 
@@ -4679,6 +4715,7 @@ export function ProtocolExtractorModule({ user, mode = 'objects' }) {
       totalResAll,
       totalOhneAll,
       completedObjCount,
+      completedCoreCount,
     };
   }, [addresses, filteredAddresses]);
 
@@ -5536,6 +5573,10 @@ export function ProtocolExtractorModule({ user, mode = 'objects' }) {
               }}
               title="Objekte sortieren nach"
             >
+              <option value="ausbautermin">Sort: Ausbau Datum</option>
+              <option value="remaining_work">Sort: Offene Arbeiten (TA/Flex/HÜP/Spl)</option>
+              <option value="restarbeit_termin">Sort: Restarbeit Termin</option>
+              <option value="abgeschlossen_datum">Sort: Abgeschlossen Datum</option>
               <option value="created">Sort: Erstellt / Import</option>
               <option value="ort">Sort: Gemeinde / Ort</option>
               <option value="strasse">Sort: Straße & Hausnr.</option>
@@ -5549,9 +5590,6 @@ export function ProtocolExtractorModule({ user, mode = 'objects' }) {
               <option value="ausbau_typ">Sort: Ausbau-Typ</option>
               <option value="team">Sort: Ausbau Team</option>
               <option value="building_status">Sort: Gebäude-Status</option>
-              <option value="ausbautermin">Sort: Ausbau Datum</option>
-              <option value="abgeschlossen_datum">Sort: Abgeschlossen Datum</option>
-              <option value="restarbeit_termin">Sort: Restarbeit Termin</option>
               <option value="checklist">Sort: Checkliste Fortschritt</option>
               <option value="priority">Sort: Priorität (★)</option>
               <option value="comments">Sort: Kommentare</option>
@@ -5614,7 +5652,159 @@ export function ProtocolExtractorModule({ user, mode = 'objects' }) {
           </div>
         </div>
 
+        {/* VIEW MODE SWITCHER BAR (Liste | Kalender | Board & Karten | Whiteboard & Restarbeiten-Tracker) */}
+        <div
+          style={{
+            padding: '8px 14px',
+            background: '#ffffff',
+            borderBottom: '1px solid #e2e8f0',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: 8,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            {[
+              { id: 'list', label: 'Listenansicht', icon: List },
+              { id: 'calendar', label: 'Kalenderansicht', icon: Calendar },
+              { id: 'board', label: 'Board & Karten', icon: Columns },
+              { id: 'whiteboard', label: 'Whiteboard & Restarbeiten-Tracker', icon: Sparkles, highlight: true },
+            ].map((v) => {
+              const IconComp = v.icon;
+              const active = objectViewMode === v.id;
+              return (
+                <button
+                  key={v.id}
+                  type="button"
+                  onClick={() => setObjectViewMode(v.id)}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '6px 12px',
+                    borderRadius: 8,
+                    fontSize: 12,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease',
+                    border: active
+                      ? '1.5px solid #FF6B00'
+                      : v.highlight
+                      ? '1px solid #fdba74'
+                      : '1px solid #cbd5e1',
+                    background: active
+                      ? '#FF6B00'
+                      : v.highlight
+                      ? '#fff7ed'
+                      : '#ffffff',
+                    color: active
+                      ? '#ffffff'
+                      : v.highlight
+                      ? '#c2410c'
+                      : '#334155',
+                  }}
+                >
+                  <IconComp size={14} />
+                  <span>{v.label}</span>
+                  {v.id === 'whiteboard' && (
+                    <span
+                      style={{
+                        fontSize: 10.5,
+                        fontWeight: 800,
+                        padding: '1px 6px',
+                        borderRadius: 999,
+                        background: active ? 'rgba(255,255,255,0.22)' : '#ffedd5',
+                        color: active ? '#fff' : '#9a3412',
+                      }}
+                    >
+                      {Math.max(0, addresses.length - overviewStats.completedCoreCount)} offen
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setHideCompletedCoreWork((v) => !v)}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '5px 10px',
+              borderRadius: 8,
+              fontSize: 11.5,
+              fontWeight: 700,
+              cursor: 'pointer',
+              border: hideCompletedCoreWork ? '1px solid #86efac' : '1px solid #cbd5e1',
+              background: hideCompletedCoreWork ? '#f0fdf4' : '#f8fafc',
+              color: hideCompletedCoreWork ? '#15803d' : '#475569',
+            }}
+            title="Wenn aktiv, werden Objekte mit komplettem TA + Flex + HÜP + Spleißen automatisch aus der Hauptliste ausgeblendet"
+          >
+            <CheckCircle2 size={13} />
+            {hideCompletedCoreWork
+              ? `Fertige (TA·Flex·HÜP·Spl) ausgeblendet (${overviewStats.completedCoreCount})`
+              : `Fertige (TA·Flex·HÜP·Spl) werden angezeigt (${overviewStats.completedCoreCount})`}
+          </button>
+        </div>
+
+        {/* SPECIAL VIEW: WHITEBOARD & IN-PLACE COMPLETION TRACKER */}
+        {objectViewMode === 'whiteboard' && (
+          <ObjectsWhiteboardView
+            allAddresses={addresses}
+            fieldTeams={fieldTeams}
+            calcBuildingProgress={calcBuildingProgress}
+            dateValueForSort={dateValueForSort}
+            MinimalDatePicker={MinimalDatePicker}
+            BUILDING_STATUS_OPTIONS={BUILDING_STATUS_OPTIONS}
+            onPatchBuilding={handlePatchBuilding}
+            onUnitChange={handleUnitChange}
+            onAddComment={(addrId, text) => handleAddComment(addrId, text, user?.full_name || user?.email || 'Management')}
+            onOpenDetail={(addrId) => setSelectedBuildingId(addrId)}
+            showToast={showToast}
+          />
+        )}
+
+        {/* CALENDAR VIEW */}
+        {objectViewMode === 'calendar' && (
+          <ObjectsCalendarView
+            addresses={filteredAddresses}
+            fieldTeams={fieldTeams}
+            calcBuildingProgress={calcBuildingProgress}
+            parseDdMmYyyyToDate={parseDdMmYyyyToDate}
+            MinimalDatePicker={MinimalDatePicker}
+            BUILDING_STATUS_OPTIONS={BUILDING_STATUS_OPTIONS}
+            BUILDING_STATUS_PILL={BUILDING_STATUS_PILL}
+            onPatchBuilding={handlePatchBuilding}
+            onUnitChange={handleUnitChange}
+            onOpenDetail={(addrId) => setSelectedBuildingId(addrId)}
+            showToast={showToast}
+          />
+        )}
+
+        {/* KANBAN STATUS BOARD & CARDS VIEW */}
+        {objectViewMode === 'board' && (
+          <ObjectsKanbanAndCardsView
+            addresses={filteredAddresses}
+            fieldTeams={fieldTeams}
+            calcBuildingProgress={calcBuildingProgress}
+            MinimalDatePicker={MinimalDatePicker}
+            BUILDING_STATUS_OPTIONS={BUILDING_STATUS_OPTIONS}
+            BUILDING_STATUS_PILL={BUILDING_STATUS_PILL}
+            onPatchBuilding={handlePatchBuilding}
+            onUnitChange={handleUnitChange}
+            onOpenDetail={(addrId) => setSelectedBuildingId(addrId)}
+            showToast={showToast}
+          />
+        )}
+
         {/* DESKTOP MINIMAL ACCORDION VIEW (Important infos in main row, smooth animated expand) */}
+        {objectViewMode === 'list' && (
+        <>
         <div className="protocol-desktop-table" style={{ padding: '10px 14px' }}>
           {loading ? (
             <div style={{ padding: 32, textAlign: 'center', color: '#64748b', fontSize: 12.5 }}>
@@ -6168,6 +6358,8 @@ export function ProtocolExtractorModule({ user, mode = 'objects' }) {
             })
           )}
         </div>
+        </>
+        )}
       </div>
 
       {/* Quick Comments Modal */}
