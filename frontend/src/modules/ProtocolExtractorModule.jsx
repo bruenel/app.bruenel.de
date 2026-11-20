@@ -34,6 +34,8 @@ import {
   List,
   LayoutGrid,
   Columns,
+  SlidersHorizontal,
+  ArrowUpDown,
 } from 'lucide-react';
 import { API_URL, fetchWithToken, getToken } from '../core/api';
 import {
@@ -4306,8 +4308,9 @@ export function ProtocolExtractorModule({ user, mode = 'objects' }) {
   const [colHausBis, setColHausBis] = useState('');
   const [colDateSearch, setColDateSearch] = useState('');
 
-  // View switcher & separated group toggles
+  // View switcher, animated header drawers & separated group toggles
   const [objectViewMode, setObjectViewMode] = useState('list'); // list | calendar | board | whiteboard
+  const [activeHeaderPanel, setActiveHeaderPanel] = useState(null); // null | 'filter' | 'sort'
   const [completedGroupOpen, setCompletedGroupOpen] = useState(true);
   const [invoicedGroupOpen, setInvoicedGroupOpen] = useState(true);
   const [paidGroupOpen, setPaidGroupOpen] = useState(true);
@@ -5048,18 +5051,6 @@ export function ProtocolExtractorModule({ user, mode = 'objects' }) {
           </div>
         )}
 
-        <ProjectsSubNav
-          activeTab={activeMode}
-          objectsCount={addresses.length}
-          invoicesCount={invoices.length}
-          teamsCount={fieldTeams.length}
-          projectsCount={projects.length}
-          navigate={(to) => {
-            setSelectedBuildingId(null);
-            navigate(to);
-          }}
-        />
-
         <BuildingDetailView
           building={selectedBuilding}
           fieldTeams={fieldTeams}
@@ -5137,15 +5128,6 @@ export function ProtocolExtractorModule({ user, mode = 'objects' }) {
           </div>
         )}
 
-        <ProjectsSubNav
-          activeTab="abrechnung"
-          objectsCount={addresses.length}
-          invoicesCount={invoices.length}
-          teamsCount={fieldTeams.length}
-          projectsCount={projects.length}
-          navigate={navigate}
-        />
-
         <AbrechnungView
           addresses={addresses}
           invoices={invoices}
@@ -5188,16 +5170,6 @@ export function ProtocolExtractorModule({ user, mode = 'objects' }) {
           <span>{toast.msg}</span>
         </div>
       )}
-
-      {/* Top SubTabs for Projects & Objects */}
-      <ProjectsSubNav
-        activeTab="objects"
-        objectsCount={addresses.length}
-        invoicesCount={invoices.length}
-        teamsCount={fieldTeams.length}
-        projectsCount={projects.length}
-        navigate={navigate}
-      />
 
       {/* Minimal Single-Row Header + Gesamtzahl Objekte KPI + Compact Inline AI PDF Import + New + Excel */}
       <div
@@ -5324,437 +5296,512 @@ export function ProtocolExtractorModule({ user, mode = 'objects' }) {
           boxShadow: '0 2px 10px rgba(15, 23, 42, 0.04)',
         }}
       >
-        {/* Top Filter Toolbar (Light Mode) */}
-        <div
-          style={{
-            padding: '10px 14px',
-            borderBottom: '1px solid #e2e8f0',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            flexWrap: 'wrap',
-            gap: 8,
-            background: '#f8fafc',
-            borderTopLeftRadius: 12,
-            borderTopRightRadius: 12,
-          }}
-        >
-          <div
-            className="protocol-filter-toolbar"
-            style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', flex: 1 }}
-          >
-            {/* Global Search */}
-            <div
-              className="protocol-filter-search"
-              style={{ position: 'relative', minWidth: 185, flex: '1 1 190px', maxWidth: 260 }}
-            >
-              <Search
-                size={13}
+        {/* =================================================================
+            CLEAN, FEATURE-SEPARATED & ANIMATED VIEW / SEARCH / FILTER / SORT BAR
+           ================================================================= */}
+        {(() => {
+          const activeFilterCount = [
+            onlyPriority,
+            projectFilter !== 'ALL',
+            monthFilter !== 'ALL',
+            ortFilter !== 'ALL',
+            ausbauTypFilter !== 'ALL',
+            statusFilter !== 'ALL',
+            teamFilter !== 'ALL',
+            buildingFlagFilter !== 'ALL',
+          ].filter(Boolean).length;
+
+          const SORT_OPTIONS = [
+            { id: 'ausbautermin', label: 'Ausbau Datum', group: 'Termine' },
+            { id: 'restarbeit_termin', label: 'Restarbeit Termin', group: 'Termine' },
+            { id: 'abgeschlossen_datum', label: 'Abgeschlossen', group: 'Termine' },
+            { id: 'created', label: 'Erstellt / Import', group: 'Termine' },
+            { id: 'remaining_work', label: 'Offene Arbeiten', group: 'Arbeit & Status' },
+            { id: 'building_status', label: 'Gebäude-Status', group: 'Arbeit & Status' },
+            { id: 'progress', label: 'Fortschritt (%)', group: 'Arbeit & Status' },
+            { id: 'checklist', label: 'Checkliste', group: 'Arbeit & Status' },
+            { id: 'priority', label: 'Priorität (★)', group: 'Arbeit & Status' },
+            { id: 'ort', label: 'Gemeinde / Ort', group: 'Standort & Objekt' },
+            { id: 'strasse', label: 'Straße & Hausnr.', group: 'Standort & Objekt' },
+            { id: 'project_name', label: 'Projekt', group: 'Standort & Objekt' },
+            { id: 'team', label: 'Ausbau Team', group: 'Standort & Objekt' },
+            { id: 'ausbau_typ', label: 'Ausbau-Typ', group: 'Standort & Objekt' },
+            { id: 'total_we', label: 'WE Gesamt', group: 'Standort & Objekt' },
+            { id: 'ta_count', label: 'TA installiert', group: 'Standort & Objekt' },
+            { id: 'adress_id', label: 'Adress-ID', group: 'Standort & Objekt' },
+            { id: 'projektnummer', label: 'WE-Nummer', group: 'Standort & Objekt' },
+          ];
+          const currentSortLabel = SORT_OPTIONS.find((s) => s.id === sortBy)?.label || 'Ausbau Datum';
+
+          const filteredOpenCount = filteredAddresses.filter((a) => getObjectBillingStage(a, calcBuildingProgress) === 'open').length;
+          const filteredReadyCount = filteredAddresses.filter((a) => getObjectBillingStage(a, calcBuildingProgress) === 'completed_unbilled').length;
+          const filteredInvoicedCount = filteredAddresses.filter((a) => getObjectBillingStage(a, calcBuildingProgress) === 'invoiced').length;
+          const filteredPaidCount = filteredAddresses.filter((a) => getObjectBillingStage(a, calcBuildingProgress) === 'paid').length;
+
+          const selectStyle = (isActive) => ({
+            width: '100%',
+            padding: '7px 10px',
+            fontSize: 12,
+            fontWeight: isActive ? 700 : 500,
+            background: isActive ? '#fff7ed' : '#ffffff',
+            border: `1px solid ${isActive ? '#FF6B00' : '#cbd5e1'}`,
+            color: isActive ? '#9a3412' : '#0f172a',
+            borderRadius: 8,
+            transition: 'all 0.15s ease',
+          });
+
+          return (
+            <div style={{ borderTopLeftRadius: 12, borderTopRightRadius: 12, overflow: 'hidden', borderBottom: '1px solid #e2e8f0', background: '#ffffff' }}>
+              {/* ROW 1: View Switcher (Left) + Search & Animated Feature Toggles (Right) */}
+              <div
                 style={{
-                  position: 'absolute',
-                  left: 10,
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  color: '#64748b',
+                  padding: '10px 14px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  flexWrap: 'wrap',
+                  gap: 10,
                 }}
-              />
-              <input
-                value={globalSearch}
-                onChange={(e) => setGlobalSearch(e.target.value)}
-                placeholder="Suchen (Adress-ID, WE-Nr, Straße, Team)…"
-                style={{
-                  padding: '6px 10px 6px 28px',
-                  fontSize: 12,
-                  background: '#ffffff',
-                  border: '1px solid #cbd5e1',
-                  color: '#0f172a',
-                  borderRadius: 7,
-                }}
-              />
-            </div>
-
-            {/* ★ Priority Filter */}
-            <button
-              type="button"
-              onClick={() => setOnlyPriority((p) => !p)}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 5,
-                padding: '6px 10px',
-                borderRadius: 7,
-                fontSize: 12,
-                fontWeight: 600,
-                cursor: 'pointer',
-                background: onlyPriority ? '#fef9c3' : '#ffffff',
-                border: onlyPriority ? '1px solid #eab308' : '1px solid #cbd5e1',
-                color: onlyPriority ? '#a16207' : '#334155',
-              }}
-            >
-              <Star size={13} fill={onlyPriority ? '#eab308' : 'none'} />
-              <span>Priorität</span>
-            </button>
-
-            {/* Projekt Filter (Synced with Projects & Regions, default includes UGG) */}
-            <select
-              value={projectFilter}
-              onChange={(e) => setProjectFilter(e.target.value)}
-              style={{
-                width: 'auto',
-                minWidth: 135,
-                padding: '6px 9px',
-                fontSize: 12,
-                fontWeight: 700,
-                background: projectFilter !== 'ALL' ? '#faf5ff' : '#ffffff',
-                border: projectFilter !== 'ALL' ? '1px solid #9333ea' : '1px solid #cbd5e1',
-                color: projectFilter !== 'ALL' ? '#6b21a8' : '#0f172a',
-                borderRadius: 7,
-              }}
-            >
-              <option value="ALL">Projekt: Alle</option>
-              {filterOptions.projects.map((pName) => (
-                <option key={pName} value={pName}>
-                  Projekt: {pName}
-                </option>
-              ))}
-            </select>
-
-            {/* Month Filter */}
-            <select
-              value={monthFilter}
-              onChange={(e) => setMonthFilter(e.target.value)}
-              style={{
-                width: 'auto',
-                minWidth: 125,
-                padding: '6px 9px',
-                fontSize: 12,
-                background: monthFilter !== 'ALL' ? '#fff7ed' : '#ffffff',
-                border: monthFilter !== 'ALL' ? '1px solid #FF6B00' : '1px solid #cbd5e1',
-                color: '#0f172a',
-                borderRadius: 7,
-              }}
-            >
-              <option value="ALL">Monat: Alle</option>
-              {filterOptions.months.map((m) => (
-                <option key={m} value={m}>
-                  Monat: {m}
-                </option>
-              ))}
-            </select>
-
-            {/* Normalized Single-City Gemeinde Filter */}
-            <select
-              value={ortFilter}
-              onChange={(e) => setOrtFilter(e.target.value)}
-              style={{
-                width: 'auto',
-                minWidth: 130,
-                padding: '6px 9px',
-                fontSize: 12,
-                background: ortFilter !== 'ALL' ? '#fff7ed' : '#ffffff',
-                border: ortFilter !== 'ALL' ? '1px solid #FF6B00' : '1px solid #cbd5e1',
-                color: '#0f172a',
-                borderRadius: 7,
-              }}
-            >
-              <option value="ALL">Gemeinde: Alle</option>
-              {filterOptions.orte.map((o) => (
-                <option key={o} value={o}>
-                  {o}
-                </option>
-              ))}
-            </select>
-
-            {/* Ausbau-Typ Filter */}
-            <select
-              value={ausbauTypFilter}
-              onChange={(e) => setAusbauTypFilter(e.target.value)}
-              style={{
-                width: 'auto',
-                minWidth: 130,
-                padding: '6px 9px',
-                fontSize: 12,
-                background: '#ffffff',
-                border: '1px solid #cbd5e1',
-                color: '#0f172a',
-                borderRadius: 7,
-              }}
-            >
-              <option value="ALL">Ausbau-Typ: Alle</option>
-              {AUSBAU_TYP_OPTIONS.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </select>
-
-            {/* Status Filter */}
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              style={{
-                width: 'auto',
-                minWidth: 130,
-                padding: '6px 9px',
-                fontSize: 12,
-                background: '#ffffff',
-                border: '1px solid #cbd5e1',
-                color: '#0f172a',
-                borderRadius: 7,
-              }}
-            >
-              <option value="ALL">Status: Alle</option>
-              {BUILDING_STATUS_OPTIONS.map((st) => (
-                <option key={st} value={st}>
-                  {st}
-                </option>
-              ))}
-            </select>
-
-            {/* Teams Filter (from Projects & Objects) */}
-            <select
-              value={teamFilter}
-              onChange={(e) => setTeamFilter(e.target.value)}
-              style={{
-                width: 'auto',
-                minWidth: 130,
-                padding: '6px 9px',
-                fontSize: 12,
-                background: '#ffffff',
-                border: '1px solid #cbd5e1',
-                color: '#0f172a',
-                borderRadius: 7,
-              }}
-            >
-              <option value="ALL">Team: Alle</option>
-              {filterOptions.teams.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </select>
-
-            {/* Building Checklist Filter */}
-            <select
-              value={buildingFlagFilter}
-              onChange={(e) => setBuildingFlagFilter(e.target.value)}
-              style={{
-                width: 'auto',
-                minWidth: 145,
-                padding: '6px 9px',
-                fontSize: 12,
-                background: '#ffffff',
-                border: '1px solid #cbd5e1',
-                color: '#0f172a',
-                borderRadius: 7,
-              }}
-            >
-              <option value="ALL">Checkliste: Alle</option>
-              <option value="METALKANAL_YES">Metalkanal installed: Ja</option>
-              <option value="METALKANAL_NO">Metalkanal installed: Nein</option>
-              <option value="FLEXROHR_YES">Flexrohr: Ja</option>
-              <option value="HUEP_YES">HÜP installiert: Ja</option>
-              <option value="SPLEISSEN_YES">Spleißen fertig: Ja</option>
-              <option value="UPLOAD_YES">Fotos Uploaded: Ja</option>
-              <option value="UPLOAD_NO">Fotos Uploaded: Nein</option>
-              <option value="GENEHMIGT_YES">Genehmigt: Ja</option>
-              <option value="RECHNUNG_ERSTELLT_YES">Rechnung erstellt</option>
-              <option value="RECHNUNG_BEZAHLT_YES">Rechnung bezahlt</option>
-              <option value="RECHNUNG_OFFEN">Rechnung offen</option>
-              <option value="HAS_PDF">Mit Protokoll-PDF</option>
-            </select>
-
-            {/* Sort By Dropdown */}
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value)}
-              style={{
-                width: 'auto',
-                minWidth: 165,
-                padding: '6px 9px',
-                fontSize: 12,
-                fontWeight: 700,
-                background: '#fff7ed',
-                border: '1px solid #FF6B00',
-                color: '#0f172a',
-                borderRadius: 7,
-              }}
-              title="Objekte sortieren nach"
-            >
-              <option value="ausbautermin">Sort: Ausbau Datum</option>
-              <option value="remaining_work">Sort: Offene Arbeiten (TA/Flex/HÜP/Spl)</option>
-              <option value="restarbeit_termin">Sort: Restarbeit Termin</option>
-              <option value="abgeschlossen_datum">Sort: Abgeschlossen Datum</option>
-              <option value="created">Sort: Erstellt / Import</option>
-              <option value="ort">Sort: Gemeinde / Ort</option>
-              <option value="strasse">Sort: Straße & Hausnr.</option>
-              <option value="hausnummer">Sort: Hausnummer</option>
-              <option value="project_name">Sort: Projekt</option>
-              <option value="adress_id">Sort: Adress-ID</option>
-              <option value="projektnummer">Sort: WE-Nummer</option>
-              <option value="progress">Sort: Fortschritt (%)</option>
-              <option value="total_we">Sort: Wohnungen (WE Gesamt)</option>
-              <option value="ta_count">Sort: TA installiert</option>
-              <option value="ausbau_typ">Sort: Ausbau-Typ</option>
-              <option value="team">Sort: Ausbau Team</option>
-              <option value="building_status">Sort: Gebäude-Status</option>
-              <option value="checklist">Sort: Checkliste Fortschritt</option>
-              <option value="priority">Sort: Priorität (★)</option>
-              <option value="comments">Sort: Kommentare</option>
-            </select>
-
-            {/* Sort Direction Toggle */}
-            <button
-              type="button"
-              onClick={() => setSortDir((p) => (p === 'asc' ? 'desc' : 'asc'))}
-              style={{
-                padding: '6px 10px',
-                borderRadius: 7,
-                border: '1px solid #cbd5e1',
-                background: '#ffffff',
-                color: '#0f172a',
-                fontSize: 12,
-                fontWeight: 700,
-                cursor: 'pointer',
-              }}
-              title={sortDir === 'asc' ? 'Aufsteigend sortiert' : 'Absteigend sortiert'}
-            >
-              {sortDir === 'asc' ? '↑ Aufsteigend' : '↓ Absteigend'}
-            </button>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <button
-              type="button"
-              onClick={() => {
-                const anyOpen = filteredAddresses.some((a) => Boolean(expandedObjectMap[a.id]));
-                const next = {};
-                filteredAddresses.forEach((a) => {
-                  next[a.id] = !anyOpen;
-                });
-                setExpandedObjectMap(next);
-              }}
-              disabled={filteredAddresses.length === 0}
-              className="btn-secondary btn-sm"
-              style={{ padding: '6px 10px', fontSize: 11.5 }}
-            >
-              {filteredAddresses.some((a) => Boolean(expandedObjectMap[a.id])) ? 'Alle zuklappen' : 'Alle aufklappen'}
-            </button>
-            <button
-              type="button"
-              onClick={resetAllFilters}
-              className="btn-secondary btn-sm"
-              style={{ padding: '6px 10px', fontSize: 11.5 }}
-            >
-              Reset
-            </button>
-            <button
-              type="button"
-              onClick={loadAddressesAndTeams}
-              className="btn-secondary btn-sm"
-              style={{ padding: '6px 8px' }}
-              title="Aktualisieren"
-            >
-              <RefreshCw size={13} />
-            </button>
-          </div>
-        </div>
-
-        {/* VIEW MODE SWITCHER BAR (Liste | Kalender | Board & Karten | Whiteboard & Restarbeiten-Tracker) */}
-        <div
-          style={{
-            padding: '8px 14px',
-            background: '#ffffff',
-            borderBottom: '1px solid #e2e8f0',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            flexWrap: 'wrap',
-            gap: 8,
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-            {[
-              { id: 'list', label: 'Listenansicht', icon: List },
-              { id: 'calendar', label: 'Kalenderansicht', icon: Calendar },
-              { id: 'board', label: 'Board & Karten', icon: Columns },
-              { id: 'whiteboard', label: 'Whiteboard & Restarbeiten-Tracker', icon: Sparkles, highlight: true },
-            ].map((v) => {
-              const IconComp = v.icon;
-              const active = objectViewMode === v.id;
-              return (
-                <button
-                  key={v.id}
-                  type="button"
-                  onClick={() => setObjectViewMode(v.id)}
+              >
+                {/* Segmented View Pill Switcher */}
+                <div
                   style={{
                     display: 'inline-flex',
                     alignItems: 'center',
-                    gap: 6,
-                    padding: '6px 12px',
-                    borderRadius: 8,
-                    fontSize: 12,
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                    transition: 'all 0.15s ease',
-                    border: active
-                      ? '1.5px solid #FF6B00'
-                      : v.highlight
-                      ? '1px solid #fdba74'
-                      : '1px solid #cbd5e1',
-                    background: active
-                      ? '#FF6B00'
-                      : v.highlight
-                      ? '#fff7ed'
-                      : '#ffffff',
-                    color: active
-                      ? '#ffffff'
-                      : v.highlight
-                      ? '#c2410c'
-                      : '#334155',
+                    gap: 4,
+                    padding: 4,
+                    borderRadius: 10,
+                    background: '#f1f5f9',
+                    border: '1px solid #e2e8f0',
+                    flexWrap: 'wrap',
                   }}
                 >
-                  <IconComp size={14} />
-                  <span>{v.label}</span>
-                  {v.id === 'whiteboard' && (
-                    <span
+                  {[
+                    { id: 'list', label: 'Liste', icon: List },
+                    { id: 'calendar', label: 'Kalender', icon: Calendar },
+                    { id: 'board', label: 'Board & Karten', icon: Columns },
+                    { id: 'whiteboard', label: 'Whiteboard', icon: Sparkles },
+                  ].map((v) => {
+                    const IconComp = v.icon;
+                    const active = objectViewMode === v.id;
+                    return (
+                      <button
+                        key={v.id}
+                        type="button"
+                        onClick={() => setObjectViewMode(v.id)}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          padding: '6px 12px',
+                          borderRadius: 7,
+                          fontSize: 12,
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          border: 'none',
+                          transition: 'all 0.2s cubic-bezier(0.22, 1, 0.36, 1)',
+                          background: active ? '#ffffff' : 'transparent',
+                          color: active ? '#FF6B00' : '#475569',
+                          boxShadow: active ? '0 1px 4px rgba(15, 23, 42, 0.1)' : 'none',
+                          transform: active ? 'translateY(-0.5px)' : 'none',
+                        }}
+                      >
+                        <IconComp size={14} />
+                        <span>{v.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Right: Search + Separated Feature Toggle Buttons */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', flex: '1 1 320px', justifyContent: 'flex-end' }}>
+                  {/* Minimal Search Input */}
+                  <div style={{ position: 'relative', flex: '1 1 200px', maxWidth: 280 }}>
+                    <Search
+                      size={14}
+                      style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }}
+                    />
+                    <input
+                      value={globalSearch}
+                      onChange={(e) => setGlobalSearch(e.target.value)}
+                      placeholder="Suchen (Straße, Ort, ID, Team)…"
                       style={{
-                        fontSize: 10.5,
-                        fontWeight: 800,
-                        padding: '1px 6px',
-                        borderRadius: 999,
-                        background: active ? 'rgba(255,255,255,0.22)' : '#ffedd5',
-                        color: active ? '#fff' : '#9a3412',
+                        width: '100%',
+                        padding: '7px 28px 7px 31px',
+                        fontSize: 12,
+                        background: '#f8fafc',
+                        border: `1px solid ${globalSearch ? '#FF6B00' : '#cbd5e1'}`,
+                        color: '#0f172a',
+                        borderRadius: 8,
+                        transition: 'all 0.15s ease',
                       }}
+                    />
+                    {globalSearch && (
+                      <button
+                        type="button"
+                        onClick={() => setGlobalSearch('')}
+                        style={{ position: 'absolute', right: 7, top: '50%', transform: 'translateY(-50%)', border: 'none', background: 'transparent', color: '#64748b', cursor: 'pointer', padding: 2 }}
+                        title="Suche leeren"
+                      >
+                        <X size={13} />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Animated Filter Drawer Toggle */}
+                  <button
+                    type="button"
+                    onClick={() => setActiveHeaderPanel((p) => (p === 'filter' ? null : 'filter'))}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      padding: '7px 12px',
+                      borderRadius: 8,
+                      fontSize: 12,
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      transition: 'all 0.2s cubic-bezier(0.22, 1, 0.36, 1)',
+                      border: activeHeaderPanel === 'filter' || activeFilterCount > 0 ? '1px solid #FF6B00' : '1px solid #cbd5e1',
+                      background: activeHeaderPanel === 'filter' ? '#FF6B00' : activeFilterCount > 0 ? '#fff7ed' : '#ffffff',
+                      color: activeHeaderPanel === 'filter' ? '#ffffff' : activeFilterCount > 0 ? '#c2410c' : '#334155',
+                    }}
+                  >
+                    <SlidersHorizontal size={13} />
+                    <span>Filter</span>
+                    {activeFilterCount > 0 && (
+                      <span
+                        style={{
+                          fontSize: 10.5,
+                          fontWeight: 800,
+                          padding: '1px 6px',
+                          borderRadius: 999,
+                          background: activeHeaderPanel === 'filter' ? 'rgba(255,255,255,0.24)' : '#FF6B00',
+                          color: '#ffffff',
+                        }}
+                      >
+                        {activeFilterCount}
+                      </span>
+                    )}
+                    <ChevronDown
+                      size={13}
+                      style={{
+                        transition: 'transform 0.22s ease',
+                        transform: activeHeaderPanel === 'filter' ? 'rotate(180deg)' : 'rotate(0deg)',
+                      }}
+                    />
+                  </button>
+
+                  {/* Animated Sort Drawer Toggle */}
+                  <button
+                    type="button"
+                    onClick={() => setActiveHeaderPanel((p) => (p === 'sort' ? null : 'sort'))}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      padding: '7px 12px',
+                      borderRadius: 8,
+                      fontSize: 12,
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      transition: 'all 0.2s cubic-bezier(0.22, 1, 0.36, 1)',
+                      border: activeHeaderPanel === 'sort' ? '1px solid #0f172a' : '1px solid #cbd5e1',
+                      background: activeHeaderPanel === 'sort' ? '#0f172a' : '#ffffff',
+                      color: activeHeaderPanel === 'sort' ? '#ffffff' : '#334155',
+                    }}
+                  >
+                    <ArrowUpDown size={13} />
+                    <span>{currentSortLabel} {sortDir === 'asc' ? '↑' : '↓'}</span>
+                    <ChevronDown
+                      size={13}
+                      style={{
+                        transition: 'transform 0.22s ease',
+                        transform: activeHeaderPanel === 'sort' ? 'rotate(180deg)' : 'rotate(0deg)',
+                      }}
+                    />
+                  </button>
+
+                  {objectViewMode === 'list' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const anyOpen = filteredAddresses.some((a) => Boolean(expandedObjectMap[a.id]));
+                        const next = {};
+                        filteredAddresses.forEach((a) => {
+                          next[a.id] = !anyOpen;
+                        });
+                        setExpandedObjectMap(next);
+                      }}
+                      disabled={filteredAddresses.length === 0}
+                      className="btn-secondary btn-sm"
+                      style={{ padding: '7px 10px', fontSize: 11.5 }}
                     >
-                      {Math.max(0, addresses.length - overviewStats.completedCoreCount)} offen
-                    </span>
+                      {filteredAddresses.some((a) => Boolean(expandedObjectMap[a.id])) ? 'Alle zuklappen' : 'Alle aufklappen'}
+                    </button>
                   )}
-                </button>
-              );
-            })}
-          </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 9px', borderRadius: 7, fontSize: 11, fontWeight: 700, border: '1px solid #fdba74', background: '#fff7ed', color: '#c2410c' }}>
-              Offen: {Math.max(0, addresses.length - overviewStats.completedUnbilledCount - overviewStats.invoicedCount - overviewStats.paidCount)}
-            </span>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 9px', borderRadius: 7, fontSize: 11, fontWeight: 700, border: '1px solid #86efac', background: '#f0fdf4', color: '#15803d' }}>
-              ✓ Bereit f. RE: {overviewStats.completedUnbilledCount}
-            </span>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 9px', borderRadius: 7, fontSize: 11, fontWeight: 700, border: '1px solid #93c5fd', background: '#eff6ff', color: '#1d4ed8' }}>
-              📄 RE erstellt: {overviewStats.invoicedCount}
-            </span>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 9px', borderRadius: 7, fontSize: 11, fontWeight: 700, border: '1px solid #6ee7b7', background: '#ecfdf5', color: '#047857' }}>
-              💰 RE erhalten: {overviewStats.paidCount}
-            </span>
-          </div>
-        </div>
+                  <button
+                    type="button"
+                    onClick={loadAddressesAndTeams}
+                    className="btn-secondary btn-sm"
+                    style={{ padding: '7px 9px' }}
+                    title="Aktualisieren"
+                  >
+                    <RefreshCw size={13} />
+                  </button>
+                </div>
+              </div>
 
-        {/* SPECIAL VIEW: WHITEBOARD & IN-PLACE COMPLETION TRACKER */}
+              {/* ANIMATED COLLAPSIBLE FILTER DRAWER (Feature-Separated into 3 clean sections) */}
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateRows: activeHeaderPanel === 'filter' ? '1fr' : '0fr',
+                  opacity: activeHeaderPanel === 'filter' ? 1 : 0,
+                  transition: 'grid-template-rows 0.24s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.2s ease',
+                  background: '#f8fafc',
+                  borderTop: activeHeaderPanel === 'filter' ? '1px solid #e2e8f0' : '1px solid transparent',
+                }}
+              >
+                <div style={{ overflow: 'hidden' }}>
+                  <div style={{ padding: '14px 16px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 14 }}>
+                    {/* Section 1: Standort & Projekt */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: 12, borderRadius: 10, background: '#ffffff', border: '1px solid #e2e8f0' }}>
+                      <span style={{ fontSize: 10.5, fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                        Standort &amp; Projekt
+                      </span>
+                      <select value={projectFilter} onChange={(e) => setProjectFilter(e.target.value)} style={selectStyle(projectFilter !== 'ALL')}>
+                        <option value="ALL">Projekt: Alle</option>
+                        {filterOptions.projects.map((pName) => (
+                          <option key={pName} value={pName}>Projekt: {pName}</option>
+                        ))}
+                      </select>
+                      <select value={ortFilter} onChange={(e) => setOrtFilter(e.target.value)} style={selectStyle(ortFilter !== 'ALL')}>
+                        <option value="ALL">Gemeinde / Ort: Alle</option>
+                        {filterOptions.orte.map((o) => (
+                          <option key={o} value={o}>{o}</option>
+                        ))}
+                      </select>
+                      <select value={monthFilter} onChange={(e) => setMonthFilter(e.target.value)} style={selectStyle(monthFilter !== 'ALL')}>
+                        <option value="ALL">Monat: Alle</option>
+                        {filterOptions.months.map((m) => (
+                          <option key={m} value={m}>Monat: {m}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Section 2: Ausbau & Team */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: 12, borderRadius: 10, background: '#ffffff', border: '1px solid #e2e8f0' }}>
+                      <span style={{ fontSize: 10.5, fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                        Ausbau &amp; Team
+                      </span>
+                      <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={selectStyle(statusFilter !== 'ALL')}>
+                        <option value="ALL">Gebäude-Status: Alle</option>
+                        {BUILDING_STATUS_OPTIONS.map((st) => (
+                          <option key={st} value={st}>{st}</option>
+                        ))}
+                      </select>
+                      <select value={ausbauTypFilter} onChange={(e) => setAusbauTypFilter(e.target.value)} style={selectStyle(ausbauTypFilter !== 'ALL')}>
+                        <option value="ALL">Ausbau-Typ: Alle</option>
+                        {AUSBAU_TYP_OPTIONS.map((t) => (
+                          <option key={t} value={t}>{t}</option>
+                        ))}
+                      </select>
+                      <select value={teamFilter} onChange={(e) => setTeamFilter(e.target.value)} style={selectStyle(teamFilter !== 'ALL')}>
+                        <option value="ALL">Ausbau Team: Alle</option>
+                        {filterOptions.teams.map((t) => (
+                          <option key={t} value={t}>{t}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Section 3: Checkliste, Abrechnung & Priorität */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: 12, borderRadius: 10, background: '#ffffff', border: '1px solid #e2e8f0', justifyContent: 'space-between' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        <span style={{ fontSize: 10.5, fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                          Checkliste &amp; Abrechnung
+                        </span>
+                        <select value={buildingFlagFilter} onChange={(e) => setBuildingFlagFilter(e.target.value)} style={selectStyle(buildingFlagFilter !== 'ALL')}>
+                          <option value="ALL">Checkliste: Alle</option>
+                          <option value="METALKANAL_YES">Metalkanal installed: Ja</option>
+                          <option value="METALKANAL_NO">Metalkanal installed: Nein</option>
+                          <option value="FLEXROHR_YES">Flexrohr: Ja</option>
+                          <option value="HUEP_YES">HÜP installiert: Ja</option>
+                          <option value="SPLEISSEN_YES">Spleißen fertig: Ja</option>
+                          <option value="UPLOAD_YES">Fotos Uploaded: Ja</option>
+                          <option value="UPLOAD_NO">Fotos Uploaded: Nein</option>
+                          <option value="GENEHMIGT_YES">Genehmigt: Ja</option>
+                          <option value="RECHNUNG_ERSTELLT_YES">Rechnung erstellt</option>
+                          <option value="RECHNUNG_BEZAHLT_YES">Rechnung erhalten / bezahlt</option>
+                          <option value="RECHNUNG_OFFEN">Rechnung offen</option>
+                          <option value="HAS_PDF">Mit Protokoll-PDF</option>
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => setOnlyPriority((p) => !p)}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 6,
+                            padding: '7px 10px',
+                            borderRadius: 8,
+                            fontSize: 12,
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            background: onlyPriority ? '#fef9c3' : '#f8fafc',
+                            border: onlyPriority ? '1px solid #eab308' : '1px solid #cbd5e1',
+                            color: onlyPriority ? '#a16207' : '#334155',
+                          }}
+                        >
+                          <Star size={13} fill={onlyPriority ? '#eab308' : 'none'} />
+                          <span>{onlyPriority ? 'Nur Prioritäts-Objekte aktiv' : 'Nur Priorität (★) filtern'}</span>
+                        </button>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 4 }}>
+                        <span style={{ fontSize: 11, color: '#64748b' }}>
+                          Gilt für alle Ansichten (Liste, Kalender, Board, Whiteboard)
+                        </span>
+                        <button
+                          type="button"
+                          onClick={resetAllFilters}
+                          className="btn-secondary btn-sm"
+                          style={{ padding: '5px 10px', fontSize: 11.5, color: '#dc2626', borderColor: '#fecaca', background: '#fef2f2' }}
+                        >
+                          Reset
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* ANIMATED COLLAPSIBLE SORT DRAWER */}
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateRows: activeHeaderPanel === 'sort' ? '1fr' : '0fr',
+                  opacity: activeHeaderPanel === 'sort' ? 1 : 0,
+                  transition: 'grid-template-rows 0.24s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.2s ease',
+                  background: '#f8fafc',
+                  borderTop: activeHeaderPanel === 'sort' ? '1px solid #e2e8f0' : '1px solid transparent',
+                }}
+              >
+                <div style={{ overflow: 'hidden' }}>
+                  <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+                      <strong style={{ fontSize: 12, color: '#0f172a' }}>Sortieren nach</strong>
+                      <div style={{ display: 'inline-flex', padding: 3, borderRadius: 8, background: '#e2e8f0', gap: 3 }}>
+                        {[
+                          { id: 'asc', label: '↑ Aufsteigend' },
+                          { id: 'desc', label: '↓ Absteigend' },
+                        ].map((d) => (
+                          <button
+                            key={d.id}
+                            type="button"
+                            onClick={() => setSortDir(d.id)}
+                            style={{
+                              padding: '4px 10px',
+                              borderRadius: 6,
+                              fontSize: 11.5,
+                              fontWeight: 700,
+                              border: 'none',
+                              cursor: 'pointer',
+                              background: sortDir === d.id ? '#ffffff' : 'transparent',
+                              color: sortDir === d.id ? '#0f172a' : '#475569',
+                              boxShadow: sortDir === d.id ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                            }}
+                          >
+                            {d.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
+                      {['Termine', 'Arbeit & Status', 'Standort & Objekt'].map((grpName) => (
+                        <div key={grpName} style={{ padding: 10, borderRadius: 9, background: '#ffffff', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          <span style={{ fontSize: 10, fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                            {grpName}
+                          </span>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                            {SORT_OPTIONS.filter((s) => s.group === grpName).map((opt) => {
+                              const isSel = sortBy === opt.id;
+                              return (
+                                <button
+                                  key={opt.id}
+                                  type="button"
+                                  onClick={() => setSortBy(opt.id)}
+                                  style={{
+                                    padding: '4px 9px',
+                                    borderRadius: 6,
+                                    fontSize: 11.5,
+                                    fontWeight: 700,
+                                    cursor: 'pointer',
+                                    transition: 'all 0.15s ease',
+                                    border: isSel ? '1px solid #FF6B00' : '1px solid #cbd5e1',
+                                    background: isSel ? '#fff7ed' : '#f8fafc',
+                                    color: isSel ? '#c2410c' : '#334155',
+                                  }}
+                                >
+                                  {opt.label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* SUBTLE LIVE STAGE SUMMARY BAR */}
+              <div
+                style={{
+                  padding: '6px 14px',
+                  background: '#f8fafc',
+                  borderTop: '1px solid #f1f5f9',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  flexWrap: 'wrap',
+                  gap: 8,
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 6, fontSize: 11, fontWeight: 700, border: '1px solid #fdba74', background: '#fff7ed', color: '#c2410c' }}>
+                    Offen: {filteredOpenCount}
+                  </span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 6, fontSize: 11, fontWeight: 700, border: '1px solid #86efac', background: '#f0fdf4', color: '#15803d' }}>
+                    ✓ Bereit f. RE: {filteredReadyCount}
+                  </span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 6, fontSize: 11, fontWeight: 700, border: '1px solid #93c5fd', background: '#eff6ff', color: '#1d4ed8' }}>
+                    📄 RE erstellt: {filteredInvoicedCount}
+                  </span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 6, fontSize: 11, fontWeight: 700, border: '1px solid #6ee7b7', background: '#ecfdf5', color: '#047857' }}>
+                    💰 RE erhalten: {filteredPaidCount}
+                  </span>
+                </div>
+                {activeFilterCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={resetAllFilters}
+                    style={{ border: 'none', background: 'transparent', fontSize: 11, fontWeight: 700, color: '#dc2626', cursor: 'pointer', padding: '2px 4px' }}
+                  >
+                    × {activeFilterCount} Filter zurücksetzen
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* SPECIAL VIEW: WHITEBOARD & IN-PLACE COMPLETION TRACKER (uses filteredAddresses so all filters work!) */}
         {objectViewMode === 'whiteboard' && (
           <ObjectsWhiteboardView
-            allAddresses={addresses}
+            allAddresses={filteredAddresses}
             fieldTeams={fieldTeams}
             calcBuildingProgress={calcBuildingProgress}
             dateValueForSort={dateValueForSort}
