@@ -64,6 +64,25 @@ export function isCoreArbeitCompleted(addr, calcBuildingProgress) {
 }
 
 /**
+ * Sums total units (WE) and installed TAs across a list of building addresses.
+ */
+export function sumUnitsForAddresses(list = [], calcBuildingProgress) {
+  let totalWe = 0;
+  let taCount = 0;
+  (list || []).forEach((addr) => {
+    if (!addr) return;
+    const prog = calcBuildingProgress(addr);
+    totalWe += Number(prog?.totalWe || 0);
+    taCount += Number(prog?.taCount || 0);
+  });
+  return {
+    count: (list || []).length,
+    totalWe,
+    taCount,
+  };
+}
+
+/**
  * Classifies an object into its operational & billing stage:
  * - 'paid'               : Rechnung erhalten / bezahlt
  * - 'invoiced'           : Rechnung erstellt (abgerechnet, Zahlung ausstehend)
@@ -787,9 +806,16 @@ export function ObjectsKanbanAndCardsView({
             <LayoutGrid size={14} /> Karten-Raster
           </button>
         </div>
-        <span style={{ fontSize: 11.5, color: '#64748b' }}>
-          {subView === 'kanban' ? 'Karten zwischen Spalten ziehen, um den Status direkt zu ändern.' : `${addresses.length} Objekte`}
-        </span>
+        {(() => {
+          const allStats = sumUnitsForAddresses(addresses, calcBuildingProgress);
+          return (
+            <span style={{ fontSize: 11.5, color: '#64748b', fontWeight: 600 }}>
+              {subView === 'kanban'
+                ? `Karten zwischen Spalten ziehen · Gesamt: ${allStats.count} Objekte · ${allStats.totalWe} WE (${allStats.taCount} TA)`
+                : `${allStats.count} Objekte · Summe: ${allStats.totalWe} WE (${allStats.taCount} TA)`}
+            </span>
+          );
+        })()}
       </div>
 
       {subView === 'kanban' ? (() => {
@@ -797,6 +823,10 @@ export function ObjectsKanbanAndCardsView({
         const completedUnbilledAddrs = addresses.filter((a) => getObjectBillingStage(a, calcBuildingProgress) === 'completed_unbilled');
         const invoicedAddrs = addresses.filter((a) => getObjectBillingStage(a, calcBuildingProgress) === 'invoiced');
         const paidAddrs = addresses.filter((a) => getObjectBillingStage(a, calcBuildingProgress) === 'paid');
+
+        const readyStats = sumUnitsForAddresses(completedUnbilledAddrs, calcBuildingProgress);
+        const invoicedStats = sumUnitsForAddresses(invoicedAddrs, calcBuildingProgress);
+        const paidStats = sumUnitsForAddresses(paidAddrs, calcBuildingProgress);
 
         const handleDropBillingColumn = (e, stageKey) => {
           e.preventDefault();
@@ -816,6 +846,7 @@ export function ObjectsKanbanAndCardsView({
         <div style={{ display: 'grid', gridTemplateColumns: `repeat(${BUILDING_STATUS_OPTIONS.length + 3}, minmax(245px, 1fr))`, gap: 10, overflowX: 'auto', paddingBottom: 8 }}>
           {BUILDING_STATUS_OPTIONS.map((st) => {
             const colItems = openBoardAddrs.filter((a) => (a.building_status || 'Ausbau terminiert') === st);
+            const colStats = sumUnitsForAddresses(colItems, calcBuildingProgress);
             const isOver = dragOverStatus === st;
             return (
               <div
@@ -839,11 +870,16 @@ export function ObjectsKanbanAndCardsView({
                   gap: 8,
                 }}
               >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 6px', borderBottom: '1px solid #e2e8f0' }}>
-                  <strong style={{ fontSize: 12, color: '#0f172a' }}>{st}</strong>
-                  <span style={{ fontSize: 11, fontWeight: 700, padding: '1px 7px', borderRadius: 999, background: '#e2e8f0', color: '#334155' }}>
-                    {colItems.length}
-                  </span>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 3, padding: '4px 6px', borderBottom: '1px solid #e2e8f0' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <strong style={{ fontSize: 12, color: '#0f172a' }}>{st}</strong>
+                    <span style={{ fontSize: 11, fontWeight: 700, padding: '1px 7px', borderRadius: 999, background: '#e2e8f0', color: '#334155' }}>
+                      {colItems.length}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 10.5, fontWeight: 700, color: '#475569' }}>
+                    Summe WE: <strong>{colStats.totalWe} WE</strong> ({colStats.taCount} TA)
+                  </div>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 7, maxHeight: 620, overflowY: 'auto' }}>
                   {colItems.map(renderCard)}
@@ -865,11 +901,16 @@ export function ObjectsKanbanAndCardsView({
               gap: 8,
             }}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 6px', borderBottom: '1px solid #86efac' }}>
-              <strong style={{ fontSize: 12, color: '#14532d' }}>✓ Fertig (Bereit f. RE)</strong>
-              <span style={{ fontSize: 11, fontWeight: 800, padding: '1px 7px', borderRadius: 999, background: '#dcfce7', color: '#15803d', border: '1px solid #86efac' }}>
-                {completedUnbilledAddrs.length}
-              </span>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 3, padding: '4px 6px', borderBottom: '1px solid #86efac' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <strong style={{ fontSize: 12, color: '#14532d' }}>✓ Fertig (Bereit f. RE)</strong>
+                <span style={{ fontSize: 11, fontWeight: 800, padding: '1px 7px', borderRadius: 999, background: '#dcfce7', color: '#15803d', border: '1px solid #86efac' }}>
+                  {completedUnbilledAddrs.length}
+                </span>
+              </div>
+              <div style={{ fontSize: 10.5, fontWeight: 700, color: '#15803d' }}>
+                Summe WE: <strong>{readyStats.totalWe} WE</strong> ({readyStats.taCount} TA)
+              </div>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 7, maxHeight: 620, overflowY: 'auto' }}>
               {completedUnbilledAddrs.length === 0 ? (
@@ -903,11 +944,16 @@ export function ObjectsKanbanAndCardsView({
               gap: 8,
             }}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 6px', borderBottom: '1px solid #93c5fd' }}>
-              <strong style={{ fontSize: 12, color: '#1e3a8a' }}>📄 Rechnung erstellt</strong>
-              <span style={{ fontSize: 11, fontWeight: 800, padding: '1px 7px', borderRadius: 999, background: '#dbeafe', color: '#1d4ed8', border: '1px solid #93c5fd' }}>
-                {invoicedAddrs.length}
-              </span>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 3, padding: '4px 6px', borderBottom: '1px solid #93c5fd' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <strong style={{ fontSize: 12, color: '#1e3a8a' }}>📄 Rechnung erstellt</strong>
+                <span style={{ fontSize: 11, fontWeight: 800, padding: '1px 7px', borderRadius: 999, background: '#dbeafe', color: '#1d4ed8', border: '1px solid #93c5fd' }}>
+                  {invoicedAddrs.length}
+                </span>
+              </div>
+              <div style={{ fontSize: 10.5, fontWeight: 700, color: '#1d4ed8' }}>
+                Summe WE: <strong>{invoicedStats.totalWe} WE</strong> ({invoicedStats.taCount} TA)
+              </div>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 7, maxHeight: 620, overflowY: 'auto' }}>
               {invoicedAddrs.length === 0 ? (
@@ -941,11 +987,16 @@ export function ObjectsKanbanAndCardsView({
               gap: 8,
             }}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 6px', borderBottom: '1px solid #6ee7b7' }}>
-              <strong style={{ fontSize: 12, color: '#065f46' }}>💰 Rechnung erhalten</strong>
-              <span style={{ fontSize: 11, fontWeight: 800, padding: '1px 7px', borderRadius: 999, background: '#d1fae5', color: '#047857', border: '1px solid #6ee7b7' }}>
-                {paidAddrs.length}
-              </span>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 3, padding: '4px 6px', borderBottom: '1px solid #6ee7b7' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <strong style={{ fontSize: 12, color: '#065f46' }}>💰 Rechnung erhalten</strong>
+                <span style={{ fontSize: 11, fontWeight: 800, padding: '1px 7px', borderRadius: 999, background: '#d1fae5', color: '#047857', border: '1px solid #6ee7b7' }}>
+                  {paidAddrs.length}
+                </span>
+              </div>
+              <div style={{ fontSize: 10.5, fontWeight: 700, color: '#047857' }}>
+                Summe WE: <strong>{paidStats.totalWe} WE</strong> ({paidStats.taCount} TA)
+              </div>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 7, maxHeight: 620, overflowY: 'auto' }}>
               {paidAddrs.length === 0 ? (
@@ -964,11 +1015,21 @@ export function ObjectsKanbanAndCardsView({
         const completedUnbilledGrid = addresses.filter((a) => getObjectBillingStage(a, calcBuildingProgress) === 'completed_unbilled');
         const invoicedGrid = addresses.filter((a) => getObjectBillingStage(a, calcBuildingProgress) === 'invoiced');
         const paidGrid = addresses.filter((a) => getObjectBillingStage(a, calcBuildingProgress) === 'paid');
+
+        const openStats = sumUnitsForAddresses(openGridAddrs, calcBuildingProgress);
+        const readyStats = sumUnitsForAddresses(completedUnbilledGrid, calcBuildingProgress);
+        const invoicedStats = sumUnitsForAddresses(invoicedGrid, calcBuildingProgress);
+        const paidStats = sumUnitsForAddresses(paidGrid, calcBuildingProgress);
         return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div>
-            <div style={{ fontSize: 12, fontWeight: 800, color: '#0f172a', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-              Offene Objekte — Restarbeiten ({openGridAddrs.length})
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+              <div style={{ fontSize: 12, fontWeight: 800, color: '#0f172a', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                Offene Objekte — Restarbeiten ({openGridAddrs.length} Objekte)
+              </div>
+              <span style={{ fontSize: 11.5, fontWeight: 800, padding: '2px 9px', borderRadius: 999, background: '#fff7ed', color: '#c2410c', border: '1px solid #fdba74' }}>
+                Summe WE: {openStats.totalWe} WE ({openStats.taCount} TA installiert)
+              </span>
             </div>
             {openGridAddrs.length === 0 ? (
               <div style={{ padding: 18, textAlign: 'center', fontSize: 12, color: '#15803d', background: '#f0fdf4', border: '1px dashed #86efac', borderRadius: 8 }}>
@@ -983,11 +1044,16 @@ export function ObjectsKanbanAndCardsView({
 
           {completedUnbilledGrid.length > 0 && (
             <div style={{ padding: 12, borderRadius: 12, background: '#f0fdf4', border: '1.5px solid #86efac' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                <CheckCircle2 size={15} style={{ color: '#15803d' }} />
-                <strong style={{ fontSize: 12.5, color: '#14532d', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                  Abgeschlossen — Bereit zur Abrechnung ({completedUnbilledGrid.length})
-                </strong>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <CheckCircle2 size={15} style={{ color: '#15803d' }} />
+                  <strong style={{ fontSize: 12.5, color: '#14532d', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    Abgeschlossen — Bereit zur Abrechnung ({completedUnbilledGrid.length} Objekte)
+                  </strong>
+                </div>
+                <span style={{ fontSize: 11.5, fontWeight: 800, padding: '2px 9px', borderRadius: 999, background: '#dcfce7', color: '#15803d', border: '1px solid #86efac' }}>
+                  Summe WE: {readyStats.totalWe} WE ({readyStats.taCount} TA installiert)
+                </span>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 10 }}>
                 {completedUnbilledGrid.map(renderCard)}
@@ -997,10 +1063,13 @@ export function ObjectsKanbanAndCardsView({
 
           {invoicedGrid.length > 0 && (
             <div style={{ padding: 12, borderRadius: 12, background: '#eff6ff', border: '1.5px solid #93c5fd' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
                 <strong style={{ fontSize: 12.5, color: '#1e3a8a', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                  📄 Rechnung erstellt — Zahlung ausstehend ({invoicedGrid.length})
+                  📄 Rechnung erstellt — Zahlung ausstehend ({invoicedGrid.length} Objekte)
                 </strong>
+                <span style={{ fontSize: 11.5, fontWeight: 800, padding: '2px 9px', borderRadius: 999, background: '#dbeafe', color: '#1d4ed8', border: '1px solid #93c5fd' }}>
+                  Summe WE: {invoicedStats.totalWe} WE ({invoicedStats.taCount} TA installiert)
+                </span>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 10 }}>
                 {invoicedGrid.map(renderCard)}
@@ -1010,10 +1079,13 @@ export function ObjectsKanbanAndCardsView({
 
           {paidGrid.length > 0 && (
             <div style={{ padding: 12, borderRadius: 12, background: '#ecfdf5', border: '1.5px solid #6ee7b7' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
                 <strong style={{ fontSize: 12.5, color: '#065f46', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                  💰 Rechnung erhalten / bezahlt ({paidGrid.length})
+                  💰 Rechnung erhalten / bezahlt ({paidGrid.length} Objekte)
                 </strong>
+                <span style={{ fontSize: 11.5, fontWeight: 800, padding: '2px 9px', borderRadius: 999, background: '#d1fae5', color: '#047857', border: '1px solid #6ee7b7' }}>
+                  Summe WE: {paidStats.totalWe} WE ({paidStats.taCount} TA installiert)
+                </span>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 10 }}>
                 {paidGrid.map(renderCard)}
@@ -2415,14 +2487,23 @@ export function ObjectsWhiteboardView({
         }}
       >
         <div style={{ padding: '10px 12px', borderBottom: '1px solid #e2e8f0', background: '#fff', display: 'flex', flexDirection: 'column', gap: 7 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <strong style={{ fontSize: 12.5, color: '#0f172a' }}>
-              Offene Objekte ({remainingObjects.length})
-            </strong>
-            <span style={{ fontSize: 10.5, fontWeight: 700, color: '#15803d', background: '#dcfce7', padding: '2px 7px', borderRadius: 999 }}>
-              ✓ {completedCount} komplett
-            </span>
-          </div>
+          {(() => {
+            const remStats = sumUnitsForAddresses(remainingObjects, calcBuildingProgress);
+            const compStats = sumUnitsForAddresses(
+              [...completedUnbilledObjects, ...invoicedObjects, ...paidObjects],
+              calcBuildingProgress
+            );
+            return (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                <strong style={{ fontSize: 12, color: '#0f172a' }}>
+                  Offene ({remainingObjects.length} · {remStats.totalWe} WE / {remStats.taCount} TA)
+                </strong>
+                <span style={{ fontSize: 10, fontWeight: 700, color: '#15803d', background: '#dcfce7', padding: '2px 7px', borderRadius: 999 }}>
+                  ✓ {completedCount} ({compStats.totalWe} WE)
+                </span>
+              </div>
+            );
+          })()}
 
           <div style={{ position: 'relative' }}>
             <Search size={13} style={{ position: 'absolute', left: 8, top: 8, color: '#94a3b8' }} />
@@ -2566,6 +2647,7 @@ export function ObjectsWhiteboardView({
                 <div style={{ padding: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
                   {sidebarRemainingGroups.map((sg) => {
                     const pal = getGroupColor(sg.color);
+                    const sgStats = sumUnitsForAddresses(sg.items, calcBuildingProgress);
                     return (
                       <div
                         key={sg.label}
@@ -2592,6 +2674,7 @@ export function ObjectsWhiteboardView({
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'space-between',
+                          gap: 6,
                           fontSize: 11,
                           fontWeight: 700,
                           color: '#0f172a',
@@ -2602,8 +2685,8 @@ export function ObjectsWhiteboardView({
                           <GripVertical size={12} style={{ color: '#94a3b8', flexShrink: 0 }} />
                           {sg.label}
                         </span>
-                        <span style={{ fontSize: 10, fontWeight: 800, padding: '1px 6px', borderRadius: 999, background: pal.header, color: pal.text, flexShrink: 0 }}>
-                          {sg.items.length}
+                        <span style={{ fontSize: 9.5, fontWeight: 800, padding: '1px 6px', borderRadius: 999, background: pal.header, color: pal.text, flexShrink: 0 }}>
+                          {sg.items.length} Obj. · {sgStats.totalWe} WE ({sgStats.taCount} TA)
                         </span>
                       </div>
                     );
@@ -2759,14 +2842,19 @@ export function ObjectsWhiteboardView({
               );
             };
 
+            const ungrpStats = sumUnitsForAddresses(ungroupedSidebarObjs, calcBuildingProgress);
+            const grpStats = sumUnitsForAddresses(groupedSidebarObjs, calcBuildingProgress);
             return (
               <>
                 {ungroupedSidebarObjs.length > 0 && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '2px 2px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '2px 2px', flexWrap: 'wrap', gap: 4 }}>
                       <strong style={{ fontSize: 10.5, fontWeight: 900, color: '#c2410c', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                         ● Nicht gruppiert ({ungroupedSidebarObjs.length})
                       </strong>
+                      <span style={{ fontSize: 9.5, fontWeight: 800, color: '#c2410c', background: '#fff7ed', border: '1px solid #fdba74', padding: '1px 6px', borderRadius: 999 }}>
+                        {ungrpStats.totalWe} WE ({ungrpStats.taCount} TA)
+                      </span>
                     </div>
                     {ungroupedSidebarObjs.map((addr) => renderSidebarObjCard(addr, true))}
                   </div>
@@ -2774,9 +2862,14 @@ export function ObjectsWhiteboardView({
 
                 {groupedSidebarObjs.length > 0 && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 5, marginTop: ungroupedSidebarObjs.length > 0 ? 6 : 0, paddingTop: ungroupedSidebarObjs.length > 0 ? 6 : 0, borderTop: ungroupedSidebarObjs.length > 0 ? '1px dashed #cbd5e1' : 'none' }}>
-                    <span style={{ fontSize: 10, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em', padding: '0 2px' }}>
-                      Bereits gruppiert ({groupedSidebarObjs.length})
-                    </span>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 2px', flexWrap: 'wrap', gap: 4 }}>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                        Bereits gruppiert ({groupedSidebarObjs.length})
+                      </span>
+                      <span style={{ fontSize: 9.5, fontWeight: 700, color: '#475569', background: '#f1f5f9', border: '1px solid #cbd5e1', padding: '1px 6px', borderRadius: 999 }}>
+                        {grpStats.totalWe} WE ({grpStats.taCount} TA)
+                      </span>
+                    </div>
                     {groupedSidebarObjs.map((addr) => renderSidebarObjCard(addr, false))}
                   </div>
                 )}
@@ -2788,7 +2881,7 @@ export function ObjectsWhiteboardView({
           {[
             {
               key: 'ready',
-              title: `✓ Fertig — Bereit f. RE (${completedUnbilledObjects.length})`,
+              title: '✓ Fertig — Bereit f. RE',
               items: completedUnbilledObjects,
               open: showCompletedSidebarGroup,
               toggle: () => setShowCompletedSidebarGroup((v) => !v),
@@ -2800,7 +2893,7 @@ export function ObjectsWhiteboardView({
             },
             {
               key: 'invoiced',
-              title: `📄 Rechnung erstellt — Offen (${invoicedObjects.length})`,
+              title: '📄 Rechnung erstellt — Offen',
               items: invoicedObjects,
               open: showInvoicedSidebarGroup,
               toggle: () => setShowInvoicedSidebarGroup((v) => !v),
@@ -2812,7 +2905,7 @@ export function ObjectsWhiteboardView({
             },
             {
               key: 'paid',
-              title: `💰 Rechnung erhalten / bezahlt (${paidObjects.length})`,
+              title: '💰 Rechnung erhalten / bezahlt',
               items: paidObjects,
               open: showPaidSidebarGroup,
               toggle: () => setShowPaidSidebarGroup((v) => !v),
@@ -2824,7 +2917,9 @@ export function ObjectsWhiteboardView({
             },
           ]
             .filter((g) => g.items.length > 0)
-            .map((grp) => (
+            .map((grp) => {
+              const gStats = sumUnitsForAddresses(grp.items, calcBuildingProgress);
+              return (
               <div key={grp.key} style={{ marginTop: 6, borderRadius: 8, border: `1px solid ${grp.border}`, background: grp.bg, overflow: 'hidden', flexShrink: 0 }}>
                 <div
                   draggable
@@ -2833,7 +2928,7 @@ export function ObjectsWhiteboardView({
                       'text/plain',
                       JSON.stringify({
                         type: 'sidebar_group',
-                        title: grp.title.replace(/\s*\(\d+\)$/, ''),
+                        title: grp.title,
                         color: grp.key === 'invoiced' ? 'blue' : 'emerald',
                         ids: grp.items.map((a) => a.id),
                       })
@@ -2849,6 +2944,7 @@ export function ObjectsWhiteboardView({
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'space-between',
+                    gap: 6,
                     cursor: 'grab',
                     fontSize: 11,
                     fontWeight: 800,
@@ -2856,9 +2952,12 @@ export function ObjectsWhiteboardView({
                   }}
                   title="Ganze Gruppe direkt auf das Whiteboard ziehen oder klicken zum Auf-/Zuklappen"
                 >
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
                     <GripVertical size={12} />
-                    {grp.title}
+                    <span>{grp.title} ({grp.items.length})</span>
+                    <span style={{ fontSize: 9.5, fontWeight: 800, padding: '1px 5px', borderRadius: 999, background: '#fff', border: `1px solid ${grp.border}` }}>
+                      {gStats.totalWe} WE · {gStats.taCount} TA
+                    </span>
                   </span>
                   <span>{grp.open ? '▲' : '▼'}</span>
                 </div>
@@ -2913,7 +3012,8 @@ export function ObjectsWhiteboardView({
                   </div>
                 )}
               </div>
-            ))}
+              );
+            })}
         </div>
       </div>
 
@@ -3155,6 +3255,10 @@ export function ObjectsWhiteboardView({
             {groups.map((grp) => {
               const pal = getGroupColor(grp.color);
               const memberEntries = activeBoardCardEntries.filter((e) => e.pos.groupId === grp.id);
+              const memberStats = sumUnitsForAddresses(
+                memberEntries.map((e) => e.addr),
+                calcBuildingProgress
+              );
               const isDropTarget = dragOverGroupId === grp.id;
 
               return (
@@ -3239,8 +3343,11 @@ export function ObjectsWhiteboardView({
                             {grp.name}
                           </strong>
                         )}
-                        <span style={{ fontSize: 10.5, fontWeight: 800, padding: '1px 7px', borderRadius: 999, background: '#fff', color: pal.text, border: `1px solid ${pal.border}`, flexShrink: 0 }}>
-                          {memberEntries.length}
+                        <span
+                          style={{ fontSize: 10.5, fontWeight: 800, padding: '1px 7px', borderRadius: 999, background: '#fff', color: pal.text, border: `1px solid ${pal.border}`, flexShrink: 0 }}
+                          title={`Objekte: ${memberEntries.length} · Summe Wohneinheiten: ${memberStats.totalWe} WE · Installierte TAs: ${memberStats.taCount} TA`}
+                        >
+                          {memberEntries.length} Obj. · {memberStats.totalWe} WE ({memberStats.taCount} TA)
                         </span>
                       </div>
 
