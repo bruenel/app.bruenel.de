@@ -64,22 +64,139 @@ export function isCoreArbeitCompleted(addr, calcBuildingProgress) {
 }
 
 /**
- * Sums total units (WE) and installed TAs across a list of building addresses.
+ * Classifies an address's Ausbau-Typ into Metalkanal vs Leerrohr/Kaminkanal (or other explicit types).
+ */
+export function classifyAusbauTyp(addr) {
+  const raw = String(addr?.ausbau_typ || addr?.loesungsoption || 'Metalkanal').trim();
+  const lower = raw.toLowerCase();
+
+  if (
+    lower.includes('kamin') ||
+    lower.includes('leerrohr') ||
+    lower.includes('flex') ||
+    (!lower.includes('metal') && Boolean(addr?.flexrohr) && !addr?.metalkanal_installiert)
+  ) {
+    return {
+      key: 'kamin',
+      label: 'Leerrohr / Kaminkanal',
+      shortLabel: 'Leerrohr/Kamin',
+      rawLabel: raw || 'Leerrohr-Kamin',
+      bg: '#eff6ff',
+      color: '#1d4ed8',
+      border: '#93c5fd',
+    };
+  }
+
+  if (lower.includes('fassade') || lower.includes('bestand')) {
+    return {
+      key: lower,
+      label: raw,
+      shortLabel: raw,
+      rawLabel: raw,
+      bg: '#f5f3ff',
+      color: '#6d28d9',
+      border: '#c4b5fd',
+    };
+  }
+
+  return {
+    key: 'metalkanal',
+    label: 'Metalkanal',
+    shortLabel: 'Metalkanal',
+    rawLabel: raw || 'Metalkanal',
+    bg: '#fff7ed',
+    color: '#9a3412',
+    border: '#fdba74',
+  };
+}
+
+/**
+ * Sums total units (WE) and installed TAs across a list of building addresses,
+ * differentiated by Ausbau-Typ (Metalkanal vs Leerrohr/Kaminkanal & other types).
  */
 export function sumUnitsForAddresses(list = [], calcBuildingProgress) {
   let totalWe = 0;
   let taCount = 0;
+  const metalkanal = { key: 'metalkanal', label: 'Metalkanal', shortLabel: 'Metalkanal', count: 0, totalWe: 0, taCount: 0, bg: '#fff7ed', color: '#9a3412', border: '#fdba74' };
+  const kamin = { key: 'kamin', label: 'Leerrohr / Kaminkanal', shortLabel: 'Leerrohr/Kamin', count: 0, totalWe: 0, taCount: 0, bg: '#eff6ff', color: '#1d4ed8', border: '#93c5fd' };
+  const otherMap = new Map();
+
   (list || []).forEach((addr) => {
     if (!addr) return;
     const prog = calcBuildingProgress(addr);
-    totalWe += Number(prog?.totalWe || 0);
-    taCount += Number(prog?.taCount || 0);
+    const we = Number(prog?.totalWe || 0);
+    const ta = Number(prog?.taCount || 0);
+    totalWe += we;
+    taCount += ta;
+
+    const typ = classifyAusbauTyp(addr);
+    if (typ.key === 'kamin') {
+      kamin.count += 1;
+      kamin.totalWe += we;
+      kamin.taCount += ta;
+    } else if (typ.key === 'metalkanal') {
+      metalkanal.count += 1;
+      metalkanal.totalWe += we;
+      metalkanal.taCount += ta;
+    } else {
+      if (!otherMap.has(typ.key)) {
+        otherMap.set(typ.key, { ...typ, count: 0, totalWe: 0, taCount: 0 });
+      }
+      const bucket = otherMap.get(typ.key);
+      bucket.count += 1;
+      bucket.totalWe += we;
+      bucket.taCount += ta;
+    }
   });
+
+  const byType = [metalkanal, kamin, ...Array.from(otherMap.values())];
+
   return {
     count: (list || []).length,
     totalWe,
     taCount,
+    metalkanal,
+    kamin,
+    byType,
   };
+}
+
+/**
+ * Renders compact differentiated Ausbau-Typ unit sum badges (Metalkanal vs Leerrohr/Kaminkanal).
+ */
+export function AusbauTypSumBadges({ stats, compact = false, showZero = false }) {
+  if (!stats) return null;
+  const typesToShow = (stats.byType || []).filter((t) =>
+    showZero ? t.key === 'metalkanal' || t.key === 'kamin' || t.count > 0 : t.count > 0
+  );
+  // If list is empty or no types have count > 0, show both 0 badges when showZero is true
+  const finalTypes =
+    typesToShow.length > 0
+      ? typesToShow
+      : [stats.metalkanal, stats.kamin].filter(Boolean);
+
+  return (
+    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+      {finalTypes.map((t) => (
+        <span
+          key={t.key}
+          style={{
+            fontSize: compact ? 9.5 : 10.5,
+            fontWeight: 800,
+            padding: compact ? '1px 6px' : '2px 7px',
+            borderRadius: 999,
+            background: t.bg,
+            color: t.color,
+            border: `1px solid ${t.border}`,
+            whiteSpace: 'nowrap',
+          }}
+          title={`${t.label}: ${t.count} Objekte · Summe ${t.totalWe} WE · ${t.taCount} TA installiert`}
+        >
+          {compact ? t.shortLabel : t.label}: <strong>{t.totalWe} WE</strong> ({t.taCount} TA{!compact ? ` · ${t.count} Obj.` : ''})
+        </span>
+      ))}
+    </div>
+  );
 }
 
 /**
@@ -809,11 +926,12 @@ export function ObjectsKanbanAndCardsView({
         {(() => {
           const allStats = sumUnitsForAddresses(addresses, calcBuildingProgress);
           return (
-            <span style={{ fontSize: 11.5, color: '#64748b', fontWeight: 600 }}>
-              {subView === 'kanban'
-                ? `Karten zwischen Spalten ziehen · Gesamt: ${allStats.count} Objekte · ${allStats.totalWe} WE (${allStats.taCount} TA)`
-                : `${allStats.count} Objekte · Summe: ${allStats.totalWe} WE (${allStats.taCount} TA)`}
-            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 11.5, color: '#64748b', fontWeight: 700 }}>
+                Gesamt: {allStats.count} Obj. · <strong>{allStats.totalWe} WE</strong> ({allStats.taCount} TA)
+              </span>
+              <AusbauTypSumBadges stats={allStats} showZero />
+            </div>
           );
         })()}
       </div>
@@ -870,7 +988,7 @@ export function ObjectsKanbanAndCardsView({
                   gap: 8,
                 }}
               >
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 3, padding: '4px 6px', borderBottom: '1px solid #e2e8f0' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: '4px 6px', borderBottom: '1px solid #e2e8f0' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <strong style={{ fontSize: 12, color: '#0f172a' }}>{st}</strong>
                     <span style={{ fontSize: 11, fontWeight: 700, padding: '1px 7px', borderRadius: 999, background: '#e2e8f0', color: '#334155' }}>
@@ -880,6 +998,7 @@ export function ObjectsKanbanAndCardsView({
                   <div style={{ fontSize: 10.5, fontWeight: 700, color: '#475569' }}>
                     Summe WE: <strong>{colStats.totalWe} WE</strong> ({colStats.taCount} TA)
                   </div>
+                  {colItems.length > 0 && <AusbauTypSumBadges stats={colStats} compact />}
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 7, maxHeight: 620, overflowY: 'auto' }}>
                   {colItems.map(renderCard)}
@@ -901,7 +1020,7 @@ export function ObjectsKanbanAndCardsView({
               gap: 8,
             }}
           >
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 3, padding: '4px 6px', borderBottom: '1px solid #86efac' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: '4px 6px', borderBottom: '1px solid #86efac' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <strong style={{ fontSize: 12, color: '#14532d' }}>✓ Fertig (Bereit f. RE)</strong>
                 <span style={{ fontSize: 11, fontWeight: 800, padding: '1px 7px', borderRadius: 999, background: '#dcfce7', color: '#15803d', border: '1px solid #86efac' }}>
@@ -911,6 +1030,7 @@ export function ObjectsKanbanAndCardsView({
               <div style={{ fontSize: 10.5, fontWeight: 700, color: '#15803d' }}>
                 Summe WE: <strong>{readyStats.totalWe} WE</strong> ({readyStats.taCount} TA)
               </div>
+              {completedUnbilledAddrs.length > 0 && <AusbauTypSumBadges stats={readyStats} compact />}
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 7, maxHeight: 620, overflowY: 'auto' }}>
               {completedUnbilledAddrs.length === 0 ? (
@@ -944,7 +1064,7 @@ export function ObjectsKanbanAndCardsView({
               gap: 8,
             }}
           >
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 3, padding: '4px 6px', borderBottom: '1px solid #93c5fd' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: '4px 6px', borderBottom: '1px solid #93c5fd' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <strong style={{ fontSize: 12, color: '#1e3a8a' }}>📄 Rechnung erstellt</strong>
                 <span style={{ fontSize: 11, fontWeight: 800, padding: '1px 7px', borderRadius: 999, background: '#dbeafe', color: '#1d4ed8', border: '1px solid #93c5fd' }}>
@@ -954,6 +1074,7 @@ export function ObjectsKanbanAndCardsView({
               <div style={{ fontSize: 10.5, fontWeight: 700, color: '#1d4ed8' }}>
                 Summe WE: <strong>{invoicedStats.totalWe} WE</strong> ({invoicedStats.taCount} TA)
               </div>
+              {invoicedAddrs.length > 0 && <AusbauTypSumBadges stats={invoicedStats} compact />}
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 7, maxHeight: 620, overflowY: 'auto' }}>
               {invoicedAddrs.length === 0 ? (
@@ -987,7 +1108,7 @@ export function ObjectsKanbanAndCardsView({
               gap: 8,
             }}
           >
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 3, padding: '4px 6px', borderBottom: '1px solid #6ee7b7' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: '4px 6px', borderBottom: '1px solid #6ee7b7' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <strong style={{ fontSize: 12, color: '#065f46' }}>💰 Rechnung erhalten</strong>
                 <span style={{ fontSize: 11, fontWeight: 800, padding: '1px 7px', borderRadius: 999, background: '#d1fae5', color: '#047857', border: '1px solid #6ee7b7' }}>
@@ -997,6 +1118,7 @@ export function ObjectsKanbanAndCardsView({
               <div style={{ fontSize: 10.5, fontWeight: 700, color: '#047857' }}>
                 Summe WE: <strong>{paidStats.totalWe} WE</strong> ({paidStats.taCount} TA)
               </div>
+              {paidAddrs.length > 0 && <AusbauTypSumBadges stats={paidStats} compact />}
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 7, maxHeight: 620, overflowY: 'auto' }}>
               {paidAddrs.length === 0 ? (
@@ -1027,9 +1149,12 @@ export function ObjectsKanbanAndCardsView({
               <div style={{ fontSize: 12, fontWeight: 800, color: '#0f172a', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                 Offene Objekte — Restarbeiten ({openGridAddrs.length} Objekte)
               </div>
-              <span style={{ fontSize: 11.5, fontWeight: 800, padding: '2px 9px', borderRadius: 999, background: '#fff7ed', color: '#c2410c', border: '1px solid #fdba74' }}>
-                Summe WE: {openStats.totalWe} WE ({openStats.taCount} TA installiert)
-              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 11.5, fontWeight: 800, padding: '2px 9px', borderRadius: 999, background: '#f8fafc', color: '#0f172a', border: '1px solid #cbd5e1' }}>
+                  Summe WE: {openStats.totalWe} WE ({openStats.taCount} TA)
+                </span>
+                <AusbauTypSumBadges stats={openStats} />
+              </div>
             </div>
             {openGridAddrs.length === 0 ? (
               <div style={{ padding: 18, textAlign: 'center', fontSize: 12, color: '#15803d', background: '#f0fdf4', border: '1px dashed #86efac', borderRadius: 8 }}>
@@ -1051,9 +1176,12 @@ export function ObjectsKanbanAndCardsView({
                     Abgeschlossen — Bereit zur Abrechnung ({completedUnbilledGrid.length} Objekte)
                   </strong>
                 </div>
-                <span style={{ fontSize: 11.5, fontWeight: 800, padding: '2px 9px', borderRadius: 999, background: '#dcfce7', color: '#15803d', border: '1px solid #86efac' }}>
-                  Summe WE: {readyStats.totalWe} WE ({readyStats.taCount} TA installiert)
-                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 11.5, fontWeight: 800, padding: '2px 9px', borderRadius: 999, background: '#dcfce7', color: '#15803d', border: '1px solid #86efac' }}>
+                    Summe WE: {readyStats.totalWe} WE ({readyStats.taCount} TA)
+                  </span>
+                  <AusbauTypSumBadges stats={readyStats} />
+                </div>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 10 }}>
                 {completedUnbilledGrid.map(renderCard)}
@@ -1067,9 +1195,12 @@ export function ObjectsKanbanAndCardsView({
                 <strong style={{ fontSize: 12.5, color: '#1e3a8a', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                   📄 Rechnung erstellt — Zahlung ausstehend ({invoicedGrid.length} Objekte)
                 </strong>
-                <span style={{ fontSize: 11.5, fontWeight: 800, padding: '2px 9px', borderRadius: 999, background: '#dbeafe', color: '#1d4ed8', border: '1px solid #93c5fd' }}>
-                  Summe WE: {invoicedStats.totalWe} WE ({invoicedStats.taCount} TA installiert)
-                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 11.5, fontWeight: 800, padding: '2px 9px', borderRadius: 999, background: '#dbeafe', color: '#1d4ed8', border: '1px solid #93c5fd' }}>
+                    Summe WE: {invoicedStats.totalWe} WE ({invoicedStats.taCount} TA)
+                  </span>
+                  <AusbauTypSumBadges stats={invoicedStats} />
+                </div>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 10 }}>
                 {invoicedGrid.map(renderCard)}
@@ -1083,9 +1214,12 @@ export function ObjectsKanbanAndCardsView({
                 <strong style={{ fontSize: 12.5, color: '#065f46', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                   💰 Rechnung erhalten / bezahlt ({paidGrid.length} Objekte)
                 </strong>
-                <span style={{ fontSize: 11.5, fontWeight: 800, padding: '2px 9px', borderRadius: 999, background: '#d1fae5', color: '#047857', border: '1px solid #6ee7b7' }}>
-                  Summe WE: {paidStats.totalWe} WE ({paidStats.taCount} TA installiert)
-                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 11.5, fontWeight: 800, padding: '2px 9px', borderRadius: 999, background: '#d1fae5', color: '#047857', border: '1px solid #6ee7b7' }}>
+                    Summe WE: {paidStats.totalWe} WE ({paidStats.taCount} TA)
+                  </span>
+                  <AusbauTypSumBadges stats={paidStats} />
+                </div>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 10 }}>
                 {paidGrid.map(renderCard)}
@@ -2129,8 +2263,27 @@ export function ObjectsWhiteboardView({
           <div style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
             <GripVertical size={13} style={{ color: '#94a3b8', flexShrink: 0 }} />
             <div style={{ minWidth: 0 }}>
-              <div style={{ fontWeight: 800, fontSize: 12, color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {addr.strasse} {addr.hausnummer}
+              <div style={{ fontWeight: 800, fontSize: 12, color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'flex', alignItems: 'center', gap: 5 }}>
+                <span>{addr.strasse} {addr.hausnummer}</span>
+                {(() => {
+                  const typ = classifyAusbauTyp(addr);
+                  return (
+                    <span
+                      style={{
+                        fontSize: 9,
+                        fontWeight: 800,
+                        padding: '1px 5px',
+                        borderRadius: 4,
+                        background: typ.bg,
+                        color: typ.color,
+                        border: `1px solid ${typ.border}`,
+                        flexShrink: 0,
+                      }}
+                    >
+                      {typ.shortLabel}
+                    </span>
+                  );
+                })()}
               </div>
               <div style={{ fontSize: 10.5, color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {addr.ort || '—'} · {addr.ausbautermin ? `Ausbau: ${addr.ausbautermin}` : 'Kein Ausbau-Datum'}
@@ -2494,13 +2647,16 @@ export function ObjectsWhiteboardView({
               calcBuildingProgress
             );
             return (
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                <strong style={{ fontSize: 12, color: '#0f172a' }}>
-                  Offene ({remainingObjects.length} · {remStats.totalWe} WE / {remStats.taCount} TA)
-                </strong>
-                <span style={{ fontSize: 10, fontWeight: 700, color: '#15803d', background: '#dcfce7', padding: '2px 7px', borderRadius: 999 }}>
-                  ✓ {completedCount} ({compStats.totalWe} WE)
-                </span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                  <strong style={{ fontSize: 12, color: '#0f172a' }}>
+                    Offene ({remainingObjects.length} · {remStats.totalWe} WE / {remStats.taCount} TA)
+                  </strong>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: '#15803d', background: '#dcfce7', padding: '2px 7px', borderRadius: 999 }}>
+                    ✓ {completedCount} ({compStats.totalWe} WE)
+                  </span>
+                </div>
+                <AusbauTypSumBadges stats={remStats} compact showZero />
               </div>
             );
           })()}
@@ -2672,22 +2828,24 @@ export function ObjectsWhiteboardView({
                           borderLeft: `3.5px solid ${pal.accent}`,
                           cursor: 'grab',
                           display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          gap: 6,
+                          flexDirection: 'column',
+                          gap: 3,
                           fontSize: 11,
                           fontWeight: 700,
                           color: '#0f172a',
                         }}
                         title="Diese gesamte Gruppe direkt auf das Whiteboard ziehen!"
                       >
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          <GripVertical size={12} style={{ color: '#94a3b8', flexShrink: 0 }} />
-                          {sg.label}
-                        </span>
-                        <span style={{ fontSize: 9.5, fontWeight: 800, padding: '1px 6px', borderRadius: 999, background: pal.header, color: pal.text, flexShrink: 0 }}>
-                          {sg.items.length} Obj. · {sgStats.totalWe} WE ({sgStats.taCount} TA)
-                        </span>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            <GripVertical size={12} style={{ color: '#94a3b8', flexShrink: 0 }} />
+                            {sg.label}
+                          </span>
+                          <span style={{ fontSize: 9.5, fontWeight: 800, padding: '1px 6px', borderRadius: 999, background: pal.header, color: pal.text, flexShrink: 0 }}>
+                            {sg.items.length} Obj. · {sgStats.totalWe} WE ({sgStats.taCount} TA)
+                          </span>
+                        </div>
+                        <AusbauTypSumBadges stats={sgStats} compact />
                       </div>
                     );
                   })}
@@ -2802,8 +2960,26 @@ export function ObjectsWhiteboardView({
                     )}
                   </div>
 
-                  {/* Quick Remaining Work Badges */}
-                  <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
+                  {/* Quick Remaining Work Badges + Ausbau-Typ & WE */}
+                  <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap', alignItems: 'center' }}>
+                    {(() => {
+                      const typ = classifyAusbauTyp(addr);
+                      return (
+                        <span
+                          style={{
+                            fontSize: 9,
+                            fontWeight: 800,
+                            padding: '1px 5px',
+                            borderRadius: 4,
+                            background: typ.bg,
+                            color: typ.color,
+                            border: `1px solid ${typ.border}`,
+                          }}
+                        >
+                          {typ.shortLabel} ({core.taCount}/{core.totalWe} WE)
+                        </span>
+                      );
+                    })()}
                     <span style={{ fontSize: 9.5, fontWeight: 700, padding: '1px 5px', borderRadius: 4, background: core.taDone ? '#dcfce7' : '#fef2f2', color: core.taDone ? '#15803d' : '#dc2626' }}>
                       {core.taDone ? '✓' : '✗'} TA
                     </span>
@@ -2848,13 +3024,16 @@ export function ObjectsWhiteboardView({
               <>
                 {ungroupedSidebarObjs.length > 0 && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '2px 2px', flexWrap: 'wrap', gap: 4 }}>
-                      <strong style={{ fontSize: 10.5, fontWeight: 900, color: '#c2410c', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                        ● Nicht gruppiert ({ungroupedSidebarObjs.length})
-                      </strong>
-                      <span style={{ fontSize: 9.5, fontWeight: 800, color: '#c2410c', background: '#fff7ed', border: '1px solid #fdba74', padding: '1px 6px', borderRadius: 999 }}>
-                        {ungrpStats.totalWe} WE ({ungrpStats.taCount} TA)
-                      </span>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 3, padding: '2px 2px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
+                        <strong style={{ fontSize: 10.5, fontWeight: 900, color: '#c2410c', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                          ● Nicht gruppiert ({ungroupedSidebarObjs.length})
+                        </strong>
+                        <span style={{ fontSize: 9.5, fontWeight: 800, color: '#c2410c', background: '#fff7ed', border: '1px solid #fdba74', padding: '1px 6px', borderRadius: 999 }}>
+                          {ungrpStats.totalWe} WE ({ungrpStats.taCount} TA)
+                        </span>
+                      </div>
+                      <AusbauTypSumBadges stats={ungrpStats} compact />
                     </div>
                     {ungroupedSidebarObjs.map((addr) => renderSidebarObjCard(addr, true))}
                   </div>
@@ -2862,13 +3041,16 @@ export function ObjectsWhiteboardView({
 
                 {groupedSidebarObjs.length > 0 && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 5, marginTop: ungroupedSidebarObjs.length > 0 ? 6 : 0, paddingTop: ungroupedSidebarObjs.length > 0 ? 6 : 0, borderTop: ungroupedSidebarObjs.length > 0 ? '1px dashed #cbd5e1' : 'none' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 2px', flexWrap: 'wrap', gap: 4 }}>
-                      <span style={{ fontSize: 10, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                        Bereits gruppiert ({groupedSidebarObjs.length})
-                      </span>
-                      <span style={{ fontSize: 9.5, fontWeight: 700, color: '#475569', background: '#f1f5f9', border: '1px solid #cbd5e1', padding: '1px 6px', borderRadius: 999 }}>
-                        {grpStats.totalWe} WE ({grpStats.taCount} TA)
-                      </span>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 3, padding: '0 2px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
+                        <span style={{ fontSize: 10, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                          Bereits gruppiert ({groupedSidebarObjs.length})
+                        </span>
+                        <span style={{ fontSize: 9.5, fontWeight: 700, color: '#475569', background: '#f1f5f9', border: '1px solid #cbd5e1', padding: '1px 6px', borderRadius: 999 }}>
+                          {grpStats.totalWe} WE ({grpStats.taCount} TA)
+                        </span>
+                      </div>
+                      <AusbauTypSumBadges stats={grpStats} compact />
                     </div>
                     {groupedSidebarObjs.map((addr) => renderSidebarObjCard(addr, false))}
                   </div>
@@ -2952,13 +3134,16 @@ export function ObjectsWhiteboardView({
                   }}
                   title="Ganze Gruppe direkt auf das Whiteboard ziehen oder klicken zum Auf-/Zuklappen"
                 >
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
-                    <GripVertical size={12} />
-                    <span>{grp.title} ({grp.items.length})</span>
-                    <span style={{ fontSize: 9.5, fontWeight: 800, padding: '1px 5px', borderRadius: 999, background: '#fff', border: `1px solid ${grp.border}` }}>
-                      {gStats.totalWe} WE · {gStats.taCount} TA
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, flex: 1 }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+                      <GripVertical size={12} />
+                      <span>{grp.title} ({grp.items.length})</span>
+                      <span style={{ fontSize: 9.5, fontWeight: 800, padding: '1px 5px', borderRadius: 999, background: '#fff', border: `1px solid ${grp.border}` }}>
+                        {gStats.totalWe} WE · {gStats.taCount} TA
+                      </span>
                     </span>
-                  </span>
+                    <AusbauTypSumBadges stats={gStats} compact />
+                  </div>
                   <span>{grp.open ? '▲' : '▼'}</span>
                 </div>
                 {grp.open && (
@@ -3059,6 +3244,31 @@ export function ObjectsWhiteboardView({
             >
               Alle offenen aufs Board
             </button>
+
+            {/* Overall Whiteboard Ausbau-Typ Sum (Metalkanal vs Leerrohr/Kaminkanal) */}
+            {(() => {
+              const boardAddrs = activeBoardCardEntries.map((e) => e.addr);
+              const targetAddrs = boardAddrs.length > 0 ? boardAddrs : remainingObjects;
+              const wbStats = sumUnitsForAddresses(targetAddrs, calcBuildingProgress);
+              return (
+                <div
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 5,
+                    padding: '3px 8px',
+                    borderRadius: 8,
+                    background: '#f8fafc',
+                    border: '1px solid #e2e8f0',
+                  }}
+                >
+                  <span style={{ fontSize: 10.5, fontWeight: 800, color: '#334155' }}>
+                    {boardAddrs.length > 0 ? `Auf Board (${wbStats.count} Obj. · ${wbStats.totalWe} WE):` : `Offen (${wbStats.count} Obj. · ${wbStats.totalWe} WE):`}
+                  </span>
+                  <AusbauTypSumBadges stats={wbStats} compact showZero />
+                </div>
+              );
+            })()}
 
             {/* Multi-Selection Actions in Whiteboard Toolbar */}
             {selectedIds.length > 0 && (
@@ -3384,6 +3594,14 @@ export function ObjectsWhiteboardView({
                           <Trash2 size={13} />
                         </button>
                       </div>
+                    </div>
+
+                    {/* Differentiated Ausbau-Typ Sum inside Whiteboard Group (Metalkanal vs Leerrohr/Kaminkanal) */}
+                    <div
+                      onPointerDown={(e) => e.stopPropagation()}
+                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 4 }}
+                    >
+                      <AusbauTypSumBadges stats={memberStats} compact showZero />
                     </div>
 
                     {/* Group Bulk Assignment & Planning Bar */}
